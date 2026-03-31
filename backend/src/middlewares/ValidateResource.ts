@@ -14,8 +14,6 @@ export const validate = (schema: ZodSchema) => {
           req.body = parsed.body
         }
         if ('query' in parsed) {
-          // Express 5 exposes req.query as a getter-only property in many setups.
-          // Never assign directly; keep parsed query on a side channel.
           ;(req as any).validatedQuery = parsed.query
         }
         if ('params' in parsed) {

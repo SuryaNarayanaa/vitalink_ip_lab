@@ -1,0 +1,17 @@
+Metric,Value
+R²,0.5152240915448012
+RMSE (mg/week),10.67506603465447
+MAE (mg/week),7.539321181036797
+MAE (% of mean dose),24.82434935519183
+Within 10%,27.69596199524941
+Within 20%,51.163895486935864
+Within 30%,67.64845605700712
+Bootstrap R² mean,0.5452368485506411
+Bootstrap R² CI low,0.5145441160900125
+Bootstrap R² CI high,0.5712743207834892
+Bootstrap Within 20% mean,50.54904445148348
+Bootstrap Within 20% CI low,48.66803927779537
+Bootstrap Within 20% CI high,52.04228698131137
+Training Samples,8418.0
+Test Samples,2105.0
+Features,18.0

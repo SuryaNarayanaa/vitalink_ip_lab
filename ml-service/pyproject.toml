@@ -1,0 +1,18 @@
+[project]
+name = "ml-service"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.4",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.8.0",
+    "sdv>=1.35.1",
+    "seaborn>=0.13.2",
+    "shap>=0.51.0",
+    "statsmodels>=0.14.6",
+    "xgboost>=3.2.0",
+]
