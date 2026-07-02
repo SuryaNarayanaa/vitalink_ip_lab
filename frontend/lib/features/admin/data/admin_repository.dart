@@ -97,6 +97,98 @@ class AdminRepository {
 
   // ─── Patient Reassignment ───
 
+  Future<Map<String, dynamic>> getHospitals({
+    String? status,
+    String? search,
+  }) async {
+    final params = <String, dynamic>{};
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    if (search != null && search.isNotEmpty) params['search'] = search;
+    final response = await _apiClient.getRaw(
+      AppStrings.adminHospitalsPath,
+      queryParameters: params,
+    );
+    return _extractData(response);
+  }
+
+  Future<Map<String, dynamic>> createHospital(Map<String, dynamic> data) async {
+    return _apiClient.post(AppStrings.adminHospitalsPath, data: data);
+  }
+
+  Future<Map<String, dynamic>> updateHospital(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    return _apiClient.put('${AppStrings.adminHospitalsPath}/$id', data: data);
+  }
+
+  Future<Map<String, dynamic>> updateHospitalStatus(
+    String id,
+    String status,
+  ) async {
+    return _apiClient.patch(
+      '${AppStrings.adminHospitalsPath}/$id/status',
+      data: {'status': status},
+    );
+  }
+
+  Future<void> deleteHospital(String id) async {
+    await _apiClient.delete('${AppStrings.adminHospitalsPath}/$id');
+  }
+
+  Future<Map<String, dynamic>> getUsers() async {
+    final response = await _apiClient.getRaw(AppStrings.adminUsersPath);
+    return _extractData(response);
+  }
+
+  Future<Map<String, dynamic>> inviteUser(Map<String, dynamic> data) async {
+    return _apiClient.post(AppStrings.adminUsersPath, data: data);
+  }
+
+  Future<Map<String, dynamic>> updateUser(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    return _apiClient.put('${AppStrings.adminUsersPath}/$id', data: data);
+  }
+
+  Future<Map<String, dynamic>> getRoles() async {
+    final response = await _apiClient.getRaw(AppStrings.adminRolesPath);
+    return _extractData(response);
+  }
+
+  Future<Map<String, dynamic>> updateRole(
+    String roleKey,
+    Map<String, dynamic> permissions,
+  ) async {
+    return _apiClient.put(
+      '${AppStrings.adminRolesPath}/$roleKey',
+      data: {'permissions': permissions},
+    );
+  }
+
+  Future<Map<String, dynamic>> getInvoices() async {
+    final response = await _apiClient.getRaw(AppStrings.adminInvoicesPath);
+    return _extractData(response);
+  }
+
+  Future<Map<String, dynamic>> generateInvoices({
+    String? plan,
+    num? amount,
+  }) async {
+    return _apiClient.post(
+      AppStrings.adminInvoicesPath,
+      data: {
+        if (plan != null) 'plan': plan,
+        if (amount != null) 'amount': amount,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> createInvoiceCheckout(String invoiceId) async {
+    return _apiClient.post('${AppStrings.adminCheckoutPath}/$invoiceId');
+  }
+
   Future<Map<String, dynamic>> reassignPatient(
     String opNum,
     String newDoctorId,
