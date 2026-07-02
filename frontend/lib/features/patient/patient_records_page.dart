@@ -18,6 +18,8 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
 
   @override
   Widget build(BuildContext context) {
+    const bottomPadding = 28.0;
+
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.recordsFull(),
@@ -88,27 +90,13 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
           body: RefreshIndicator(
             onRefresh: () async => query.refetch(),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Tabs
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom:
-                            BorderSide(color: Colors.grey.shade300, width: 1),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        _buildTabItem(0, 'INR History'),
-                        _buildTabItem(1, 'Health Logs'),
-                        _buildTabItem(2, 'Dosage'),
-                      ],
-                    ),
-                  ),
+                  _buildTabBar(),
                   const SizedBox(height: 20),
 
                   // Content based on selected tab
@@ -152,30 +140,49 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
 
   Widget _buildTabItem(int index, String label) {
     final isSelected = _selectedTabIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedTabIndex = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            border: isSelected
-                ? Border(
-                    bottom: BorderSide(
-                      color: Colors.pink[400]!,
-                      width: 3,
-                    ),
-                  )
-                : null,
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTabIndex = index),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 110),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          border: isSelected
+              ? Border(
+                  bottom: BorderSide(
+                    color: Colors.pink[400]!,
+                    width: 3,
+                  ),
+                )
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.pink[400] : Colors.grey[600],
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: isSelected ? Colors.pink[400] : Colors.grey[600],
-            ),
-          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildTabItem(0, 'INR History'),
+            _buildTabItem(1, 'Health Logs'),
+            _buildTabItem(2, 'Dosage'),
+          ],
         ),
       ),
     );
@@ -262,8 +269,7 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
         else
           ...history.map((record) {
             final status = record['status'] as String? ?? 'Normal';
-            final isCritical =
-                record['isCritical'] == true ||
+            final isCritical = record['isCritical'] == true ||
                 status == 'Critical' ||
                 status == 'High' ||
                 status == 'Low';
@@ -539,7 +545,11 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     Text(
                       '${totalWeeklyDose.toStringAsFixed(1)} mg',
@@ -549,7 +559,6 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                         color: Colors.black87,
                       ),
                     ),
-                    const Spacer(),
                     Text(
                       'Total Weekly',
                       style: TextStyle(
@@ -573,60 +582,66 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
           ),
         ),
         const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.2,
-          ),
-          itemCount: days.length,
-          itemBuilder: (context, index) {
-            final value = weeklyDosage[dayKeys[index]];
-            double dose = 0.0;
-            if (value is num) {
-              dose = value.toDouble();
-            } else if (value is String) {
-              dose = double.tryParse(value) ?? 0.0;
-            }
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 360;
 
-            return Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: isCompact ? 2 : 3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: isCompact ? 1.5 : 1.2,
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    days[index].substring(0, 3),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
-                    ),
+              itemCount: days.length,
+              itemBuilder: (context, index) {
+                final value = weeklyDosage[dayKeys[index]];
+                double dose = 0.0;
+                if (value is num) {
+                  dose = value.toDouble();
+                } else if (value is String) {
+                  dose = double.tryParse(value) ?? 0.0;
+                }
+
+                return Card(
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    dose.toStringAsFixed(1),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                    ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        days[index].substring(0, 3),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        dose.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'mg',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'mg',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
+                );
+              },
             );
           },
         ),

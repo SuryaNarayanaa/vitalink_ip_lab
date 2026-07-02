@@ -50,6 +50,10 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final showPageScaffold = !AdminScaffold.usesShellAppBar(context);
+    final periodSelector = _PeriodSelector(
+      selectedPeriod: _selectedPeriod,
+      onChanged: (value) => setState(() => _selectedPeriod = value),
+    );
 
     final body = UseQuery<_AnalyticsDashboardAggregate>(
       options: QueryOptions<_AnalyticsDashboardAggregate>(
@@ -64,89 +68,87 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
         final aggregate = aggregateQuery.data;
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!showPageScaffold)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Analytics Dashboard',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final isDesktop = width > 900;
+              final isTablet = width > 600;
+              final chartHeight = isDesktop
+                  ? 350.0
+                  : isTablet
+                      ? 330.0
+                      : 300.0;
+
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!showPageScaffold)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: isTablet
+                            ? Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Analytics Dashboard',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleLarge,
+                                    ),
+                                  ),
+                                  periodSelector,
+                                ],
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Analytics Dashboard',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: periodSelector,
+                                  ),
+                                ],
+                              ),
                       ),
-                      DropdownButton<String>(
-                        value: _selectedPeriod,
-                        underline: const SizedBox(),
-                        icon: const Icon(
-                          Icons.calendar_today_rounded,
-                          size: 20,
+                    _SummaryCards(stats: aggregate?.stats),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      children: [
+                        SizedBox(
+                          width: isDesktop ? (width - 16) / 2 : width,
+                          height: chartHeight,
+                          child: _TrendsChart(trends: aggregate?.trends),
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: '7d',
-                            child: Text('7 Days'),
+                        SizedBox(
+                          width: isDesktop ? (width - 16) / 2 : width,
+                          height: chartHeight,
+                          child: _ComplianceChart(
+                            compliance: aggregate?.compliance,
                           ),
-                          DropdownMenuItem(
-                            value: '30d',
-                            child: Text('30 Days'),
+                        ),
+                        SizedBox(
+                          width: isDesktop ? (width - 16) / 2 : width,
+                          height: chartHeight,
+                          child: _WorkloadChart(
+                            workload: aggregate?.workload ?? const [],
                           ),
-                          DropdownMenuItem(
-                            value: '90d',
-                            child: Text('90 Days'),
-                          ),
-                          DropdownMenuItem(
-                            value: '1y',
-                            child: Text('1 Year'),
-                          ),
-                        ],
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() => _selectedPeriod = v);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              _SummaryCards(stats: aggregate?.stats),
-              const SizedBox(height: 24),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth;
-                  final isDesktop = width > 900;
-                  return Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
-                    children: [
-                      SizedBox(
-                        width: isDesktop ? (width - 16) / 2 : width,
-                        height: 350,
-                        child: _TrendsChart(trends: aggregate?.trends),
-                      ),
-                      SizedBox(
-                        width: isDesktop ? (width - 16) / 2 : width,
-                        height: 350,
-                        child: _ComplianceChart(
-                          compliance: aggregate?.compliance,
-                        ),
-                      ),
-                      SizedBox(
-                        width: isDesktop ? (width - 16) / 2 : width,
-                        height: 350,
-                        child: _WorkloadChart(
-                          workload: aggregate?.workload ?? const [],
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
+              );
+            },
           ),
         );
       },
@@ -162,19 +164,9 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: DropdownButton<String>(
-              value: _selectedPeriod,
-              underline: const SizedBox(),
-              icon: const Icon(Icons.calendar_today_rounded, size: 20),
-              items: const [
-                DropdownMenuItem(value: '7d', child: Text('7 Days')),
-                DropdownMenuItem(value: '30d', child: Text('30 Days')),
-                DropdownMenuItem(value: '90d', child: Text('90 Days')),
-                DropdownMenuItem(value: '1y', child: Text('1 Year')),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() => _selectedPeriod = v);
-              },
+            child: _PeriodSelector(
+              selectedPeriod: _selectedPeriod,
+              onChanged: (value) => setState(() => _selectedPeriod = value),
             ),
           ),
         ],
@@ -198,6 +190,37 @@ class _AnalyticsDashboardAggregate {
   final List<DoctorWorkload> workload;
 }
 
+class _PeriodSelector extends StatelessWidget {
+  const _PeriodSelector({
+    required this.selectedPeriod,
+    required this.onChanged,
+  });
+
+  final String selectedPeriod;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButton<String>(
+      value: selectedPeriod,
+      underline: const SizedBox(),
+      isDense: true,
+      icon: const Icon(Icons.calendar_today_rounded, size: 20),
+      items: const [
+        DropdownMenuItem(value: '7d', child: Text('7 Days')),
+        DropdownMenuItem(value: '30d', child: Text('30 Days')),
+        DropdownMenuItem(value: '90d', child: Text('90 Days')),
+        DropdownMenuItem(value: '1y', child: Text('1 Year')),
+      ],
+      onChanged: (value) {
+        if (value != null) {
+          onChanged(value);
+        }
+      },
+    );
+  }
+}
+
 // ─── Summary Cards ───
 class _SummaryCards extends StatelessWidget {
   final AdminStatsModel? stats;
@@ -206,35 +229,50 @@ class _SummaryCards extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = stats;
-    return Row(
-      children: [
-        Expanded(
-          child: _SummaryCard(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cards = [
+          _SummaryCard(
             title: 'Total Patients',
             value: s?.patientStats.total.toString() ?? '--',
             icon: Icons.people_rounded,
             color: Colors.blue,
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _SummaryCard(
+          _SummaryCard(
             title: 'Critical INR',
             value: s?.patientStats.criticalInr.toString() ?? '--',
             icon: Icons.warning_rounded,
             color: Colors.red,
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _SummaryCard(
+          _SummaryCard(
             title: 'Active Doctors',
             value: s?.doctorStats.active.toString() ?? '--',
             icon: Icons.medical_services_rounded,
             color: Colors.green,
           ),
-        ),
-      ],
+        ];
+        final isNarrow = constraints.maxWidth < 720;
+
+        if (isNarrow) {
+          return Column(
+            children: [
+              for (var i = 0; i < cards.length; i++) ...[
+                SizedBox(width: double.infinity, child: cards[i]),
+                if (i != cards.length - 1) const SizedBox(height: 12),
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            for (var i = 0; i < cards.length; i++) ...[
+              Expanded(child: cards[i]),
+              if (i != cards.length - 1) const SizedBox(width: 16),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -420,51 +458,66 @@ class _ComplianceChart extends StatelessWidget {
       );
     }
 
+    final items = [
+      _ComplianceLegendItem(
+        label: 'In Range',
+        color: Colors.green,
+        percentage: c.inRangePercentage,
+      ),
+      _ComplianceLegendItem(
+        label: 'Out of Range',
+        color: Colors.orange,
+        percentage: c.outOfRangePercentage,
+      ),
+      _ComplianceLegendItem(
+        label: 'Critical',
+        color: Colors.red,
+        percentage: c.criticalPercentage,
+      ),
+    ].where((item) => item.percentage > 0).toList();
+
     return _ChartCard(
       title: 'INR Compliance',
-      child: PieChart(
-        PieChartData(
-          sectionsSpace: 2,
-          centerSpaceRadius: 40,
-          sections: [
-            if (c.inRangePercentage > 0)
-              PieChartSectionData(
-                color: Colors.green,
-                value: c.inRangePercentage,
-                title: '${c.inRangePercentage.toStringAsFixed(0)}%',
-                radius: 50,
-                titleStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+      child: Column(
+        children: [
+          Expanded(
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 2,
+                centerSpaceRadius: 40,
+                sections: items
+                    .map(
+                      (item) => PieChartSectionData(
+                        color: item.color,
+                        value: item.percentage,
+                        title: '${item.percentage.toStringAsFixed(0)}%',
+                        radius: 50,
+                        titleStyle: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    )
+                    .toList(),
               ),
-            if (c.outOfRangePercentage > 0)
-              PieChartSectionData(
-                color: Colors.orange,
-                value: c.outOfRangePercentage,
-                title: '${c.outOfRangePercentage.toStringAsFixed(0)}%',
-                radius: 50,
-                titleStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            if (c.criticalPercentage > 0)
-              PieChartSectionData(
-                color: Colors.red,
-                value: c.criticalPercentage,
-                title: '${c.criticalPercentage.toStringAsFixed(0)}%',
-                radius: 50,
-                titleStyle: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-          ],
-        ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: items
+                .map(
+                  (item) => _LegendChip(
+                    color: item.color,
+                    label:
+                        '${item.label} (${item.percentage.toStringAsFixed(0)}%)',
+                  ),
+                )
+                .toList(),
+          ),
+        ],
       ),
     );
   }
@@ -488,82 +541,207 @@ class _WorkloadChart extends StatelessWidget {
       0,
       (m, d) => d.patientCount > m ? d.patientCount : m,
     );
-    final maxY = (maxP * 1.2).ceilToDouble();
+    final maxY = _roundedAxisMax(maxP);
+    final interval = _niceAxisInterval(maxY);
 
     return _ChartCard(
       title: 'Doctor Workload',
-      child: BarChart(
-        BarChartData(
-          alignment: BarChartAlignment.spaceAround,
-          maxY: maxY > 0 ? maxY : 20,
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 40,
-                getTitlesWidget: (v, _) {
-                  final i = v.toInt();
-                  if (i >= 0 && i < top.length) {
-                    final n = top[i].doctorName ?? '';
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: RotatedBox(
-                        quarterTurns: -1,
-                        child: Text(
-                          n.length > 10 ? '${n.substring(0, 8)}..' : n,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 420;
+          return Column(
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: isCompact ? 24 : 32,
+                      child: Center(
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: Text(
+                            'Patients Assigned',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                         ),
                       ),
-                    );
-                  }
-                  return const Text('');
-                },
-              ),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 35,
-                interval: maxY > 0 ? maxY / 4 : 5,
-              ),
-            ),
-          ),
-          gridData: FlGridData(show: true, drawVerticalLine: false),
-          borderData: FlBorderData(show: false),
-          barGroups: top.asMap().entries.map((e) {
-            final hue = (200 + e.key * 15) % 360;
-            final color = HSLColor.fromAHSL(
-              1,
-              hue.toDouble(),
-              0.6,
-              0.5,
-            ).toColor();
-            return BarChartGroupData(
-              x: e.key,
-              barRods: [
-                BarChartRodData(
-                  toY: e.value.patientCount.toDouble(),
-                  color: color,
-                  width: 16,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(4),
-                    topRight: Radius.circular(4),
-                  ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: BarChart(
+                        BarChartData(
+                          alignment: BarChartAlignment.spaceAround,
+                          maxY: maxY > 0 ? maxY : 20,
+                          titlesData: FlTitlesData(
+                            topTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false),
+                            ),
+                            rightTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false),
+                            ),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: isCompact ? 28 : 42,
+                                getTitlesWidget: (v, _) {
+                                  final i = v.toInt();
+                                  if (i >= 0 && i < top.length) {
+                                    final name = top[i].doctorName?.trim() ?? '';
+                                    final shortLabel = _shortDoctorLabel(name);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        shortLabel,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return const SizedBox.shrink();
+                                },
+                              ),
+                            ),
+                            leftTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                reservedSize: 42,
+                                interval: interval,
+                                getTitlesWidget: (value, _) => Text(
+                                  value.round().toString(),
+                                  style: const TextStyle(fontSize: 10),
+                                ),
+                              ),
+                            ),
+                          ),
+                          gridData: FlGridData(
+                            show: true,
+                            drawVerticalLine: false,
+                            horizontalInterval: interval,
+                          ),
+                          borderData: FlBorderData(show: false),
+                          barGroups: top.asMap().entries.map((e) {
+                            final hue = (200 + e.key * 15) % 360;
+                            final color = HSLColor.fromAHSL(
+                              1,
+                              hue.toDouble(),
+                              0.6,
+                              0.5,
+                            ).toColor();
+                            return BarChartGroupData(
+                              x: e.key,
+                              showingTooltipIndicators: const [0],
+                              barRods: [
+                                BarChartRodData(
+                                  toY: e.value.patientCount.toDouble(),
+                                  color: color,
+                                  width: isCompact ? 14 : 16,
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(4),
+                                    topRight: Radius.circular(4),
+                                  ),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            );
-          }).toList(),
-        ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  for (final doctor in top)
+                    Text(
+                      '${_shortDoctorLabel(doctor.doctorName ?? '')}: ${doctor.patientCount}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
+}
+
+class _ComplianceLegendItem {
+  const _ComplianceLegendItem({
+    required this.label,
+    required this.color,
+    required this.percentage,
+  });
+
+  final String label;
+  final Color color;
+  final double percentage;
+}
+
+class _LegendChip extends StatelessWidget {
+  const _LegendChip({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
+
+double _roundedAxisMax(int maxValue) {
+  if (maxValue <= 0) return 10;
+  final padded = (maxValue * 1.2).ceil();
+  if (padded <= 10) return 10;
+  if (padded <= 20) return 20;
+  final magnitude = padded.toString().length - 1;
+  final base = magnitude <= 1 ? 5 : 10 * magnitude;
+  return ((padded + base - 1) ~/ base * base).toDouble();
+}
+
+double _niceAxisInterval(double maxY) {
+  if (maxY <= 10) return 2;
+  if (maxY <= 20) return 5;
+  if (maxY <= 50) return 10;
+  return (maxY / 5).ceilToDouble();
+}
+
+String _shortDoctorLabel(String name) {
+  final trimmed = name.trim();
+  if (trimmed.isEmpty) return 'N/A';
+  final parts = trimmed.split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
+  final abbreviations = parts.take(2).map((part) => part[0].toUpperCase());
+  final short = abbreviations.join();
+  if (short.length >= 2) return short;
+  return trimmed.length <= 8 ? trimmed : '${trimmed.substring(0, 8)}…';
 }

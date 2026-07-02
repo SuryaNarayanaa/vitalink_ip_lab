@@ -24,6 +24,8 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
+
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.profileFull(),
@@ -87,7 +89,7 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
           body: RefreshIndicator(
             onRefresh: () async => query.refetch(),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 32, 20, 40),
+              padding: EdgeInsets.fromLTRB(20, 32, 20, bottomPadding),
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -168,7 +170,8 @@ class _DoctorUpdatesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visibleCount = updates.length.clamp(1, _maxVisibleUpdates);
-    final listHeight = (visibleCount * _updateTileHeight) + ((visibleCount - 1) * 10);
+    final listHeight =
+        (visibleCount * _updateTileHeight) + ((visibleCount - 1) * 10);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -180,16 +183,20 @@ class _DoctorUpdatesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              const Icon(Icons.notifications_active_outlined,
-                  size: 20, color: Color(0xFF2563EB)),
-              const SizedBox(width: 8),
+              const Icon(
+                Icons.notifications_active_outlined,
+                size: 20,
+                color: Color(0xFF2563EB),
+              ),
               const Text(
                 'Doctor Updates',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
-              const Spacer(),
               if (unreadCount > 0)
                 Container(
                   padding:
@@ -201,9 +208,10 @@ class _DoctorUpdatesCard extends StatelessWidget {
                   child: Text(
                     '$unreadCount new',
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600),
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],

@@ -10,7 +10,7 @@ class AppStrings {
   /// paths (e.g. `/api/...`) and avoid mixed-content issues on HTTPS hosts.
   static const String apiBaseUrl = String.fromEnvironment(
     apiBaseUrlDefine,
-    defaultValue: 'https://vitalink-ip-lab-1.onrender.com',
+    defaultValue: 'https://vitalink-uimf.onrender.com',
   );
 
   /// Auth endpoints.

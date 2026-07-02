@@ -15,6 +15,10 @@ class PatientDosageCalendarPage extends StatefulWidget {
 }
 
 class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
+  static final Color _takenColor = Colors.green.shade500;
+  static final Color _missedColor = Colors.red.shade400;
+  static final Color _scheduledColor = Colors.blue.shade400;
+
   final int _currentNavIndex = 2;
   DateTime _currentMonth = DateTime.now();
   int _loadedMonths = 3;
@@ -171,29 +175,39 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed: _previousMonth,
-            icon: const Icon(Icons.chevron_left),
-            color: Colors.grey.shade700,
-          ),
-          Text(
-            monthYear.toUpperCase(),
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey.shade800,
-              letterSpacing: 0.5,
-            ),
-          ),
-          IconButton(
-            onPressed: _nextMonth,
-            icon: const Icon(Icons.chevron_right),
-            color: Colors.grey.shade700,
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 360;
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                onPressed: _previousMonth,
+                icon: const Icon(Icons.chevron_left),
+                color: Colors.grey.shade700,
+              ),
+              Expanded(
+                child: Text(
+                  monthYear.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: isCompact ? 13 : 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: _nextMonth,
+                icon: const Icon(Icons.chevron_right),
+                color: Colors.grey.shade700,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -276,21 +290,20 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
 
     if (dayData != null) {
       final status = dayData['status'] as String;
-      final dosage = dayData['dosage'] as double;
 
       switch (status) {
         case 'taken':
-          backgroundColor = _getDosageColor(dosage);
+          backgroundColor = _takenColor;
           textColor = Colors.white;
           borderColor = backgroundColor;
           break;
         case 'missed':
-          backgroundColor = Colors.red.shade400;
+          backgroundColor = _missedColor;
           textColor = Colors.white;
           borderColor = backgroundColor;
           break;
         case 'scheduled':
-          backgroundColor = Colors.blue.shade400;
+          backgroundColor = _scheduledColor;
           textColor = Colors.white;
           borderColor = backgroundColor;
           break;
@@ -337,12 +350,14 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 16,
+        runSpacing: 10,
         children: [
-          _buildLegendItem('Taken', Colors.green.shade500),
-          _buildLegendItem('Missed', Colors.red.shade400),
-          _buildLegendItem('Scheduled', Colors.blue.shade400),
+          _buildLegendItem('Taken', _takenColor),
+          _buildLegendItem('Missed', _missedColor),
+          _buildLegendItem('Scheduled', _scheduledColor),
         ],
       ),
     );
@@ -371,21 +386,6 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
         ),
       ],
     );
-  }
-
-  Color _getDosageColor(double dosage) {
-    // Color intensity based on dosage amount
-    if (dosage <= 2.5) {
-      return Colors.green.shade300;
-    } else if (dosage <= 5) {
-      return Colors.green.shade500;
-    } else if (dosage <= 7.5) {
-      return Colors.green.shade700;
-    } else if (dosage <= 10) {
-      return Colors.orange.shade600;
-    } else {
-      return Colors.red.shade600;
-    }
   }
 
   void _showDateDetails(Map<String, dynamic> entry, String dateStr) {
@@ -520,11 +520,11 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
   Color _getStatusColor(String status) {
     switch (status) {
       case 'taken':
-        return Colors.green.shade600;
+        return _takenColor;
       case 'missed':
-        return Colors.red.shade600;
+        return _missedColor;
       case 'scheduled':
-        return Colors.blue.shade600;
+        return _scheduledColor;
       default:
         return Colors.grey.shade600;
     }

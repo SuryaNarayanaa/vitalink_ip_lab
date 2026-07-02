@@ -49,6 +49,8 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
+
     return _buildPageContainer(
       bodyDecoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -58,7 +60,7 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -69,21 +71,7 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Tabs
-              Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade300, width: 1),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    _buildTabItem(0, 'Side Effects'),
-                    _buildTabItem(1, 'Illness'),
-                    _buildTabItem(2, 'Lifestyle'),
-                    _buildTabItem(3, 'Other Meds'),
-                  ],
-                ),
-              ),
+              _buildTabBar(),
               const SizedBox(height: 24),
 
               // Content based on selected tab
@@ -121,30 +109,50 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
 
   Widget _buildTabItem(int index, String label) {
     final isSelected = _selectedTabIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedTabIndex = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            border: isSelected
-                ? Border(
-                    bottom: BorderSide(
-                      color: Colors.pink[400]!,
-                      width: 3,
-                    ),
-                  )
-                : null,
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTabIndex = index),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 112),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          border: isSelected
+              ? Border(
+                  bottom: BorderSide(
+                    color: Colors.pink[400]!,
+                    width: 3,
+                  ),
+                )
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.pink[400] : Colors.grey[600],
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isSelected ? Colors.pink[400] : Colors.grey[600],
-            ),
-          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildTabItem(0, 'Side Effects'),
+            _buildTabItem(1, 'Illness'),
+            _buildTabItem(2, 'Lifestyle'),
+            _buildTabItem(3, 'Other Meds'),
+          ],
         ),
       ),
     );

@@ -5,7 +5,7 @@ import 'package:frontend/core/auth/session_expiry_handler.dart';
 
 class PatientService {
   static const String baseUrl =
-      'https://vitalink-ip-lab-1.onrender.com/api/patient';
+      'https://vitalink-uimf.onrender.com/api/patient';
   static const storage = FlutterSecureStorage();
 
   static String _endpoint(String path) => path;
