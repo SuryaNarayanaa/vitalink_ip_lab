@@ -8,6 +8,10 @@ import {
   reassignPatient, getAuditLogs, getSystemConfig, updateSystemConfig,
   broadcastNotification, performBatchOperation, getSystemHealth,
   listAllPatients, getPatientById, getDoctorById, resetUserPassword,
+  getRoles, updateRole,
+  listHospitals, createHospital, getHospital, updateHospital, updateHospitalStatus, deleteHospital,
+  listInvoices, generateInvoices, createInvoiceCheckout,
+  listUsers, inviteUser, updateUser,
 } from '@alias/controllers/admin.controller'
 import {
   createDoctorSchema, updateDoctorSchema, getDoctorsSchema,
@@ -22,6 +26,25 @@ const router = Router()
 router.use(authenticate)
 router.use(authorize([UserType.ADMIN]))
 router.use(auditLogger)
+
+// ─── HTML Admin Console Support ───
+router.get('/roles', getRoles)
+router.put('/roles/:roleKey', updateRole)
+
+router.get('/hospitals', listHospitals)
+router.post('/hospitals', createHospital)
+router.get('/hospitals/:id', getHospital)
+router.put('/hospitals/:id', updateHospital)
+router.patch('/hospitals/:id/status', updateHospitalStatus)
+router.delete('/hospitals/:id', deleteHospital)
+
+router.get('/billing/invoices', listInvoices)
+router.post('/billing/invoices', generateInvoices)
+router.post('/billing/checkout/:invoiceId', createInvoiceCheckout)
+
+router.get('/users', listUsers)
+router.post('/users', inviteUser)
+router.put('/users/:id', updateUser)
 
 // ─── Doctor Management ───
 router.post('/doctors', validate(createDoctorSchema), createDoctor)

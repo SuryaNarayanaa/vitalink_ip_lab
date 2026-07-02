@@ -1,9 +1,12 @@
 import { StatusCodes } from 'http-status-codes'
-import { User, DoctorProfile, PatientProfile, AuditLog } from '@alias/models'
+import { User, DoctorProfile, PatientProfile, AuditLog, AdminProfile, Hospital, Invoice } from '@alias/models'
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
 import { generateTemporaryPassword } from './password.service'
 import mongoose from 'mongoose'
+import { AdminRole } from '@alias/models/adminprofile.model'
+import { HospitalStatus } from '@alias/models/hospital.model'
+import { InvoiceStatus } from '@alias/models/invoice.model'
 
 const normalizeSearchValue = (value: unknown): string => {
   if (typeof value === 'string') return value.toLowerCase()
@@ -27,6 +30,317 @@ async function findDoctorByIdentifier(identifier: string) {
   return doctor
 }
 
+export const ROLE_DEFINITIONS = {
+  app_admin: {
+    label: 'App Admin',
+    color: 'admin',
+    permissions: { manage_hospitals: true, manage_users: true, manage_roles: true, view_audit: true, manage_doctors: true, manage_patients: true, export_data: true, manage_billing: true },
+  },
+  hospital_admin: {
+    label: 'Hospital Admin',
+    color: 'doctor',
+    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: true, manage_patients: true, export_data: false, manage_billing: true },
+  },
+  doctor: {
+    label: 'Doctor',
+    color: 'doctor',
+    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: false, manage_patients: true, export_data: false, manage_billing: false },
+  },
+  patient: {
+    label: 'Patient',
+    color: 'patient',
+    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: false, manage_patients: false, export_data: false, manage_billing: false },
+  },
+  auditor: {
+    label: 'System Auditor',
+    color: 'auditor',
+    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: true, manage_doctors: false, manage_patients: false, export_data: true, manage_billing: true },
+  },
+}
+
+async function getAdminContext(userId?: string) {
+  const user = userId ? await User.findById(userId).populate({
+    path: 'profile_id',
+    populate: { path: 'hospital_id' },
+  }) : null
+  const profile: any = user?.profile_id
+  const role = profile?.admin_role || AdminRole.APP_ADMIN
+  const hospitalId = profile?.hospital_id?._id || profile?.hospital_id
+  return {
+    role,
+    hospitalId: hospitalId ? String(hospitalId) : undefined,
+    hospitalCode: profile?.hospital_id?.code,
+    isAppAdmin: role === AdminRole.APP_ADMIN,
+    isHospitalAdmin: role === AdminRole.HOSPITAL_ADMIN,
+    isAuditor: role === AdminRole.AUDITOR,
+  }
+}
+
+function requireCanMutate(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
+  if (ctx.isAuditor) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Auditors have read-only access')
+  }
+}
+
+function requireAppAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
+  if (!ctx.isAppAdmin) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
+  }
+}
+
+function ensureTenantAccess(ctx: Awaited<ReturnType<typeof getAdminContext>>, hospitalId?: unknown) {
+  if (ctx.isAppAdmin || ctx.isAuditor) return
+  const value = String(hospitalId || '')
+  if (!ctx.hospitalId || (value !== ctx.hospitalId && value !== ctx.hospitalCode)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant access is not allowed')
+  }
+}
+
+async function resolveHospitalId(input?: string, ctx?: Awaited<ReturnType<typeof getAdminContext>>) {
+  if (ctx?.isHospitalAdmin) return ctx.hospitalId
+  if (!input) return undefined
+  if (mongoose.Types.ObjectId.isValid(input)) {
+    const byId = await Hospital.findById(input)
+    if (byId) return String(byId._id)
+  }
+  const byCode = await Hospital.findOne({ code: input.toUpperCase() })
+  return byCode ? String(byCode._id) : undefined
+}
+
+function formatHospital(hospital: any, counts: { doctors?: number; patients?: number } = {}) {
+  return {
+    id: hospital.code,
+    _id: String(hospital._id),
+    name: hospital.name,
+    location: hospital.location,
+    admin: hospital.admin_email,
+    status: hospital.status,
+    doctors: counts.doctors || 0,
+    patients: counts.patients || 0,
+    created: hospital.createdAt,
+  }
+}
+
+function formatUserForAdmin(user: any) {
+  const profile = user.profile_id || {}
+  const adminRole = profile.admin_role
+  const role = user.user_type === UserType.ADMIN
+    ? (adminRole || 'app_admin')
+    : user.user_type === UserType.DOCTOR ? 'doctor' : 'patient'
+  const hospital = profile.hospital_id?.code || profile.hospital_id || 'ALL'
+  const name = profile.name || profile.demographics?.name || user.login_id
+  return {
+    id: String(user._id),
+    name,
+    email: user.login_id,
+    loginId: user.login_id,
+    role,
+    hospital: role === 'app_admin' || role === 'auditor' ? 'ALL' : String(hospital),
+    status: user.is_active ? 'active' : 'inactive',
+    lastLogin: user.updatedAt,
+  }
+}
+
+export async function getRoles() {
+  return { roles: ROLE_DEFINITIONS }
+}
+
+export async function updateRoleDefinition(roleKey: string, data: any, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireAppAdmin(ctx)
+  if (!(ROLE_DEFINITIONS as any)[roleKey]) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
+  }
+  ;(ROLE_DEFINITIONS as any)[roleKey].permissions = {
+    ...(ROLE_DEFINITIONS as any)[roleKey].permissions,
+    ...(data.permissions || {}),
+  }
+  return { role: (ROLE_DEFINITIONS as any)[roleKey] }
+}
+
+export async function listHospitals(filters: { status?: string; search?: string } = {}, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  if (ctx.isHospitalAdmin) {
+    if (!ctx.hospitalId) return { hospitals: [] }
+    filters = { ...filters }
+  }
+  const query: any = {}
+  if (filters.status) query.status = filters.status
+  if (ctx.isHospitalAdmin) query._id = ctx.hospitalId
+  if (filters.search) {
+    query.$or = [
+      { name: new RegExp(filters.search, 'i') },
+      { location: new RegExp(filters.search, 'i') },
+      { admin_email: new RegExp(filters.search, 'i') },
+      { code: new RegExp(filters.search, 'i') },
+    ]
+  }
+  const hospitals = await Hospital.find(query).sort({ createdAt: -1 }).lean()
+  const formatted = await Promise.all(hospitals.map(async h => {
+    const [doctors, patients] = await Promise.all([
+      DoctorProfile.countDocuments({ hospital_id: h._id }),
+      PatientProfile.countDocuments({ hospital_id: h._id }),
+    ])
+    return formatHospital(h, { doctors, patients })
+  }))
+  return { hospitals: formatted }
+}
+
+export async function createHospital(data: any, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireAppAdmin(ctx)
+  const count = await Hospital.countDocuments()
+  const hospital = await Hospital.create({
+    code: data.code || `H${String(count + 1).padStart(3, '0')}`,
+    name: data.name,
+    location: data.location,
+    admin_email: data.admin_email || data.admin,
+    status: data.status || HospitalStatus.ACTIVE,
+    metadata: data.metadata,
+  })
+  return { hospital: formatHospital(hospital.toObject()) }
+}
+
+export async function updateHospital(id: string, data: any, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireAppAdmin(ctx)
+  const hospital = await Hospital.findOneAndUpdate(
+    mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { code: id.toUpperCase() },
+    {
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.location !== undefined ? { location: data.location } : {}),
+      ...(data.admin_email !== undefined || data.admin !== undefined ? { admin_email: data.admin_email || data.admin } : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.metadata !== undefined ? { metadata: data.metadata } : {}),
+    },
+    { new: true }
+  )
+  if (!hospital) throw new ApiError(StatusCodes.NOT_FOUND, 'Hospital not found')
+  return { hospital: formatHospital(hospital.toObject()) }
+}
+
+export async function setHospitalStatus(id: string, status: string, actorUserId?: string) {
+  return updateHospital(id, { status }, actorUserId)
+}
+
+export async function deleteHospital(id: string, actorUserId?: string) {
+  return updateHospital(id, { status: HospitalStatus.INACTIVE }, actorUserId)
+}
+
+export async function listInvoices(actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const query: any = {}
+  if (ctx.isHospitalAdmin) query.hospital_id = ctx.hospitalId
+  const invoices = await Invoice.find(query).populate('hospital_id').sort({ createdAt: -1 }).lean()
+  return {
+    invoices: invoices.map((invoice: any) => ({
+      id: invoice.invoice_number,
+      _id: String(invoice._id),
+      hospital: invoice.hospital_id?.code || String(invoice.hospital_id?._id || invoice.hospital_id),
+      hospitalName: invoice.hospital_id?.name,
+      plan: invoice.plan,
+      amount: invoice.amount,
+      status: invoice.status,
+      issued: invoice.issued_date,
+      due: invoice.due_date,
+    })),
+  }
+}
+
+export async function generateInvoices(data: any = {}, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireAppAdmin(ctx)
+  const hospitals = await Hospital.find({ status: HospitalStatus.ACTIVE })
+  const now = new Date()
+  const due = new Date(now)
+  due.setDate(due.getDate() + 15)
+  const created = []
+  for (const hospital of hospitals) {
+    const invoice = await Invoice.create({
+      invoice_number: `INV-${Date.now()}-${hospital.code}`,
+      hospital_id: hospital._id,
+      plan: data.plan || 'Standard Tier (B2B)',
+      amount: data.amount || 25000,
+      status: InvoiceStatus.PENDING,
+      issued_date: now,
+      due_date: due,
+    })
+    created.push(invoice)
+  }
+  return { generated: created.length }
+}
+
+export async function createCheckout(invoiceId: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const invoice = await Invoice.findOne(mongoose.Types.ObjectId.isValid(invoiceId) ? { _id: invoiceId } : { invoice_number: invoiceId })
+  if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
+  ensureTenantAccess(ctx, invoice.hospital_id)
+  return {
+    invoice_id: invoice.invoice_number,
+    checkout_url: `https://payments.example.local/checkout/${invoice.invoice_number}`,
+    provider: 'placeholder',
+  }
+}
+
+export async function listUsers(actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const users = await User.find().populate({
+    path: 'profile_id',
+    populate: { path: 'hospital_id' },
+  }).sort({ createdAt: -1 })
+  const formatted = users.map(formatUserForAdmin).filter(u => ctx.isAppAdmin || u.hospital === ctx.hospitalId || u.hospital === ctx.hospitalCode || u.hospital === 'ALL')
+  return { users: formatted }
+}
+
+export async function inviteAdminUser(data: any, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
+  if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
+  const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+  if (data.role === AdminRole.HOSPITAL_ADMIN) ensureTenantAccess(ctx, hospitalId)
+  const existing = await User.findOne({ login_id: data.email || data.login_id })
+  if (existing) throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
+  const profile = await AdminProfile.create({
+    name: data.name,
+    admin_role: data.role || AdminRole.HOSPITAL_ADMIN,
+    permission: data.role === AdminRole.AUDITOR ? 'READ_ONLY' : 'FULL_ACCESS',
+    hospital_id: hospitalId,
+  })
+  const user = await User.create({
+    login_id: data.email || data.login_id,
+    password: data.password || 'Default@123',
+    user_type: UserType.ADMIN,
+    profile_id: profile._id,
+    user_type_model: 'AdminProfile',
+  })
+  return { user: formatUserForAdmin(await user.populate('profile_id')) }
+}
+
+export async function updateAdminUser(userId: string, data: any, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
+  const user = await User.findById(userId).populate('profile_id')
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  const profile: any = user.profile_id
+  const updates: any = {}
+  if (data.role) {
+    if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
+    updates.admin_role = data.role
+  }
+  if (data.name) updates.name = data.name
+  if (data.hospital_id || data.hospital) {
+    updates.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+    ensureTenantAccess(ctx, updates.hospital_id)
+  }
+  if (Object.keys(updates).length && user.user_type === UserType.ADMIN) {
+    await AdminProfile.findByIdAndUpdate(profile._id, updates)
+  }
+  if (typeof data.is_active === 'boolean') user.is_active = data.is_active
+  if (data.status) user.is_active = data.status === 'active'
+  await user.save()
+  return { user: formatUserForAdmin(await User.findById(user._id).populate({ path: 'profile_id', populate: { path: 'hospital_id' } })) }
+}
+
 // ─── Doctor Management ───
 
 export async function registerDoctor(data: {
@@ -36,7 +350,13 @@ export async function registerDoctor(data: {
   department?: string
   contact_number?: string
   profile_picture_url?: string
-}) {
+  hospital_id?: string
+  hospital?: string
+}, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
+  const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+  if (ctx.isHospitalAdmin) ensureTenantAccess(ctx, hospitalId)
   const existingUser = await User.findOne({ login_id: data.login_id })
   if (existingUser) {
     throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
@@ -47,6 +367,7 @@ export async function registerDoctor(data: {
     department: data.department || 'Cardiology',
     contact_number: data.contact_number,
     profile_picture_url: data.profile_picture_url,
+    hospital_id: hospitalId,
   })
 
   const user = await User.create({
@@ -63,9 +384,11 @@ export async function registerDoctor(data: {
 }
 
 export async function getAllDoctors(
-  filters: { department?: string; is_active?: boolean; search?: string } = {},
-  pagination: { page?: number; limit?: number } = {}
+  filters: { department?: string; is_active?: boolean; search?: string; hospital_id?: string } = {},
+  pagination: { page?: number; limit?: number } = {},
+  actorUserId?: string
 ) {
+  const ctx = await getAdminContext(actorUserId)
   const { department, is_active, search } = filters
   const page = pagination.page || 1
   const limit = pagination.limit || 20
@@ -83,6 +406,8 @@ export async function getAllDoctors(
   const filteredUsers = users.filter((user: any) => {
     const profile = user.profile_id as any
     if (!profile) return false
+    if (ctx.isHospitalAdmin && String(profile.hospital_id || '') !== ctx.hospitalId) return false
+    if (!ctx.isHospitalAdmin && filters.hospital_id && String(profile.hospital_id || '') !== filters.hospital_id) return false
     if (department) {
       const departmentMatch = normalizeSearchValue(profile.department)
         .includes(normalizeSearchValue(department))
@@ -123,8 +448,13 @@ export async function updateDoctor(
     profile_picture_url?: string
     is_active?: boolean
     password?: string
-  }
+    hospital_id?: string
+    hospital?: string
+  },
+  actorUserId?: string
 ) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   // Find user by _id or login_id
   let user = await User.findById(userId).populate('profile_id')
   if (!user) {
@@ -136,6 +466,7 @@ export async function updateDoctor(
   if (user.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a doctor')
   }
+  ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
 
   // Update profile fields
   const profileUpdate: any = {}
@@ -143,6 +474,10 @@ export async function updateDoctor(
   if (data.department) profileUpdate.department = data.department
   if (data.contact_number !== undefined) profileUpdate.contact_number = data.contact_number
   if (data.profile_picture_url !== undefined) profileUpdate.profile_picture_url = data.profile_picture_url
+  if (data.hospital_id || data.hospital) {
+    profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+    ensureTenantAccess(ctx, profileUpdate.hospital_id)
+  }
 
   if (Object.keys(profileUpdate).length > 0) {
     await DoctorProfile.findByIdAndUpdate(user.profile_id, profileUpdate)
@@ -160,7 +495,9 @@ export async function updateDoctor(
   return await User.findById(user._id).populate('profile_id')
 }
 
-export async function deactivateDoctor(userId: string) {
+export async function deactivateDoctor(userId: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   let user = await User.findById(userId)
   if (!user) {
     user = await User.findOne({ login_id: userId })
@@ -171,6 +508,8 @@ export async function deactivateDoctor(userId: string) {
   if (user.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a doctor')
   }
+  const profile = await DoctorProfile.findById(user.profile_id)
+  ensureTenantAccess(ctx, profile?.hospital_id)
 
   user.is_active = false
   await user.save()
@@ -197,7 +536,11 @@ export async function onboardPatient(data: {
     therapy_start_date?: string
     target_inr?: { min: number; max: number }
   }
-}) {
+  hospital_id?: string
+  hospital?: string
+}, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   const existingUser = await User.findOne({ login_id: data.login_id })
   if (existingUser) {
     throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
@@ -211,6 +554,9 @@ export async function onboardPatient(data: {
   if (!doctorUser.is_active) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Assigned doctor is inactive')
   }
+  const doctorProfile: any = await DoctorProfile.findById(doctorUser.profile_id)
+  const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx) || (doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined)
+  ensureTenantAccess(ctx, hospitalId)
 
   const nextOfKin = data.demographics.next_of_kin
     ? {
@@ -222,6 +568,7 @@ export async function onboardPatient(data: {
 
   const patientProfile = await PatientProfile.create({
     assigned_doctor_id: doctorUser._id,
+    hospital_id: hospitalId,
     demographics: {
       name: data.demographics.name,
       age: data.demographics.age,
@@ -253,9 +600,11 @@ export async function onboardPatient(data: {
 }
 
 export async function getAllPatients(
-  filters: { assigned_doctor_id?: string; account_status?: string; search?: string } = {},
-  pagination: { page?: number; limit?: number } = {}
+  filters: { assigned_doctor_id?: string; account_status?: string; search?: string; hospital_id?: string } = {},
+  pagination: { page?: number; limit?: number } = {},
+  actorUserId?: string
 ) {
+  const ctx = await getAdminContext(actorUserId)
   const page = pagination.page || 1
   const limit = pagination.limit || 20
 
@@ -287,6 +636,8 @@ export async function getAllPatients(
   const filteredUsers = users.filter((user: any) => {
     const profile = user.profile_id as any
     if (!profile) return false
+    if (ctx.isHospitalAdmin && String(profile.hospital_id || '') !== ctx.hospitalId) return false
+    if (!ctx.isHospitalAdmin && filters.hospital_id && String(profile.hospital_id || '') !== filters.hospital_id) return false
     if (assignedDoctorId && String(profile.assigned_doctor_id) !== assignedDoctorId) return false
     if (filters.account_status && profile.account_status !== filters.account_status) return false
     if (filters.search) {
@@ -324,8 +675,13 @@ export async function updatePatient(
     account_status?: string
     is_active?: boolean
     password?: string
-  }
+    hospital_id?: string
+    hospital?: string
+  },
+  actorUserId?: string
 ) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   let user = await User.findById(userId).populate('profile_id')
   if (!user) {
     user = await User.findOne({ login_id: userId }).populate('profile_id')
@@ -336,6 +692,7 @@ export async function updatePatient(
   if (user.user_type !== UserType.PATIENT) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a patient')
   }
+  ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
 
   const profileUpdate: any = {}
   if (data.demographics) profileUpdate.demographics = data.demographics
@@ -348,6 +705,12 @@ export async function updatePatient(
       throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid or inactive doctor ID')
     }
     profileUpdate.assigned_doctor_id = doctorUser._id
+    const doctorProfile: any = await DoctorProfile.findById(doctorUser.profile_id)
+    if (doctorProfile?.hospital_id) profileUpdate.hospital_id = doctorProfile.hospital_id
+  }
+  if (data.hospital_id || data.hospital) {
+    profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+    ensureTenantAccess(ctx, profileUpdate.hospital_id)
   }
 
   if (Object.keys(profileUpdate).length > 0) {
@@ -365,7 +728,9 @@ export async function updatePatient(
   return await User.findById(user._id).populate('profile_id')
 }
 
-export async function deactivatePatient(userId: string) {
+export async function deactivatePatient(userId: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   let user = await User.findById(userId)
   if (!user) {
     user = await User.findOne({ login_id: userId })
@@ -376,6 +741,8 @@ export async function deactivatePatient(userId: string) {
   if (user.user_type !== UserType.PATIENT) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a patient')
   }
+  const profile = await PatientProfile.findById(user.profile_id)
+  ensureTenantAccess(ctx, profile?.hospital_id)
 
   user.is_active = false
   await user.save()
@@ -386,7 +753,9 @@ export async function deactivatePatient(userId: string) {
   return { message: 'Patient deactivated successfully' }
 }
 
-export async function reassignPatient(patientLoginId: string, newDoctorId: string) {
+export async function reassignPatient(patientLoginId: string, newDoctorId: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireCanMutate(ctx)
   const patientUser = await User.findOne({ login_id: patientLoginId }).populate('profile_id')
   if (!patientUser) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
@@ -401,6 +770,7 @@ export async function reassignPatient(patientLoginId: string, newDoctorId: strin
   }
 
   const previousDoctorId = (patientUser.profile_id as any)?.assigned_doctor_id
+  ensureTenantAccess(ctx, (patientUser.profile_id as any)?.hospital_id)
 
   await PatientProfile.findByIdAndUpdate(patientUser.profile_id, {
     assigned_doctor_id: doctorUser._id,

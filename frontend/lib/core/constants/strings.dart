@@ -31,6 +31,11 @@ class AppStrings {
   static const String adminBasePath = '/api/admin';
   static const String adminDoctorsPath = '/api/admin/doctors';
   static const String adminPatientsPath = '/api/admin/patients';
+  static const String adminHospitalsPath = '/api/admin/hospitals';
+  static const String adminRolesPath = '/api/admin/roles';
+  static const String adminUsersPath = '/api/admin/users';
+  static const String adminInvoicesPath = '/api/admin/billing/invoices';
+  static const String adminCheckoutPath = '/api/admin/billing/checkout';
   static const String adminReassignPath = '/api/admin/reassign';
   static const String adminAuditLogsPath = '/api/admin/audit-logs';
   static const String adminConfigPath = '/api/admin/config';

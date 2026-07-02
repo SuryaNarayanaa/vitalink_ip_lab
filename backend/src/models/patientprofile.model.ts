@@ -7,6 +7,11 @@ const PatientProfileSchema = new mongoose.Schema({
     ref: 'User',
     index: true
   },
+  hospital_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Hospital',
+    index: true
+  },
   demographics: {
     name: { type: String, required: [true, "Name is required"] },
     age: { type: Number },

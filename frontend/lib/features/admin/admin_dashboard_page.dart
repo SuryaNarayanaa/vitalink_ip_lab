@@ -8,6 +8,7 @@ import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 import 'package:frontend/features/admin/doctor_management_page.dart';
 import 'package:frontend/features/admin/patient_management_page.dart';
+import 'package:frontend/features/admin/admin_console_pages.dart';
 import 'package:frontend/features/admin/analytics_dashboard_page.dart';
 import 'package:frontend/features/admin/notification_broadcast_page.dart';
 import 'package:frontend/features/admin/audit_logs_page.dart';
@@ -28,8 +29,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   Widget build(BuildContext context) {
     final tabs = [
       _DashboardTab(repo: _repo),
+      const HospitalManagementPage(),
       const DoctorManagementPage(),
       const PatientManagementPage(),
+      const UserLifecyclePage(),
+      const RolesRbacPage(),
+      const BillingInvoicesPage(),
       const AnalyticsDashboardPage(),
       const NotificationBroadcastPage(),
       const AuditLogsPage(),
