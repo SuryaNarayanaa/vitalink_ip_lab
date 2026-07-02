@@ -39,9 +39,11 @@ import AdminProfile from './adminprofile.model'
 import AuditLog from './auditlog.model'
 import SystemConfig from './systemconfig.model'
 import Notification from './notification.model'
+import Hospital from './hospital.model'
+import Invoice from './invoice.model'
 
 
-export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification }
+export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice }
 
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile

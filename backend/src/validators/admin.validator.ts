@@ -24,6 +24,8 @@ export const createDoctorSchema = z.object({
     department: z.string().optional(),
     contact_number: z.string().optional(),
     profile_picture_url: z.string().url().optional(),
+    hospital_id: z.string().optional(),
+    hospital: z.string().optional(),
   }),
 })
 
@@ -38,6 +40,8 @@ export const updateDoctorSchema = z.object({
     profile_picture_url: z.string().url().optional().nullable(),
     is_active: z.boolean().optional(),
     password: z.string().min(8).optional(),
+    hospital_id: z.string().optional(),
+    hospital: z.string().optional(),
   }),
 })
 
@@ -48,6 +52,7 @@ export const getDoctorsSchema = z.object({
     department: z.string().optional(),
     is_active: z.enum(['true', 'false']).optional(),
     search: z.string().optional(),
+    hospital_id: z.string().optional(),
   }),
 })
 
@@ -91,6 +96,8 @@ export const createPatientSchema = z.object({
           .optional(),
       })
       .optional(),
+    hospital_id: z.string().optional(),
+    hospital: z.string().optional(),
   }),
 })
 
@@ -132,6 +139,8 @@ export const updatePatientSchema = z.object({
     account_status: z.enum(['Active', 'Discharged', 'Deceased']).optional(),
     is_active: z.boolean().optional(),
     password: z.string().min(8).optional(),
+    hospital_id: z.string().optional(),
+    hospital: z.string().optional(),
   }),
 })
 
@@ -142,6 +151,7 @@ export const getUsersSchema = z.object({
     assigned_doctor_id: z.string().optional(),
     account_status: z.string().optional(),
     search: z.string().optional(),
+    hospital_id: z.string().optional(),
   }),
 })
 

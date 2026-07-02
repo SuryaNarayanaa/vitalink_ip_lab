@@ -36,7 +36,11 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
   const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", { token, user }))
+  const populatedUser = await User.findById(user._id)
+    .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
+    .select('-password -salt')
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", { token, user: populatedUser }))
 })
 
 export const logoutController = asyncHandler((req: Request, res: Response) => {

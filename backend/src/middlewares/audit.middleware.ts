@@ -39,6 +39,13 @@ function inferAction(method: string, path: string): AuditAction | null {
   if (p.includes('/patients') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/patients') && m === 'PUT') return AuditAction.USER_UPDATE
   if (p.includes('/patients') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  if (p.includes('/hospitals') && m === 'POST') return AuditAction.USER_CREATE
+  if (p.includes('/hospitals') && (m === 'PUT' || m === 'PATCH')) return AuditAction.USER_UPDATE
+  if (p.includes('/hospitals') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  if (p.includes('/roles') && m === 'PUT') return AuditAction.CONFIG_UPDATE
+  if (p.includes('/billing/invoices') && m === 'POST') return AuditAction.BATCH_OPERATION
+  if (p.match(/\/users\/[^/]+/) && m === 'PUT') return AuditAction.USER_UPDATE
+  if (p.endsWith('/users') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/reassign')) return AuditAction.PATIENT_REASSIGN
   if (p.includes('/config') && m === 'PUT') return AuditAction.CONFIG_UPDATE
   if (p.includes('/notifications/broadcast')) return AuditAction.NOTIFICATION_BROADCAST
@@ -70,6 +77,9 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
           description: `${req.method} ${req.originalUrl}`,
           resource_type: req.originalUrl.includes('/doctors') ? 'Doctor'
             : req.originalUrl.includes('/patients') ? 'Patient'
+            : req.originalUrl.includes('/hospitals') ? 'Hospital'
+            : req.originalUrl.includes('/billing') ? 'Billing'
+            : req.originalUrl.includes('/roles') ? 'Role'
             : req.originalUrl.includes('/config') ? 'SystemConfig'
             : 'System',
           resource_id: req.params?.id || req.params?.op_num || undefined,
