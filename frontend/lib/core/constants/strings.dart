@@ -3,6 +3,7 @@ class AppStrings {
 
   /// Build-time define key for backend API base URL.
   static const String apiBaseUrlDefine = 'API_BASE_URL';
+  static const String apiPathPrefixDefine = 'API_PATH_PREFIX';
 
   /// Base URL for the backend API.
   ///
@@ -13,7 +14,10 @@ class AppStrings {
     defaultValue: 'https://vitalink-uimf.onrender.com',
   );
 
-  static const String apiPathPrefix = '/api/v1';
+  static const String apiPathPrefix = String.fromEnvironment(
+    apiPathPrefixDefine,
+    defaultValue: '/api/v1',
+  );
 
   /// Auth endpoints.
   static const String loginPath = '$apiPathPrefix/auth/login';

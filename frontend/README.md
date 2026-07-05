@@ -1,9 +1,9 @@
 flutter run -d web-server --web-hostname 127.0.0.1 --web-port 7357
 
 
-flutter build web
-  cd build/web
-  vercel --prod
+flutter build web --dart-define=API_BASE_URL=https://vitalink-uimf.onrender.com --dart-define=API_PATH_PREFIX=/api/v1
+cd build/web
+vercel --prod
 
   
 # frontend
