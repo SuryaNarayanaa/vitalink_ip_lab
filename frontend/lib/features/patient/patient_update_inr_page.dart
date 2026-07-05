@@ -123,7 +123,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
         onError: (error, variables) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('Error: ${error.toString()}'),
+                content: Text(error.toString()),
                 backgroundColor: Colors.red),
           );
         },
@@ -349,10 +349,11 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
             ),
-            child: const Text(
-              'Error loading reports',
-              style: TextStyle(color: Colors.red),
-              textAlign: TextAlign.center,
+            child: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
+              compact: true,
+              title: 'Could not load reports',
             ),
           );
         }

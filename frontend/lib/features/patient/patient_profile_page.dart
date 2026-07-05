@@ -53,17 +53,9 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
 
         if (query.isError) {
           return _buildPageContainer(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${query.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                      onPressed: () => query.refetch(),
-                      child: const Text('Retry')),
-                ],
-              ),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
         }

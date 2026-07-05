@@ -4,6 +4,7 @@ import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/storage/secure_storage.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
 import 'package:frontend/features/login/models/login_models.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -79,7 +80,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _handleError(Object error) {
-    final message = error is ApiException ? error.message : error.toString();
+    final message = error is ApiException
+        ? '${error.title}: ${error.message}'
+        : error.toString();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('Login failed: $message')));
@@ -253,33 +256,9 @@ class _LoginPageState extends State<LoginPage> {
                                       padding: const EdgeInsets.only(
                                         bottom: 16,
                                       ),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withAlpha(25),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.error_outline,
-                                              color: Colors.red,
-                                              size: 20,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                errorText,
-                                                style: const TextStyle(
-                                                  color: Colors.red,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                                      child: ApiErrorState(
+                                        error: error,
+                                        compact: true,
                                       ),
                                     ),
 

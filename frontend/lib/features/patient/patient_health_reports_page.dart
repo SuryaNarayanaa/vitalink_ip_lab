@@ -179,7 +179,7 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
         onError: (error, variables) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${error.toString()}'),
+              content: Text(error.toString()),
               backgroundColor: Colors.red,
             ),
           );
@@ -330,7 +330,7 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
         onError: (error, variables) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${error.toString()}'),
+              content: Text(error.toString()),
               backgroundColor: Colors.red,
             ),
           );

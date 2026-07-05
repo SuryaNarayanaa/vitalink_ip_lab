@@ -252,9 +252,10 @@ class _PatientsView extends StatelessWidget {
               if (query.isLoading)
                 const Center(child: CircularProgressIndicator()),
               if (query.isError)
-                Text(
-                  query.error.toString(),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ApiErrorState(
+                  error: query.error,
+                  onRetry: () => query.refetch(),
+                  compact: true,
                 ),
               if (!query.isLoading && !query.isError)
                 AnimatedSwitcher(

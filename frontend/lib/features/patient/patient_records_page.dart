@@ -48,17 +48,9 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
             pageTitle: 'My Records',
             currentNavIndex: 3,
             onNavChanged: (index) => _handleNav(index),
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${query.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                      onPressed: () => query.refetch(),
-                      child: const Text('Retry')),
-                ],
-              ),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
         }
@@ -783,7 +775,7 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                         setDialogState(() => isSubmitting = false);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Error: ${error.toString()}'),
+                            content: Text(error.toString()),
                             backgroundColor: Colors.red,
                           ),
                         );

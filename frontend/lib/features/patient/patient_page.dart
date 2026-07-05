@@ -62,7 +62,10 @@ class _PatientPageState extends State<PatientPage> {
 
         if (query.isError) {
           return _buildPageContainer(
-            body: Center(child: Text('Error: ${query.error}')),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
+            ),
           );
         }
 

@@ -68,21 +68,9 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
             pageTitle: 'Dosage Calendar',
             currentNavIndex: _currentNavIndex,
             onNavChanged: (index) => _handleNav(index),
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline,
-                      size: 64, color: Colors.red.shade300),
-                  const SizedBox(height: 16),
-                  Text('Error: ${query.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => query.refetch(),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
         }

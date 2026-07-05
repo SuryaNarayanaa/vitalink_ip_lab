@@ -124,21 +124,33 @@ class PatientRepository {
       'file': MultipartFile.fromBytes(fileBytes, filename: fileName),
     });
 
-    final response = await dio.post<Map<String, dynamic>>(
-      '$_patientBasePath/reports',
-      data: formData,
-      options: Options(
-        headers: {
-          'Accept': 'application/json',
-          if (token != null && token.isNotEmpty)
-            'Authorization': 'Bearer $token',
-        },
-      ),
-    );
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '$_patientBasePath/reports',
+        data: formData,
+        options: Options(
+          headers: {
+            'Accept': 'application/json',
+            if (token != null && token.isNotEmpty)
+              'Authorization': 'Bearer $token',
+          },
+        ),
+      );
 
-    final body = response.data ?? <String, dynamic>{};
-    if ((response.statusCode ?? 500) >= 400 || body['success'] == false) {
-      throw Exception(body['message']?.toString() ?? 'Failed to submit report');
+      final body = response.data ?? <String, dynamic>{};
+      if ((response.statusCode ?? 500) >= 400 || body['success'] == false) {
+        throw _uploadException(
+          response.statusCode ?? 500,
+          body['message']?.toString(),
+        );
+      }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseData = e.response?.data;
+      final message = responseData is Map<String, dynamic>
+          ? responseData['message']?.toString()
+          : null;
+      throw _uploadException(statusCode, message);
     }
   }
 
@@ -460,5 +472,68 @@ class PatientRepository {
       }
     }
     return null;
+  }
+
+  ApiException _uploadException(int? statusCode, String? serverMessage) {
+    final message = serverMessage?.trim();
+    switch (statusCode) {
+      case 400:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Please check the INR value, date, and selected file.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.badRequest,
+        );
+      case 401:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Your session has expired. Please sign in again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.unauthorized,
+        );
+      case 413:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'The selected report is larger than the allowed upload size.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.requestTooLarge,
+        );
+      case 423:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'This account is temporarily locked. Try again later.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.locked,
+        );
+      case 429:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Too many upload attempts. Please wait before trying again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.rateLimited,
+        );
+      default:
+        if (statusCode != null && statusCode >= 500) {
+          return ApiException(
+            message?.isNotEmpty == true
+                ? message!
+                : 'The server could not upload the report. Please try again.',
+            statusCode: statusCode,
+            kind: ApiErrorKind.server,
+          );
+        }
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Unable to upload the report. Check your connection and try again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.network,
+        );
+    }
   }
 }

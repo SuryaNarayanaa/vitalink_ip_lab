@@ -4,6 +4,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/patient_model.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/core/widgets/common/premium_report_card.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -218,7 +219,10 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
         }
 
         if (query.isError) {
-          return Center(child: Text('Error: ${query.error}'));
+          return ApiErrorState(
+            error: query.error,
+            onRetry: () => query.refetch(),
+          );
         }
 
         final reports = query.data ?? [];
