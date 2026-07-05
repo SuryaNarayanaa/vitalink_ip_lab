@@ -4,6 +4,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/di/theme.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/query/patient_query_keys.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 
 class NotificationCenterPage extends StatefulWidget {
   const NotificationCenterPage({
@@ -97,8 +98,8 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
             child: query.isLoading
                 ? const _LoadingState()
                 : query.isError
-                    ? _ErrorState(
-                        message: query.error.toString(),
+                    ? ApiErrorState(
+                        error: query.error,
                         onRetry: () => query.refetch(),
                       )
                     : notifications.isEmpty
@@ -613,69 +614,6 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.message,
-    required this.onRetry,
-  });
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: scheme.errorContainer.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: scheme.error.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline_rounded,
-                color: scheme.error,
-                size: 30,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Could not load notifications',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
         ),
       ),
     );

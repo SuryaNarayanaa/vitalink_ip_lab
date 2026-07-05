@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
+import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/widgets/index.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
@@ -1212,7 +1213,7 @@ class _InrReportsCard extends StatelessWidget {
                   return InrReportsSection(
                     reports: query.data ?? [],
                     isLoading: query.isLoading,
-                    error: query.isError ? query.error.toString() : null,
+                    error: query.isError ? _formatApiError(query.error) : null,
                     onRefresh: () => query.refetch(),
                     enableReportViewAction: true,
                   );
@@ -1223,6 +1224,13 @@ class _InrReportsCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatApiError(Object? error) {
+  if (error is ApiException) {
+    return '${error.title}: ${error.message}';
+  }
+  return error?.toString() ?? 'Something went wrong';
 }
 
 class _ErrorView extends StatelessWidget {

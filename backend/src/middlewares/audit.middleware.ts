@@ -64,7 +64,7 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
 
   res.send = function (body: any) {
     // Only audit mutating admin operations
-    if (req.user && req.originalUrl.includes('/api/admin/')) {
+    if (req.user && /\/api(?:\/v\d+)?\/admin\//.test(req.originalUrl)) {
       const action = inferAction(req.method, req.originalUrl)
 
       if (action) {

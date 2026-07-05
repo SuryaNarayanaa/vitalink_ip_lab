@@ -3,7 +3,7 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
-import 'package:frontend/features/admin/data/admin_repository.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 
 class HospitalManagementPage extends StatefulWidget {
   const HospitalManagementPage({super.key});
@@ -93,6 +93,7 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                       value: 'edit',
                       child: const Text('Edit hospital'),
                       onTap: () => Future.microtask(
+                        // ignore: use_build_context_synchronously
                         () => _showHospitalDialog(context, hospital: h),
                       ),
                     ),
@@ -164,7 +165,7 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
               TextField(controller: admin, decoration: const InputDecoration(labelText: 'Admin email')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: status,
+                initialValue: status,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: const [
                   DropdownMenuItem(value: 'active', child: Text('Active')),
@@ -336,7 +337,7 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
               TextField(controller: email, decoration: const InputDecoration(labelText: 'Email / login ID')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: role,
+                initialValue: role,
                 decoration: const InputDecoration(labelText: 'Role'),
                 items: const [
                   DropdownMenuItem(value: 'hospital_admin', child: Text('Hospital Admin')),
@@ -648,7 +649,10 @@ class _QueryBody extends StatelessWidget {
   Widget build(BuildContext context) {
     if (query.isLoading) return const Center(child: CircularProgressIndicator());
     if (query.isError) {
-      return Center(child: Text('Error: ${query.error}'));
+      return ApiErrorState(
+        error: query.error,
+        onRetry: () => query.refetch(),
+      );
     }
     return child;
   }

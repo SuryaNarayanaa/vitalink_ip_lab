@@ -4,6 +4,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 import 'package:frontend/features/admin/doctor_management_page.dart';
@@ -57,8 +58,6 @@ class _DashboardTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return UseQuery<AdminStatsModel>(
       options: QueryOptions<AdminStatsModel>(
         queryKey: AdminQueryKeys.stats(),
@@ -72,27 +71,10 @@ class _DashboardTab extends StatelessWidget {
           child: query.isLoading
               ? const _ScrollableCentered(child: CircularProgressIndicator())
               : query.isError
-                  ? _ScrollableCentered(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: theme.colorScheme.error,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Failed to load dashboard',
-                            style: TextStyle(color: theme.colorScheme.error),
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton(
-                            onPressed: () => query.refetch(),
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
+                  ? ApiErrorState(
+                      error: query.error,
+                      onRetry: () => query.refetch(),
+                      title: 'Could not load dashboard',
                     )
                   : _DashboardContent(stats: query.data),
         );

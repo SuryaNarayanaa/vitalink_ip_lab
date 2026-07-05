@@ -42,18 +42,9 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
 
         if (query.isError) {
           return _buildPageContainer(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${query.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => query.refetch(),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
         }
@@ -91,7 +82,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
             onError: (error, variables) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Error: ${error.toString()}'),
+                  content: Text(error.toString()),
                   backgroundColor: Colors.red,
                 ),
               );

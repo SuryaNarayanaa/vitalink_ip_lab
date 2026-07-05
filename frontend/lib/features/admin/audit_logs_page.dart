@@ -3,6 +3,7 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/audit_log_model.dart';
 
@@ -166,18 +167,9 @@ class _AuditLogsPageState extends State<AuditLogsPage> {
               child: query.isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : query.isError
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text('Error: ${query.error}'),
-                              const SizedBox(height: 16),
-                              FilledButton(
-                                onPressed: _refresh,
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
+                      ? ApiErrorState(
+                          error: query.error,
+                          onRetry: _refresh,
                         )
                       : logs.isEmpty
                           ? const Center(

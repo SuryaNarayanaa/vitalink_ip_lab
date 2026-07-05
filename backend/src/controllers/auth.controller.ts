@@ -1,10 +1,36 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { asyncHandler, ApiError, ApiResponse, generateToken } from '@alias/utils'
-import { User } from '@alias/models'
+import { AuditLog, User } from '@alias/models'
+import { AuditAction } from '@alias/models/auditlog.model'
 import { comparePasswords } from '@alias/utils'
 import { UserType } from '@alias/validators'
 import { ChangePasswordInput, LoginInput } from '@alias/validators/user.validator'
+import { config } from '@alias/config'
+
+const createAuthAuditLog = async (
+  req: Request,
+  user: any,
+  action: AuditAction.LOGIN | AuditAction.LOGOUT | AuditAction.LOGIN_FAILED,
+  success: boolean,
+  description: string,
+  errorMessage?: string
+) => {
+  if (!user?._id || !user?.user_type) return
+
+  await AuditLog.create({
+    user_id: user._id,
+    user_type: user.user_type,
+    action,
+    description,
+    resource_type: 'Auth',
+    resource_id: String(user._id),
+    ip_address: req.ip || req.socket?.remoteAddress,
+    user_agent: req.headers['user-agent'],
+    success,
+    error_message: errorMessage,
+  })
+}
 
 
 export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInput["body"]>, res: Response) => {
@@ -24,6 +50,19 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive. Please contact support.')
   }
 
+  const lockedUntil = user.locked_until ? new Date(user.locked_until) : null
+  if (lockedUntil && lockedUntil.getTime() > Date.now()) {
+    await createAuthAuditLog(
+      req,
+      user,
+      AuditAction.LOGIN_FAILED,
+      false,
+      'Login blocked because account is temporarily locked',
+      'Account locked'
+    )
+    throw new ApiError(StatusCodes.LOCKED, 'Account is temporarily locked due to repeated failed login attempts. Please try again later.')
+  }
+
   const isPasswordValid = await comparePasswords({
     password,
     salt: user.salt,
@@ -31,8 +70,33 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   })
 
   if (!isPasswordValid) {
+    const failedAttempts = (user.failed_login_attempts ?? 0) + 1
+    user.failed_login_attempts = failedAttempts
+    user.last_failed_login_at = new Date()
+
+    if (failedAttempts >= config.maxFailedLoginAttempts) {
+      user.locked_until = new Date(Date.now() + config.accountLockoutMinutes * 60 * 1000)
+    }
+    await user.save()
+
+    await createAuthAuditLog(
+      req,
+      user,
+      AuditAction.LOGIN_FAILED,
+      false,
+      'Login failed due to invalid credentials',
+      failedAttempts >= config.maxFailedLoginAttempts ? 'Account locked after repeated failed attempts' : 'Invalid credentials'
+    )
+
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
+
+  user.failed_login_attempts = 0
+  user.locked_until = undefined
+  user.last_login_at = new Date()
+  await user.save()
+
+  await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully')
 
   const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
 
@@ -43,7 +107,14 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", { token, user: populatedUser }))
 })
 
-export const logoutController = asyncHandler((req: Request, res: Response) => {
+export const logoutController = asyncHandler(async (req: Request, res: Response) => {
+  if (req.user?.user_id) {
+    const user = await User.findById(req.user.user_id).select('_id user_type')
+    if (user) {
+      await createAuthAuditLog(req, user, AuditAction.LOGOUT, true, 'User logged out successfully')
+    }
+  }
+
   res.status(StatusCodes.OK).json({
     success: true,
     message: 'Logout successful. Please clear the token from client-side.',
