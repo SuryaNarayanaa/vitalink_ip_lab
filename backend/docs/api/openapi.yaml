@@ -1,0 +1,2831 @@
+openapi: 3.1.0
+info:
+  title: VitaLink API
+  version: 1.0.0
+  summary: Versioned API contract for the VitaLink backend
+  description: |
+    OpenAPI specification for the currently implemented VitaLink backend.
+
+    Notes:
+    - The canonical integration base path is `/api/v1`.
+    - Legacy `/api/*` routes remain available for backward compatibility but are deprecated.
+    - Authentication uses bearer JWTs.
+    - Some response bodies in the running service are not yet perfectly normalized; this spec documents the intended primary contract for new integrations.
+  contact:
+    name: VitaLink Engineering
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+  - url: https://api.example.com/api/v1
+    description: Production placeholder
+tags:
+  - name: System
+  - name: Authentication
+  - name: Patient
+  - name: Doctor
+  - name: Admin
+  - name: Statistics
+security:
+  - bearerAuth: []
+paths:
+  /:
+    get:
+      tags: [System]
+      summary: API version index
+      security: []
+      responses:
+        "200":
+          description: API version metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiIndexResponse"
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate user
+      description: Authenticates a user by login ID and password and returns a bearer token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication successful
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "423":
+          $ref: "#/components/responses/Locked"
+        "429":
+          $ref: "#/components/responses/LoginRateLimited"
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logout acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimpleSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change current user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangePasswordResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/profile:
+    get:
+      tags: [Patient]
+      summary: Get patient profile
+      responses:
+        "200":
+          description: Patient profile with doctor update summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Patient]
+      summary: Update patient profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientProfileUpdateRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientProfileUpdateResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/reports:
+    get:
+      tags: [Patient]
+      summary: Get patient reports and care data
+      responses:
+        "200":
+          description: Patient report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientReportsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Patient]
+      summary: Submit INR report
+      description: Submit INR value, test date, and optional report attachment.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/PatientReportUploadRequest"
+      responses:
+        "200":
+          description: Report submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientReportSubmitResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+
+  /patient/missed-doses:
+    get:
+      tags: [Patient]
+      summary: Get missed dose calculations
+      responses:
+        "200":
+          description: Missed dose calculation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MissedDoseResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/dosage-calendar:
+    get:
+      tags: [Patient]
+      summary: Get dosage calendar
+      parameters:
+        - $ref: "#/components/parameters/MonthsQuery"
+        - $ref: "#/components/parameters/StartDateQuery"
+      responses:
+        "200":
+          description: Calendar data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DosageCalendarResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/dosage:
+    post:
+      tags: [Patient]
+      summary: Mark dosage as taken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TakeDosageRequest"
+      responses:
+        "200":
+          description: Dosage marked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TakeDosageResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/health-logs:
+    post:
+      tags: [Patient]
+      summary: Create or replace health log by type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HealthLogRequest"
+      responses:
+        "200":
+          description: Health log updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/profile-pic:
+    post:
+      tags: [Patient]
+      summary: Upload patient profile picture
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ProfilePictureUploadRequest"
+      responses:
+        "200":
+          description: Profile picture updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+
+  /patient/doctor-updates/summary:
+    get:
+      tags: [Patient]
+      summary: Get doctor update summary
+      responses:
+        "200":
+          description: Doctor update summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorUpdateSummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/doctor-updates:
+    get:
+      tags: [Patient]
+      summary: List doctor updates
+      parameters:
+        - $ref: "#/components/parameters/UnreadOnlyQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Doctor updates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorUpdateListResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/doctor-updates/read-all:
+    patch:
+      tags: [Patient]
+      summary: Mark all doctor updates as read
+      responses:
+        "200":
+          description: Doctor updates marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkedCountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/doctor-updates/{event_id}/read:
+    patch:
+      tags: [Patient]
+      summary: Mark doctor update as read
+      parameters:
+        - $ref: "#/components/parameters/EventIdPath"
+      responses:
+        "200":
+          description: Doctor update marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/notifications:
+    get:
+      tags: [Patient]
+      summary: List patient notifications
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - $ref: "#/components/parameters/IsReadQuery"
+      responses:
+        "200":
+          description: Notification inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationListResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/notifications/read-all:
+    patch:
+      tags: [Patient]
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: Notifications marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkedCountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/notifications/{notification_id}/read:
+    patch:
+      tags: [Patient]
+      summary: Mark notification as read
+      parameters:
+        - $ref: "#/components/parameters/NotificationIdPath"
+      responses:
+        "200":
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /patient/notifications/stream:
+    get:
+      tags: [Patient]
+      summary: Stream patient notifications
+      description: |
+        Opens a Server-Sent Events connection. Authentication may be supplied with
+        a bearer token or a `token` query parameter.
+      parameters:
+        - in: query
+          name: token
+          required: false
+          schema:
+            type: string
+          description: Optional JWT when Authorization header is not used
+      responses:
+        "200":
+          description: SSE stream opened
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: notification
+                  data: {"id":"6870...","title":"Doctor update"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /doctors/profile:
+    get:
+      tags: [Doctor]
+      summary: Get doctor profile
+      responses:
+        "200":
+          description: Doctor profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Doctor]
+      summary: Update doctor profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorProfileUpdateRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/profile-pic:
+    post:
+      tags: [Doctor]
+      summary: Upload doctor profile picture
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ProfilePictureUploadRequest"
+      responses:
+        "200":
+          description: Profile picture updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+
+  /doctors/doctors:
+    get:
+      tags: [Doctor]
+      summary: List doctors
+      responses:
+        "200":
+          description: Doctors retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /doctors/patients:
+    get:
+      tags: [Doctor]
+      summary: List patients assigned to current doctor
+      responses:
+        "200":
+          description: Patients retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Doctor]
+      summary: Create patient under current doctor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DoctorCreatePatientRequest"
+      responses:
+        "201":
+          description: Patient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientCreateResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /doctors/patients/{op_num}:
+    get:
+      tags: [Doctor]
+      summary: Get patient by OP number
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      responses:
+        "200":
+          description: Patient retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/reassign:
+    patch:
+      tags: [Doctor]
+      summary: Reassign patient to another doctor
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReassignPatientRequest"
+      responses:
+        "200":
+          description: Patient reassigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientDetailResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/dosage:
+    put:
+      tags: [Doctor]
+      summary: Update weekly dosage
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDosageRequest"
+      responses:
+        "200":
+          description: Dosage updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientDetailResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/reports:
+    get:
+      tags: [Doctor]
+      summary: List patient INR reports
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      responses:
+        "200":
+          description: Reports retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorReportListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/reports/{report_id}:
+    get:
+      tags: [Doctor]
+      summary: Get patient report by report ID
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+        - $ref: "#/components/parameters/ReportIdPath"
+      responses:
+        "200":
+          description: Report retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorSingleReportResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Doctor]
+      summary: Update report annotations
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+        - $ref: "#/components/parameters/ReportIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReportRequest"
+      responses:
+        "200":
+          description: Report updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorSingleReportResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/config:
+    put:
+      tags: [Doctor]
+      summary: Update next review date
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNextReviewRequest"
+      responses:
+        "200":
+          description: Review date updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientDetailResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/patients/{op_num}/instructions:
+    put:
+      tags: [Doctor]
+      summary: Update patient instructions
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInstructionsRequest"
+      responses:
+        "200":
+          description: Instructions updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorPatientDetailResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/notifications:
+    get:
+      tags: [Doctor]
+      summary: List doctor notifications
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - $ref: "#/components/parameters/IsReadQuery"
+      responses:
+        "200":
+          description: Notifications retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationListResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /doctors/notifications/read-all:
+    patch:
+      tags: [Doctor]
+      summary: Mark all doctor notifications as read
+      responses:
+        "200":
+          description: Notifications marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkedCountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /doctors/notifications/{notification_id}/read:
+    patch:
+      tags: [Doctor]
+      summary: Mark doctor notification as read
+      parameters:
+        - $ref: "#/components/parameters/NotificationIdPath"
+      responses:
+        "200":
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /doctors/notifications/stream:
+    get:
+      tags: [Doctor]
+      summary: Stream doctor notifications
+      parameters:
+        - in: query
+          name: token
+          required: false
+          schema:
+            type: string
+          description: Optional JWT when Authorization header is not used
+      responses:
+        "200":
+          description: SSE stream opened
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /admin/roles:
+    get:
+      tags: [Admin]
+      summary: List role settings
+      responses:
+        "200":
+          description: Roles retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/roles/{roleKey}:
+    put:
+      tags: [Admin]
+      summary: Update role settings
+      parameters:
+        - in: path
+          name: roleKey
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/hospitals:
+    get:
+      tags: [Admin]
+      summary: List hospitals
+      responses:
+        "200":
+          description: Hospitals retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin]
+      summary: Create hospital
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HospitalCreateRequest"
+      responses:
+        "201":
+          description: Hospital created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /admin/hospitals/{id}:
+    get:
+      tags: [Admin]
+      summary: Get hospital by ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Hospital retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Admin]
+      summary: Update hospital
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HospitalUpdateRequest"
+      responses:
+        "200":
+          description: Hospital updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [Admin]
+      summary: Deactivate hospital
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Hospital deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/hospitals/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: Update hospital status
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, suspended, inactive]
+      responses:
+        "200":
+          description: Hospital status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/billing/invoices:
+    get:
+      tags: [Admin]
+      summary: List invoices
+      responses:
+        "200":
+          description: Invoices retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+    post:
+      tags: [Admin]
+      summary: Generate invoices
+      responses:
+        "201":
+          description: Invoices generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/billing/checkout/{invoiceId}:
+    post:
+      tags: [Admin]
+      summary: Create invoice checkout session
+      parameters:
+        - in: path
+          name: invoiceId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: hospital_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Users retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+    post:
+      tags: [Admin]
+      summary: Invite or create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "201":
+          description: User invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/users/{id}:
+    put:
+      tags: [Admin]
+      summary: Update user
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/users/reset-password:
+    post:
+      tags: [Admin]
+      summary: Reset user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /admin/users/batch:
+    post:
+      tags: [Admin]
+      summary: Perform batch user operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchOperationRequest"
+      responses:
+        "200":
+          description: Batch operation completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /admin/doctors:
+    get:
+      tags: [Admin]
+      summary: List doctors
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - in: query
+          name: department
+          schema:
+            type: string
+        - in: query
+          name: is_active
+          schema:
+            type: boolean
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: hospital_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Doctors retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+    post:
+      tags: [Admin]
+      summary: Create doctor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateDoctorRequest"
+      responses:
+        "201":
+          description: Doctor created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /admin/doctors/{id}:
+    put:
+      tags: [Admin]
+      summary: Update doctor
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateDoctorRequest"
+      responses:
+        "200":
+          description: Doctor updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+    delete:
+      tags: [Admin]
+      summary: Deactivate doctor
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Doctor deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/patients:
+    get:
+      tags: [Admin]
+      summary: List patients
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - in: query
+          name: assigned_doctor_id
+          schema:
+            type: string
+        - in: query
+          name: account_status
+          schema:
+            type: string
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: hospital_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Patients retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+    post:
+      tags: [Admin]
+      summary: Create patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreatePatientRequest"
+      responses:
+        "201":
+          description: Patient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /admin/patients/{id}:
+    put:
+      tags: [Admin]
+      summary: Update patient
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdatePatientRequest"
+      responses:
+        "200":
+          description: Patient updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+    delete:
+      tags: [Admin]
+      summary: Deactivate patient
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Patient deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/reassign/{op_num}:
+    put:
+      tags: [Admin]
+      summary: Reassign patient by OP number
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReassignPatientRequest"
+      responses:
+        "200":
+          description: Patient reassigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: List audit logs
+      responses:
+        "200":
+          description: Audit logs retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /admin/config:
+    get:
+      tags: [Admin]
+      summary: Get system configuration
+      responses:
+        "200":
+          description: System configuration retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemConfigResponse"
+    put:
+      tags: [Admin]
+      summary: Update system configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemConfigUpdateRequest"
+      responses:
+        "200":
+          description: System configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemConfigResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /admin/notifications/broadcast:
+    post:
+      tags: [Admin]
+      summary: Broadcast notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcastNotificationRequest"
+      responses:
+        "200":
+          description: Notification broadcast completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /admin/system/health:
+    get:
+      tags: [Admin]
+      summary: Get system health
+      responses:
+        "200":
+          description: System health retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+
+  /statistics/admin:
+    get:
+      tags: [Statistics]
+      summary: Get admin statistics
+      responses:
+        "200":
+          description: Statistics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /statistics/trends:
+    get:
+      tags: [Statistics]
+      summary: Get trend statistics
+      parameters:
+        - in: query
+          name: period
+          required: false
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, 1y]
+      responses:
+        "200":
+          description: Trends retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /statistics/compliance:
+    get:
+      tags: [Statistics]
+      summary: Get compliance statistics
+      responses:
+        "200":
+          description: Compliance retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /statistics/workload:
+    get:
+      tags: [Statistics]
+      summary: Get workload statistics
+      responses:
+        "200":
+          description: Workload retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /statistics/period:
+    get:
+      tags: [Statistics]
+      summary: Get statistics for a date range
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Period statistics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericDataResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  headers:
+    XRequestId:
+      description: Server-generated or client-forwarded correlation ID
+      schema:
+        type: string
+
+  parameters:
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Resource identifier
+    OpNumPath:
+      in: path
+      name: op_num
+      required: true
+      schema:
+        type: string
+      description: Patient OP number, mapped to the patient user's login_id
+    ReportIdPath:
+      in: path
+      name: report_id
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-fA-F0-9]{24}$"
+    NotificationIdPath:
+      in: path
+      name: notification_id
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-fA-F0-9]{24}$"
+    EventIdPath:
+      in: path
+      name: event_id
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-fA-F0-9]{24}$"
+    PageQuery:
+      in: query
+      name: page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitQuery:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IsReadQuery:
+      in: query
+      name: is_read
+      required: false
+      schema:
+        type: boolean
+    UnreadOnlyQuery:
+      in: query
+      name: unread_only
+      required: false
+      schema:
+        type: boolean
+    MonthsQuery:
+      in: query
+      name: months
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 6
+        default: 3
+    StartDateQuery:
+      in: query
+      name: start_date
+      required: false
+      schema:
+        type: string
+        pattern: "^[0-9]{2}-[0-9]{2}-[0-9]{4}$"
+      description: Date in DD-MM-YYYY format
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationFailed:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+    Unauthorized:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Authenticated but not authorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Locked:
+      description: Account locked
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    LoginRateLimited:
+      description: Too many login attempts
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RateLimitResponse"
+    InsufficientStorage:
+      description: File storage provider failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ApiResponseBase:
+      type: object
+      required: [statusCode, message, success]
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        success:
+          type: boolean
+        data:
+          nullable: true
+
+    SimpleSuccessResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Logout successful. Please clear the token from client-side.
+
+    MessageOnlyResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: "null"
+
+    ErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          example:
+            statusCode: 401
+            message: Invalid credentials
+            data: null
+            success: false
+
+    RateLimitResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Too many requests from this IP, please try again later
+
+    ValidationErrorItem:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    ValidationErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                errors:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ValidationErrorItem"
+
+    Pagination:
+      type: object
+      required: [total, page, limit, pages, hasNext, hasPrev]
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        pages:
+          type: integer
+        hasNext:
+          type: boolean
+        hasPrev:
+          type: boolean
+
+    ApiIndexResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                version:
+                  type: string
+                  example: v1
+                routes:
+                  type: array
+                  items:
+                    type: string
+
+    LoginRequest:
+      type: object
+      required: [login_id, password]
+      properties:
+        login_id:
+          type: string
+          minLength: 1
+          example: patient001
+        password:
+          type: string
+          minLength: 1
+          format: password
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          minLength: 8
+          format: password
+          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}$"
+
+    PublicHospital:
+      type: object
+      properties:
+        _id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        status:
+          type: string
+
+    UserProfileRef:
+      type: object
+      description: Populated role profile. Shape varies by user type.
+      additionalProperties: true
+
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+        login_id:
+          type: string
+        user_type:
+          type: string
+          enum: [ADMIN, DOCTOR, PATIENT]
+        profile_id:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/UserProfileRef"
+        is_active:
+          type: boolean
+        must_change_password:
+          type: boolean
+        failed_login_attempts:
+          type: integer
+        locked_until:
+          type: string
+          format: date-time
+          nullable: true
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    LoginResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [token, user]
+              properties:
+                token:
+                  type: string
+                user:
+                  $ref: "#/components/schemas/User"
+
+    MeResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: "#/components/schemas/User"
+
+    ChangePasswordResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                must_change_password:
+                  type: boolean
+
+    DosageSchedule:
+      type: object
+      properties:
+        monday: { type: number, default: 0 }
+        tuesday: { type: number, default: 0 }
+        wednesday: { type: number, default: 0 }
+        thursday: { type: number, default: 0 }
+        friday: { type: number, default: 0 }
+        saturday: { type: number, default: 0 }
+        sunday: { type: number, default: 0 }
+
+    MedicalHistoryItem:
+      type: object
+      properties:
+        diagnosis:
+          type: string
+        duration_value:
+          type: number
+        duration_unit:
+          type: string
+          enum: [Days, Weeks, Months, Years]
+
+    TargetInr:
+      type: object
+      properties:
+        min:
+          type: number
+        max:
+          type: number
+
+    NextOfKin:
+      type: object
+      properties:
+        name:
+          type: string
+        relation:
+          type: string
+        relationship:
+          type: string
+        phone:
+          type: string
+
+    PatientDemographics:
+      type: object
+      properties:
+        name:
+          type: string
+        age:
+          type: integer
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        phone:
+          type: string
+        next_of_kin:
+          $ref: "#/components/schemas/NextOfKin"
+
+    MedicalConfig:
+      type: object
+      properties:
+        diagnosis:
+          type: string
+        therapy_drug:
+          type: string
+        therapy_start_date:
+          type: string
+          format: date-time
+          nullable: true
+        target_inr:
+          $ref: "#/components/schemas/TargetInr"
+        next_review_date:
+          type: string
+          format: date-time
+          nullable: true
+        instructions:
+          type: array
+          items:
+            type: string
+        taken_doses:
+          type: array
+          items:
+            type: string
+            format: date-time
+
+    InrHistoryItem:
+      type: object
+      properties:
+        _id:
+          type: string
+        test_date:
+          type: string
+          format: date-time
+        uploaded_at:
+          type: string
+          format: date-time
+        inr_value:
+          type: number
+        is_critical:
+          type: boolean
+        file_url:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    HealthLogItem:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        type:
+          type: string
+        description:
+          type: string
+        feedback:
+          oneOf:
+            - type: string
+            - type: boolean
+            - type: "null"
+
+    PatientProfile:
+      type: object
+      properties:
+        _id:
+          type: string
+        assigned_doctor_id:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/User"
+        hospital_id:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/PublicHospital"
+        demographics:
+          $ref: "#/components/schemas/PatientDemographics"
+        medical_config:
+          $ref: "#/components/schemas/MedicalConfig"
+        medical_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicalHistoryItem"
+        weekly_dosage:
+          $ref: "#/components/schemas/DosageSchedule"
+        inr_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/InrHistoryItem"
+        health_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthLogItem"
+        account_status:
+          type: string
+          enum: [Active, Discharged, Deceased]
+        profile_picture_url:
+          type: string
+          nullable: true
+        login_id:
+          type: string
+          nullable: true
+
+    DoctorProfile:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        department:
+          type: string
+        contact_number:
+          type: string
+        profile_picture_url:
+          type: string
+          nullable: true
+        hospital_id:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/PublicHospital"
+
+    NotificationEvent:
+      type: object
+      properties:
+        _id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        data:
+          type: object
+          additionalProperties: true
+
+    DoctorUpdateEvent:
+      type: object
+      properties:
+        _id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        change_type:
+          type: string
+        changed_fields:
+          type: array
+          items:
+            type: string
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        changed_by_doctor_id:
+          nullable: true
+
+    NotificationListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                notifications:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/NotificationEvent"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+                unread_count:
+                  type: integer
+
+    DoctorUpdateSummaryResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                unread_count:
+                  type: integer
+                latest:
+                  anyOf:
+                    - $ref: "#/components/schemas/DoctorUpdateEvent"
+                    - type: "null"
+
+    DoctorUpdateListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                updates:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DoctorUpdateEvent"
+
+    MarkedCountResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                marked_count:
+                  type: integer
+
+    PatientProfileResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/User"
+                doctor_updates:
+                  type: object
+                  properties:
+                    unread_count:
+                      type: integer
+                    latest:
+                      anyOf:
+                        - $ref: "#/components/schemas/DoctorUpdateEvent"
+                        - type: "null"
+
+    PatientReportsPayload:
+      type: object
+      properties:
+        inr_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/InrHistoryItem"
+        health_logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthLogItem"
+        weekly_dosage:
+          $ref: "#/components/schemas/DosageSchedule"
+        medical_config:
+          $ref: "#/components/schemas/MedicalConfig"
+
+    PatientReportsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                report:
+                  $ref: "#/components/schemas/PatientReportsPayload"
+
+    PatientReportUploadRequest:
+      type: object
+      required: [inr_value, test_date]
+      properties:
+        inr_value:
+          type: string
+          example: "2.7"
+        test_date:
+          type: string
+          pattern: "^[0-9]{2}-[0-9]{2}-[0-9]{4}$"
+          example: 05-07-2026
+        file:
+          type: string
+          format: binary
+          description: Optional PDF or image up to 10 MB
+
+    PatientReportSubmitResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/PatientProfile"
+
+    PatientProfileUpdateRequest:
+      type: object
+      properties:
+        demographics:
+          $ref: "#/components/schemas/PatientDemographics"
+        medical_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicalHistoryItem"
+        medical_config:
+          type: object
+          properties:
+            therapy_start_date:
+              oneOf:
+                - type: string
+                  format: date-time
+                - type: string
+                  pattern: "^[0-9]{2}-[0-9]{2}-[0-9]{4}$"
+
+    PatientProfileUpdateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                profile:
+                  $ref: "#/components/schemas/PatientProfile"
+
+    TakeDosageRequest:
+      type: object
+      required: [date]
+      properties:
+        date:
+          type: string
+          pattern: "^[0-9]{2}-[0-9]{2}-[0-9]{4}$"
+          example: 05-07-2026
+
+    TakeDosageResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/PatientProfile"
+
+    MissedDoseResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                recent_missed_doses:
+                  type: array
+                  items:
+                    type: string
+                missed_doses:
+                  type: array
+                  items:
+                    type: string
+
+    CalendarDataItem:
+      type: object
+      properties:
+        date:
+          type: string
+        status:
+          type: string
+          enum: [taken, missed, scheduled]
+        dosage:
+          type: number
+        day_of_week:
+          type: string
+
+    DosageCalendarResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                calendar_data:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CalendarDataItem"
+                date_range:
+                  type: object
+                  properties:
+                    start:
+                      type: string
+                    end:
+                      type: string
+                therapy_start:
+                  type: string
+
+    HealthLogRequest:
+      type: object
+      required: [type, description]
+      properties:
+        type:
+          type: string
+          example: BLEEDING
+        description:
+          type: string
+
+    ProfilePictureUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: PNG, JPEG, JPG, or WEBP up to 5 MB
+
+    DoctorProfileResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                doctor:
+                  $ref: "#/components/schemas/User"
+                patients_count:
+                  type: integer
+
+    DoctorProfileUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        department:
+          type: string
+        contact_number:
+          type: string
+
+    DoctorListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                doctors:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+
+    DoctorPatientListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patients:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/PatientProfile"
+
+    DoctorPatientDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/PatientProfile"
+
+    DoctorCreatePatientRequest:
+      type: object
+      required:
+        - name
+        - op_num
+        - gender
+        - contact_no
+        - kin_contact_number
+      properties:
+        name:
+          type: string
+        op_num:
+          type: string
+        age:
+          type: number
+          maximum: 100
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        contact_no:
+          type: string
+          minLength: 10
+          maxLength: 10
+        target_inr_min:
+          type: number
+        target_inr_max:
+          type: number
+        therapy:
+          type: string
+        therapy_start_date:
+          type: string
+          example: 05-07-2026
+        prescription:
+          $ref: "#/components/schemas/DosageSchedule"
+        medical_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/MedicalHistoryItem"
+        kin_name:
+          type: string
+        kin_relation:
+          type: string
+        kin_contact_number:
+          type: string
+
+    DoctorPatientCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/PatientProfile"
+
+    ReassignPatientRequest:
+      type: object
+      required: [new_doctor_id]
+      properties:
+        new_doctor_id:
+          type: string
+
+    UpdateDosageRequest:
+      type: object
+      required: [prescription]
+      properties:
+        prescription:
+          $ref: "#/components/schemas/DosageSchedule"
+
+    DoctorReportListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                inr_history:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/InrHistoryItem"
+
+    DoctorSingleReportResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                report:
+                  $ref: "#/components/schemas/InrHistoryItem"
+
+    UpdateReportRequest:
+      type: object
+      properties:
+        is_critical:
+          type: boolean
+        notes:
+          type: string
+
+    UpdateNextReviewRequest:
+      type: object
+      required: [date]
+      properties:
+        date:
+          type: string
+          pattern: "^[0-9]{2}-[0-9]{2}-[0-9]{4}$"
+
+    UpdateInstructionsRequest:
+      type: object
+      required: [instructions]
+      properties:
+        instructions:
+          type: array
+          items:
+            type: string
+
+    GenericDataResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties: true
+
+    HospitalCreateRequest:
+      type: object
+      required: [code, name, location, admin_email]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        admin_email:
+          type: string
+          format: email
+        metadata:
+          type: object
+          additionalProperties: true
+
+    HospitalUpdateRequest:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        admin_email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, suspended, inactive]
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AdminCreateDoctorRequest:
+      type: object
+      required: [login_id, password, name]
+      properties:
+        login_id:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 8
+          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}$"
+        name:
+          type: string
+        department:
+          type: string
+        contact_number:
+          type: string
+        profile_picture_url:
+          type: string
+          format: uri
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+
+    AdminUpdateDoctorRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        department:
+          type: string
+        contact_number:
+          type: string
+        profile_picture_url:
+          type: string
+          format: uri
+          nullable: true
+        is_active:
+          type: boolean
+        password:
+          type: string
+          minLength: 8
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+
+    AdminCreatePatientRequest:
+      type: object
+      required: [login_id, password, assigned_doctor_id, demographics]
+      properties:
+        login_id:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 8
+          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}$"
+        assigned_doctor_id:
+          type: string
+        demographics:
+          $ref: "#/components/schemas/PatientDemographics"
+        medical_config:
+          type: object
+          properties:
+            diagnosis:
+              type: string
+            therapy_drug:
+              type: string
+            therapy_start_date:
+              type: string
+            target_inr:
+              $ref: "#/components/schemas/TargetInr"
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+
+    AdminUpdatePatientRequest:
+      type: object
+      properties:
+        demographics:
+          $ref: "#/components/schemas/PatientDemographics"
+        medical_config:
+          type: object
+          properties:
+            diagnosis:
+              type: string
+            therapy_drug:
+              type: string
+            therapy_start_date:
+              type: string
+            target_inr:
+              $ref: "#/components/schemas/TargetInr"
+        assigned_doctor_id:
+          type: string
+        account_status:
+          type: string
+          enum: [Active, Discharged, Deceased]
+        is_active:
+          type: boolean
+        password:
+          type: string
+          minLength: 8
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+
+    AdminResetPasswordRequest:
+      type: object
+      required: [target_user_id]
+      properties:
+        target_user_id:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+
+    BatchOperationRequest:
+      type: object
+      required: [operation, user_ids]
+      properties:
+        operation:
+          type: string
+          enum: [activate, deactivate, reset_password]
+        user_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+
+    SystemConfig:
+      type: object
+      properties:
+        inr_thresholds:
+          type: object
+          properties:
+            critical_low:
+              type: number
+            critical_high:
+              type: number
+        session_timeout_minutes:
+          type: integer
+        rate_limit:
+          type: object
+          properties:
+            max_requests:
+              type: integer
+            window_minutes:
+              type: integer
+        feature_flags:
+          type: object
+          additionalProperties:
+            type: boolean
+        is_active:
+          type: boolean
+
+    SystemConfigUpdateRequest:
+      type: object
+      properties:
+        inr_thresholds:
+          type: object
+          properties:
+            critical_low:
+              type: number
+            critical_high:
+              type: number
+        session_timeout_minutes:
+          type: integer
+        rate_limit:
+          type: object
+          properties:
+            max_requests:
+              type: integer
+            window_minutes:
+              type: integer
+        feature_flags:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    SystemConfigResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SystemConfig"
+
+    BroadcastNotificationRequest:
+      type: object
+      required: [title, message, target]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        message:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        target:
+          type: string
+          enum: [ALL, DOCTORS, PATIENTS, SPECIFIC]
+        user_ids:
+          type: array
+          items:
+            type: string
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
