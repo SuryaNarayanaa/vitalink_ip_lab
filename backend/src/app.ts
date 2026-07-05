@@ -9,8 +9,12 @@ import logger from "./utils/logger";
 import cors from "cors";
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
+import { config } from "./config";
+import { apiLimiter, authLimiter } from "./config/ratelimiter";
+import { apiVersionHeaders, legacyApiHeaders } from "./middlewares/apiVersion.middleware";
 
 const app = express();
+app.set('trust proxy', config.trustProxy);
 const dbStates: Record<number, string> = {
   0: 'disconnected',
   1: 'connected',
@@ -53,20 +57,66 @@ app.use(morgan(':method :safe-url :status :res[content-length] - :response-time 
   }
 }));
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true)
+      return
+    }
+
+    if (config.nodeEnv !== 'production' && config.corsAllowedOrigins.length === 0) {
+      callback(null, true)
+      return
+    }
+
+    if (config.corsAllowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+
+    callback(new ApiError(StatusCodes.FORBIDDEN, 'CORS origin is not allowed'))
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-API-Version'],
+  exposedHeaders: ['X-Request-Id', 'X-API-Version', 'X-API-Supported-Versions', 'Deprecation', 'Sunset', 'Link'],
   optionsSuccessStatus: 204,
 }));
 
-app.use(express.json());
+app.use((req: Request, res: Response, next: NextFunction) => {
+  req.setTimeout(config.requestTimeoutMs)
+  res.setTimeout(config.requestTimeoutMs)
+  next()
+})
+
+app.use(express.json({ limit: config.jsonBodyLimit }));
 
 app.get("/", (req, res) => {
-  return res.json(new ApiResponse(StatusCodes.OK, "The Api is running"))
+  return res.json(new ApiResponse(StatusCodes.OK, "The Api is running", {
+    current_api_version: config.apiVersion,
+    versioned_base_path: `/api/${config.apiVersion}`,
+    legacy_base_path: '/api',
+  }))
 });
+
+app.get('/api', legacyApiHeaders, (_req, res) => {
+  return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'API index', {
+    current_version: config.apiVersion,
+    current_base_path: `/api/${config.apiVersion}`,
+    legacy_base_path: '/api',
+    legacy_sunset: config.legacyApiSunsetDate,
+  }))
+})
+
+app.get(`/api/${config.apiVersion}`, apiVersionHeaders(config.apiVersion), (_req, res) => {
+  return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'API version index', {
+    version: config.apiVersion,
+    routes: ['auth', 'doctors', 'patient', 'admin', 'statistics'],
+  }))
+})
 
 app.get('/health/live', (req, res) => {
   return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Service is live'))
@@ -90,7 +140,18 @@ app.get('/health/ready', (req, res) => {
   return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Service is ready', responseData));
 });
 
-app.use("/api", router);
+app.use(`/api/${config.apiVersion}/auth/login`, apiVersionHeaders(config.apiVersion), authLimiter);
+app.use('/api/auth/login', legacyApiHeaders, authLimiter);
+
+app.use(`/api/${config.apiVersion}`, apiLimiter, apiVersionHeaders(config.apiVersion), router);
+app.use("/api", apiLimiter, legacyApiHeaders, router);
+app.use('/api', (req, res) => {
+  return res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'API route not found', {
+    path: req.originalUrl,
+    current_api_version: config.apiVersion,
+    current_base_path: `/api/${config.apiVersion}`,
+  }))
+});
 app.use(errorHandler);
 
 export default app;

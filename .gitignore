@@ -9,3 +9,5 @@ deploy/nginx/certs/
 .DS_Store
 Thumbs.db
 deploy/vitalink-pem-key-pair.pem
+.vercel
+.env*

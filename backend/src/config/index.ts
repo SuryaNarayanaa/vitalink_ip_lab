@@ -11,6 +11,18 @@ interface Config {
   accessKeyId: string
   secretAccessKey: string
   bucketName?: string
+  apiVersion: string
+  legacyApiSunsetDate: string
+  corsAllowedOrigins: string[]
+  jsonBodyLimit: string
+  requestTimeoutMs: number
+  rateLimitWindowMs: number
+  rateLimitMaxRequests: number
+  authRateLimitWindowMs: number
+  authRateLimitMaxRequests: number
+  maxFailedLoginAttempts: number
+  accountLockoutMinutes: number
+  trustProxy: boolean | number
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -41,6 +53,31 @@ function getEnv(
   return ''
 }
 
+function getIntEnv(key: string, defaultValue: number): number {
+  const value = process.env[key]?.trim()
+  if (!value) return defaultValue
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
+}
+
+function getCorsOrigins(): string[] {
+  const raw = process.env.CORS_ALLOWED_ORIGINS?.trim()
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+}
+
+function getTrustProxy(): boolean | number {
+  const raw = process.env.TRUST_PROXY?.trim().toLowerCase()
+  if (!raw) return isProduction ? 1 : false
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : false
+}
+
 const defaultDatabaseUrl = isTest
   ? 'mongodb://localhost:27017/VitaLink_test'
   : 'mongodb://localhost:27017/VitaLink'
@@ -59,5 +96,17 @@ export const config: Config = {
   accessKeyId: getEnv('ACCESS_KEY_ID', { requiredInProduction: true }),
   secretAccessKey: getEnv('SECRET_ACCESS_KEY', { requiredInProduction: true }),
   bucketName: getEnv('S3_BUCKET_NAME', { requiredInProduction: true }),
+  apiVersion: getEnv('API_VERSION', { defaultValue: 'v1' }),
+  legacyApiSunsetDate: getEnv('LEGACY_API_SUNSET_DATE', { defaultValue: '2026-10-01' }),
+  corsAllowedOrigins: getCorsOrigins(),
+  jsonBodyLimit: getEnv('JSON_BODY_LIMIT', { defaultValue: '1mb' }),
+  requestTimeoutMs: getIntEnv('REQUEST_TIMEOUT_MS', 30_000),
+  rateLimitWindowMs: getIntEnv('RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
+  rateLimitMaxRequests: getIntEnv('RATE_LIMIT_MAX_REQUESTS', 200),
+  authRateLimitWindowMs: getIntEnv('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
+  authRateLimitMaxRequests: getIntEnv('AUTH_RATE_LIMIT_MAX_REQUESTS', 20),
+  maxFailedLoginAttempts: getIntEnv('MAX_FAILED_LOGIN_ATTEMPTS', 5),
+  accountLockoutMinutes: getIntEnv('ACCOUNT_LOCKOUT_MINUTES', 15),
+  trustProxy: getTrustProxy(),
 }
 

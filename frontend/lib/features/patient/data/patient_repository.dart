@@ -12,7 +12,7 @@ class PatientRepository {
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
 
-  static const String _patientBasePath = '/api/patient';
+  static const String _patientBasePath = '${AppStrings.apiPathPrefix}/patient';
 
   Future<Map<String, dynamic>> getProfile() async {
     final response = await _apiClient.getRaw('$_patientBasePath/profile');

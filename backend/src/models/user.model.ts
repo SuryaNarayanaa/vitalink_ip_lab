@@ -34,7 +34,13 @@ const UserSchema = new mongoose.Schema({
   },
   is_active: { type: Boolean, default: true },
   must_change_password: { type: Boolean, default: false },
+  failed_login_attempts: { type: Number, default: 0, min: 0 },
+  locked_until: { type: Date },
+  last_login_at: { type: Date },
+  last_failed_login_at: { type: Date },
 }, { timestamps: true });
+
+UserSchema.index({ locked_until: 1 });
 
 UserSchema.pre('validate', async function () {
   const map: Record<string, string> = {
