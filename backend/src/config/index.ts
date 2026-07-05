@@ -23,6 +23,10 @@ interface Config {
   maxFailedLoginAttempts: number
   accountLockoutMinutes: number
   trustProxy: boolean | number
+  apiDocsEnabled: boolean
+  apiDocsPath: string
+  apiDocsUsername: string
+  apiDocsPassword: string
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -60,6 +64,12 @@ function getIntEnv(key: string, defaultValue: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
 }
 
+function getBoolEnv(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key]?.trim().toLowerCase()
+  if (!value) return defaultValue
+  return ['1', 'true', 'yes', 'on'].includes(value)
+}
+
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ALLOWED_ORIGINS?.trim()
   if (!raw) return []
@@ -86,6 +96,8 @@ const defaultJwtSecret = isTest
   ? 'test-only-jwt-secret'
   : 'dev-only-jwt-secret-change-me'
 
+const apiDocsEnabled = getBoolEnv('API_DOCS_ENABLED', !isProduction)
+
 export const config: Config = {
   port: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
   databaseUrl: getEnv('MONGO_URI', { requiredInProduction: true, defaultValue: defaultDatabaseUrl }),
@@ -108,5 +120,9 @@ export const config: Config = {
   maxFailedLoginAttempts: getIntEnv('MAX_FAILED_LOGIN_ATTEMPTS', 5),
   accountLockoutMinutes: getIntEnv('ACCOUNT_LOCKOUT_MINUTES', 15),
   trustProxy: getTrustProxy(),
+  apiDocsEnabled,
+  apiDocsPath: getEnv('API_DOCS_PATH', { defaultValue: '/docs' }),
+  apiDocsUsername: getEnv('API_DOCS_USERNAME', { requiredInProduction: apiDocsEnabled }),
+  apiDocsPassword: getEnv('API_DOCS_PASSWORD', { requiredInProduction: apiDocsEnabled }),
 }
 

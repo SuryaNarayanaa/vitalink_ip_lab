@@ -140,6 +140,11 @@ app.get('/health/ready', (req, res) => {
   return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Service is ready', responseData));
 });
 
+if (config.apiDocsEnabled) {
+  const docsRouter = require("./routes/docs.routes").default;
+  app.use(config.apiDocsPath, docsRouter);
+}
+
 app.use(`/api/${config.apiVersion}/auth/login`, apiVersionHeaders(config.apiVersion), authLimiter);
 app.use('/api/auth/login', legacyApiHeaders, authLimiter);
 
