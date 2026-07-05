@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://vitalink-ip-lab-1.onrender.com/api/$1"
+      "destination": "https://vitalink-uimf.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
