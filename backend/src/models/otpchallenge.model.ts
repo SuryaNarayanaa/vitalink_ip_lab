@@ -48,13 +48,16 @@ const OtpChallengeSchema = new mongoose.Schema({
   phone_last4: {
     type: String,
   },
-  otp_hash: {
+  provider: {
     type: String,
-    required: [true, 'OTP hash is required'],
+    required: true,
+    default: 'twilio_verify',
   },
-  otp_salt: {
+  provider_verification_sid: {
     type: String,
-    required: [true, 'OTP salt is required'],
+  },
+  provider_status: {
+    type: String,
   },
   expires_at: {
     type: Date,
