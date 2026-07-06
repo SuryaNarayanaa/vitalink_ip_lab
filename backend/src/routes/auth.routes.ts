@@ -1,13 +1,16 @@
 import { Router } from "express";
 import { validate } from "@alias/middlewares/ValidateResource";
 import { authenticate } from "@alias/middlewares/authProvider.middleware";
-import { changePasswordSchema, loginSchema, resendLoginOtpSchema, verifyLoginOtpSchema } from "@alias/validators/user.validator";
+import { activateAdminTotpSchema, changePasswordSchema, loginSchema, resendLoginOtpSchema, verifyLoginOtpSchema, verifyLoginTotpSchema } from "@alias/validators/user.validator";
 import {
   changePasswordController,
+  activateAdminTotpController,
+  setupAdminTotpController,
   resendLoginOtpController,
   loginController,
   logoutController,
   getMeController,
+  verifyLoginTotpController,
   verifyLoginOtpController,
 } from "@alias/controllers/auth.controller";
 
@@ -19,10 +22,16 @@ router.post("/login/otp/verify", validate(verifyLoginOtpSchema), verifyLoginOtpC
 
 router.post("/login/otp/resend", validate(resendLoginOtpSchema), resendLoginOtpController);
 
+router.post("/login/totp/verify", validate(verifyLoginTotpSchema), verifyLoginTotpController);
+
 router.post("/logout", authenticate, logoutController);
 
 router.get("/me", authenticate, getMeController);
 
 router.post("/change-password", authenticate, validate(changePasswordSchema), changePasswordController);
+
+router.post("/admin/mfa/totp/setup", authenticate, setupAdminTotpController);
+
+router.post("/admin/mfa/totp/activate", authenticate, validate(activateAdminTotpSchema), activateAdminTotpController);
 
 export default router

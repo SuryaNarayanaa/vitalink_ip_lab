@@ -31,6 +31,9 @@ interface Config {
   otpMaxAttempts: number
   otpResendCooldownSeconds: number
   otpMaxResends: number
+  adminTotpEncryptionKey: string
+  adminTotpChallengeExpiryMinutes: number
+  adminTotpMaxAttempts: number
   twilioAccountSid: string
   twilioAuthToken: string
   twilioVerifyServiceSid: string
@@ -142,6 +145,13 @@ export const config: Config = {
   otpMaxAttempts: getIntEnv('OTP_MAX_ATTEMPTS', 5),
   otpResendCooldownSeconds: getIntEnv('OTP_RESEND_COOLDOWN_SECONDS', 60),
   otpMaxResends: getIntEnv('OTP_MAX_RESENDS', 3),
+  adminTotpEncryptionKey: getEnv('ADMIN_TOTP_ENCRYPTION_KEY', {
+    requiredInProduction: true,
+    requiredInStaging: true,
+    defaultValue: isTest ? 'test-only-admin-totp-encryption-key-32b' : '',
+  }),
+  adminTotpChallengeExpiryMinutes: getIntEnv('ADMIN_TOTP_CHALLENGE_EXPIRY_MINUTES', 5),
+  adminTotpMaxAttempts: getIntEnv('ADMIN_TOTP_MAX_ATTEMPTS', 5),
   twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID', { requiredInProduction: true, requiredInStaging: true }),
   twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN', { requiredInProduction: true, requiredInStaging: true }),
   twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID', { requiredInProduction: true, requiredInStaging: true }),

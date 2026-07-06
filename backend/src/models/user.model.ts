@@ -38,6 +38,25 @@ const UserSchema = new mongoose.Schema({
   locked_until: { type: Date },
   last_login_at: { type: Date },
   last_failed_login_at: { type: Date },
+  admin_mfa: {
+    totp: {
+      status: {
+        type: String,
+        enum: ['DISABLED', 'PENDING', 'ENABLED'],
+        default: 'DISABLED',
+      },
+      secret_ciphertext: { type: String },
+      secret_iv: { type: String },
+      secret_auth_tag: { type: String },
+      pending_secret_ciphertext: { type: String },
+      pending_secret_iv: { type: String },
+      pending_secret_auth_tag: { type: String },
+      enrolled_at: { type: Date },
+      activated_at: { type: Date },
+      last_verified_at: { type: Date },
+      last_verified_time_step: { type: Number },
+    },
+  },
 }, { timestamps: true });
 
 UserSchema.index({ locked_until: 1 });

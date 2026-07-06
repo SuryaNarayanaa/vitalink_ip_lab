@@ -36,6 +36,27 @@ export const resendLoginOtpSchema = z.object({
 
 export type ResendLoginOtpInput = z.infer<typeof resendLoginOtpSchema>
 
+export const verifyLoginTotpSchema = z.object({
+  body: z.object({
+    challenge_id: z.string().min(1, 'Challenge ID is required'),
+    code: z.string().regex(/^\d{6}$/, 'TOTP code must be 6 digits'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type VerifyLoginTotpInput = z.infer<typeof verifyLoginTotpSchema>
+
+export const activateAdminTotpSchema = z.object({
+  body: z.object({
+    code: z.string().regex(/^\d{6}$/, 'TOTP code must be 6 digits'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type ActivateAdminTotpInput = z.infer<typeof activateAdminTotpSchema>
+
 const strongPasswordSchema = z
   .string()
   .min(8, 'Password must be at least 8 characters')

@@ -42,9 +42,10 @@ import Notification from './notification.model'
 import Hospital from './hospital.model'
 import Invoice from './invoice.model'
 import OtpChallenge from './otpchallenge.model'
+import AdminMfaChallenge from './adminmfachallenge.model'
 
 
-export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice, OtpChallenge }
+export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice, OtpChallenge, AdminMfaChallenge }
 
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile
