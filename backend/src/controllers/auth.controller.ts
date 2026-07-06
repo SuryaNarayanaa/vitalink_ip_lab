@@ -1,12 +1,25 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { asyncHandler, ApiError, ApiResponse, generateToken } from '@alias/utils'
-import { AuditLog, User } from '@alias/models'
+import { AuditLog, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models'
+import {
+  OtpChallengePurpose,
+  OtpChallengeStatus,
+} from '@alias/models/otpchallenge.model'
 import { AuditAction } from '@alias/models/auditlog.model'
 import { comparePasswords } from '@alias/utils'
 import { UserType } from '@alias/validators'
-import { ChangePasswordInput, LoginInput } from '@alias/validators/user.validator'
+import { ChangePasswordInput, LoginInput, ResendLoginOtpInput, VerifyLoginOtpInput } from '@alias/validators/user.validator'
 import { config } from '@alias/config'
+import {
+  hashPhoneNumber,
+  issuePhoneVerificationOtp,
+  OtpResendBlockReason,
+  OtpVerificationResult,
+  resendPhoneVerificationOtp,
+  verifyOtpChallenge,
+} from '@alias/services/otp.service'
+import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
 
 const createAuthAuditLog = async (
   req: Request,
@@ -32,6 +45,127 @@ const createAuthAuditLog = async (
   })
 }
 
+const OTP_ELIGIBLE_USER_TYPES = new Set<UserType>([UserType.DOCTOR, UserType.PATIENT])
+
+const getSessionPayload = async (user: any) => {
+  const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
+  const populatedUser = await User.findById(user._id)
+    .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
+    .select('-password -salt')
+
+  return { token, user: populatedUser }
+}
+
+const getRegisteredPhoneState = async (user: any): Promise<{
+  phoneNumber?: string
+  isVerified: boolean
+}> => {
+  if (user.user_type === UserType.DOCTOR) {
+    const profile = await DoctorProfile.findById(user.profile_id).select('contact_number phone_verification')
+    return {
+      phoneNumber: profile?.contact_number,
+      isVerified: profile?.phone_verification?.status === 'VERIFIED',
+    }
+  }
+
+  if (user.user_type === UserType.PATIENT) {
+    const profile = await PatientProfile.findById(user.profile_id).select('demographics.phone demographics.phone_verification')
+    return {
+      phoneNumber: profile?.demographics?.phone,
+      isVerified: profile?.demographics?.phone_verification?.status === 'VERIFIED',
+    }
+  }
+
+  return { isVerified: true }
+}
+
+const buildOtpChallengeResponse = (challenge: any, phoneNumber: string) => ({
+  auth_status: 'OTP_REQUIRED',
+  challenge: {
+    challenge_id: challenge._id.toString(),
+    purpose: challenge.purpose,
+    delivery_channel: challenge.delivery_channel,
+    phone: {
+      masked: maskPhoneNumber(phoneNumber),
+      last4: challenge.phone_last4,
+    },
+    expires_at: challenge.expires_at,
+    resend_available_at: challenge.resend_available_at,
+    attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
+    max_attempts: challenge.max_attempts,
+    resend_count: challenge.resend_count,
+    max_resends: challenge.max_resends,
+  },
+})
+
+const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string) => {
+  const challenge = await OtpChallenge.findById(challengeId)
+  if (!challenge) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
+  }
+
+  if (challenge.purpose !== OtpChallengePurpose.PHONE_FIRST_LOGIN) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid OTP challenge')
+  }
+
+  const user = await User.findOne({
+    _id: challenge.user_id,
+    user_type: challenge.user_type,
+    is_active: true,
+  })
+
+  if (!user || !OTP_ELIGIBLE_USER_TYPES.has(user.user_type as UserType)) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
+  }
+
+  const { phoneNumber, isVerified } = await getRegisteredPhoneState(user)
+  if (!phoneNumber) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number is required for OTP verification')
+  }
+
+  if (isVerified) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number is already verified')
+  }
+
+  if (challenge.phone_hash !== hashPhoneNumber(phoneNumber)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'OTP challenge does not match the registered phone number')
+  }
+
+  return { challenge, user, phoneNumber }
+}
+
+const markRegisteredPhoneVerified = async (user: any, verifiedAt: Date) => {
+  if (user.user_type === UserType.DOCTOR) {
+    await DoctorProfile.updateOne(
+      {
+        _id: user.profile_id,
+        'phone_verification.status': { $ne: 'VERIFIED' },
+      },
+      {
+        $set: {
+          'phone_verification.status': 'VERIFIED',
+          'phone_verification.verified_at': verifiedAt,
+        },
+      }
+    )
+    return
+  }
+
+  if (user.user_type === UserType.PATIENT) {
+    await PatientProfile.updateOne(
+      {
+        _id: user.profile_id,
+        'demographics.phone_verification.status': { $ne: 'VERIFIED' },
+      },
+      {
+        $set: {
+          'demographics.phone_verification.status': 'VERIFIED',
+          'demographics.phone_verification.verified_at': verifiedAt,
+        },
+      }
+    )
+  }
+}
 
 export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInput["body"]>, res: Response) => {
   const { login_id, password } = req.body;
@@ -93,19 +227,132 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
   user.failed_login_attempts = 0
   user.locked_until = undefined
+  await user.save()
+
+  if (OTP_ELIGIBLE_USER_TYPES.has(user.user_type as UserType)) {
+    const { phoneNumber, isVerified } = await getRegisteredPhoneState(user)
+    if (!phoneNumber) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number is required for OTP verification')
+    }
+
+    if (!isVerified) {
+      await OtpChallenge.updateMany(
+        {
+          user_id: user._id,
+          purpose: OtpChallengePurpose.PHONE_FIRST_LOGIN,
+          status: OtpChallengeStatus.PENDING,
+        },
+        { $set: { status: OtpChallengeStatus.CANCELLED } }
+      )
+
+      const challenge = await issuePhoneVerificationOtp({
+        userId: user._id,
+        userType: user.user_type as UserType.DOCTOR | UserType.PATIENT,
+        phoneNumber,
+      })
+
+      res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
+        StatusCodes.ACCEPTED,
+        'Phone OTP verification required',
+        buildOtpChallengeResponse(challenge, phoneNumber)
+      ))
+      return
+    }
+  }
+
   user.last_login_at = new Date()
   await user.save()
 
   await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully')
 
-  const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
-
-  const populatedUser = await User.findById(user._id)
-    .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
-    .select('-password -salt')
-
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", { token, user: populatedUser }))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", await getSessionPayload(user)))
 })
+
+export const verifyLoginOtpController = asyncHandler(
+  async (req: Request<{}, {}, VerifyLoginOtpInput["body"]>, res: Response) => {
+    const { challenge_id, code } = req.body
+    const { challenge, user, phoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
+    const result = await verifyOtpChallenge(challenge._id.toString(), phoneNumber, code)
+
+    if (!result) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
+    }
+
+    if (!result.verified) {
+      const statusByResult: Partial<Record<OtpVerificationResult, StatusCodes>> = {
+        [OtpVerificationResult.INVALID]: StatusCodes.UNAUTHORIZED,
+        [OtpVerificationResult.EXPIRED]: StatusCodes.GONE,
+        [OtpVerificationResult.LOCKED]: StatusCodes.LOCKED,
+        [OtpVerificationResult.CANCELLED]: StatusCodes.GONE,
+        [OtpVerificationResult.PHONE_MISMATCH]: StatusCodes.FORBIDDEN,
+        [OtpVerificationResult.ALREADY_VERIFIED]: StatusCodes.CONFLICT,
+      }
+
+      throw new ApiError(statusByResult[result.result] || StatusCodes.BAD_REQUEST, 'OTP verification failed')
+    }
+
+    const verifiedAt = (result.update as { verified_at?: Date }).verified_at || new Date()
+    await markRegisteredPhoneVerified(user, verifiedAt)
+
+    user.last_login_at = new Date()
+    user.failed_login_attempts = 0
+    user.locked_until = undefined
+    await user.save()
+
+    await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully after phone OTP verification')
+
+    res.status(StatusCodes.OK).json(new ApiResponse(
+      StatusCodes.OK,
+      'Phone OTP verified and user logged in successfully',
+      await getSessionPayload(user)
+    ))
+  }
+)
+
+export const resendLoginOtpController = asyncHandler(
+  async (req: Request<{}, {}, ResendLoginOtpInput["body"]>, res: Response) => {
+    const { challenge_id } = req.body
+    const { challenge, phoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
+    const result = await resendPhoneVerificationOtp(challenge._id.toString(), phoneNumber)
+
+    if (!result) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
+    }
+
+    if (!result.allowed) {
+      const statusByReason: Partial<Record<OtpResendBlockReason, StatusCodes>> = {
+        [OtpResendBlockReason.COOLDOWN]: StatusCodes.TOO_MANY_REQUESTS,
+        [OtpResendBlockReason.MAX_RESENDS]: StatusCodes.TOO_MANY_REQUESTS,
+        [OtpResendBlockReason.EXPIRED]: StatusCodes.GONE,
+        [OtpResendBlockReason.LOCKED]: StatusCodes.LOCKED,
+        [OtpResendBlockReason.VERIFIED]: StatusCodes.CONFLICT,
+        [OtpResendBlockReason.CANCELLED]: StatusCodes.GONE,
+        [OtpResendBlockReason.PHONE_MISMATCH]: StatusCodes.FORBIDDEN,
+      }
+
+      const availability = result.availability as {
+        reason?: OtpResendBlockReason
+        retryAfterSeconds?: number
+      }
+      res.status(statusByReason[availability.reason!] || StatusCodes.BAD_REQUEST).json(new ApiResponse(
+        statusByReason[availability.reason!] || StatusCodes.BAD_REQUEST,
+        'OTP resend is not available',
+        {
+          reason: availability.reason,
+          retry_after_seconds: availability.retryAfterSeconds,
+        }
+      ))
+      return
+    }
+
+    const updatedChallenge = await OtpChallenge.findById(challenge._id)
+    res.status(StatusCodes.OK).json(new ApiResponse(
+      StatusCodes.OK,
+      'Phone OTP resent successfully',
+      buildOtpChallengeResponse(updatedChallenge || challenge, phoneNumber)
+    ))
+  }
+)
 
 export const logoutController = asyncHandler(async (req: Request, res: Response) => {
   if (req.user?.user_id) {
