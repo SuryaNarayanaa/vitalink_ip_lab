@@ -703,12 +703,27 @@ export async function updatePatient(
 
   const profileUpdate: any = {}
   if (data.demographics) {
-    profileUpdate.demographics = data.demographics
+    if (data.demographics.name !== undefined) profileUpdate['demographics.name'] = data.demographics.name
+    if (data.demographics.age !== undefined) profileUpdate['demographics.age'] = data.demographics.age
+    if (data.demographics.gender !== undefined) profileUpdate['demographics.gender'] = data.demographics.gender
     if (
       data.demographics.phone !== undefined &&
       data.demographics.phone !== patientProfile?.demographics?.phone
     ) {
-      profileUpdate.demographics.phone_verification = { status: 'PENDING' }
+      profileUpdate['demographics.phone'] = data.demographics.phone
+      profileUpdate['demographics.phone_verification'] = { status: 'PENDING' }
+    }
+    if (data.demographics.next_of_kin) {
+      if (data.demographics.next_of_kin.name !== undefined) {
+        profileUpdate['demographics.next_of_kin.name'] = data.demographics.next_of_kin.name
+      }
+      if (data.demographics.next_of_kin.relation !== undefined || data.demographics.next_of_kin.relationship !== undefined) {
+        profileUpdate['demographics.next_of_kin.relation'] =
+          data.demographics.next_of_kin.relation ?? data.demographics.next_of_kin.relationship
+      }
+      if (data.demographics.next_of_kin.phone !== undefined) {
+        profileUpdate['demographics.next_of_kin.phone'] = data.demographics.next_of_kin.phone
+      }
     }
   }
   if (data.medical_config) profileUpdate.medical_config = data.medical_config

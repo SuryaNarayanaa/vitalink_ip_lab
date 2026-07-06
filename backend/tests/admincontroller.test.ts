@@ -17,6 +17,7 @@ describe('Admin Routes', () => {
     let secondaryDoctorUser: any;
     let baselinePatientUser: any;
     let createdDoctorId: string;
+    let createdPatientId: string;
     let createdPatientLoginId: string;
 
     beforeAll(async () => {
@@ -262,6 +263,7 @@ describe('Admin Routes', () => {
             expect(response.data.data.user.user_type).toBe('PATIENT');
             expect(response.data.data.user.login_id).toBe(createdPatientLoginId);
             expect(response.data.data.user.profile_id.demographics.phone_verification.status).toBe('PENDING');
+            createdPatientId = response.data.data.user._id;
         });
 
         test('should fail creating patient with invalid doctor identifier', async () => {
@@ -295,6 +297,31 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(400);
             expect(response.data.success).toBe(false);
+        });
+
+        test('should preserve patient phone and verification when updating demographics without phone', async () => {
+            const createdPatient = await User.findById(createdPatientId);
+            await PatientProfile.findByIdAndUpdate(createdPatient?.profile_id, {
+                'demographics.phone_verification': {
+                    status: 'VERIFIED',
+                    verified_at: new Date('2026-01-01T00:00:00.000Z')
+                }
+            });
+
+            const response = await api.put(`/api/admin/patients/${createdPatientId}`, {
+                demographics: {
+                    name: 'Renamed Admin Patient'
+                }
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.profile_id.demographics.name).toBe('Renamed Admin Patient');
+            expect(response.data.data.profile_id.demographics.phone).toBe('9222222222');
+            expect(response.data.data.profile_id.demographics.phone_verification.status).toBe('VERIFIED');
+            expect(response.data.data.profile_id.demographics.phone_verification.verified_at).toBeDefined();
         });
 
         test('should reassign patient to another doctor', async () => {
