@@ -2,8 +2,26 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile } from '@alias/models';
+import { AdminProfile, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
+import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
+
+var mockStartVerification: jest.Mock;
+var mockCheckVerification: jest.Mock;
+
+jest.mock('@alias/services/twilio-verify.service', () => ({
+    __esModule: true,
+    maskPhoneNumber: (phoneNumber: string) => {
+        const digits = phoneNumber.replace(/\D/g, '');
+        if (digits.length <= 4) return '****';
+        return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
+    },
+    twilioVerifyService: {
+        startVerification: (mockStartVerification = jest.fn()),
+        checkVerification: (mockCheckVerification = jest.fn()),
+    },
+    TwilioVerifyService: jest.fn(),
+}));
 
 describe('Auth Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -12,6 +30,11 @@ describe('Auth Routes', () => {
     let baseURL: string;
     let testUser: any;
     let testToken: string;
+    let unverifiedDoctorUser: any;
+    let unverifiedDoctorProfile: any;
+    let unverifiedPatientUser: any;
+    let unverifiedPatientProfile: any;
+    let adminUser: any;
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
@@ -29,7 +52,11 @@ describe('Auth Routes', () => {
         const doctorProfile = await DoctorProfile.create({
             name: 'Test Doctor',
             department: 'General',
-            contact_number: '9999999999'
+            contact_number: 'doctor-channel-ending-2222',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date(),
+            },
         });
 
         testUser = await User.create({
@@ -39,6 +66,53 @@ describe('Auth Routes', () => {
             profile_id: doctorProfile._id,
             is_active: true
         });
+
+        unverifiedDoctorProfile = await DoctorProfile.create({
+            name: 'Unverified Doctor',
+            department: 'General',
+            contact_number: 'doctor-channel-ending-3333',
+            phone_verification: {
+                status: 'PENDING',
+            },
+        });
+
+        unverifiedDoctorUser = await User.create({
+            login_id: 'unverified-doctor',
+            password: 'testpassword123',
+            user_type: 'DOCTOR',
+            profile_id: unverifiedDoctorProfile._id,
+            is_active: true
+        });
+
+        unverifiedPatientProfile = await PatientProfile.create({
+            demographics: {
+                name: 'Unverified Patient',
+                phone: 'patient-channel-ending-4444',
+                phone_verification: {
+                    status: 'PENDING',
+                },
+            },
+        });
+
+        unverifiedPatientUser = await User.create({
+            login_id: 'unverified-patient',
+            password: 'testpassword123',
+            user_type: 'PATIENT',
+            profile_id: unverifiedPatientProfile._id,
+            is_active: true
+        });
+
+        const adminProfile = await AdminProfile.create({
+            name: 'Test Admin',
+        }) as any;
+
+        adminUser = await User.create({
+            login_id: 'admin-user',
+            password: 'testpassword123',
+            user_type: 'ADMIN',
+            profile_id: adminProfile._id,
+            is_active: true
+        });
     }, 120000);
 
     afterAll(async () => {
@@ -46,6 +120,19 @@ describe('Auth Routes', () => {
         await mongoose.connection.close();
         await mongoContainer.stop();
         server.close();
+    });
+
+    beforeEach(() => {
+        mockStartVerification.mockReset();
+        mockCheckVerification.mockReset();
+        mockStartVerification.mockResolvedValue({
+            sid: 'test-verification-id',
+            status: 'pending',
+        });
+        mockCheckVerification.mockResolvedValue({
+            status: 'approved',
+            valid: true,
+        });
     });
 
     describe('POST /api/auth/login', () => {
@@ -61,6 +148,239 @@ describe('Auth Routes', () => {
             expect(response.data.data.user).toBeDefined();
             expect(response.data.data.user.login_id).toBe('testuser');
             testToken = response.data.data.token;
+        });
+
+        test('should return a phone OTP challenge for unverified patient login without issuing a token', async () => {
+            const response = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+
+            expect(response.status).toBe(202);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
+            expect(response.data.data.token).toBeUndefined();
+            expect(response.data.data.challenge.challenge_id).toBeDefined();
+            expect(response.data.data.challenge.phone.masked).toBe('********4444');
+            expect(response.data.data.challenge.phone.masked).not.toContain('patient-channel');
+            expect(mockStartVerification).toHaveBeenCalledWith('patient-channel-ending-4444', 'sms');
+
+            const savedChallenge = await OtpChallenge.findById(response.data.data.challenge.challenge_id);
+            expect(savedChallenge?.user_id.toString()).toBe(unverifiedPatientUser._id.toString());
+            expect(savedChallenge?.user_type).toBe('PATIENT');
+            expect(savedChallenge?.phone_hash).not.toContain('4444');
+        });
+
+        test('should return a phone OTP challenge for unverified doctor login', async () => {
+            const response = await api.post('/api/auth/login', {
+                login_id: 'unverified-doctor',
+                password: 'testpassword123'
+            });
+
+            expect(response.status).toBe(202);
+            expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
+            expect(response.data.data.challenge.phone.masked).toBe('********3333');
+            expect(mockStartVerification).toHaveBeenCalledWith('doctor-channel-ending-3333', 'sms');
+        });
+
+        test('should login admin without phone OTP behavior', async () => {
+            const response = await api.post('/api/auth/login', {
+                login_id: 'admin-user',
+                password: 'testpassword123'
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.token).toBeDefined();
+            expect(response.data.data.user.login_id).toBe('admin-user');
+            expect(mockStartVerification).not.toHaveBeenCalled();
+        });
+
+        test('should verify patient login OTP, mark phone verified, and issue a token', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone_verification.status': 'PENDING',
+                    'demographics.phone_verification.verified_at': undefined,
+                },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+            const challengeId = loginResponse.data.data.challenge.challenge_id;
+
+            const response = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: challengeId,
+                code: 'candidate-code',
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.token).toBeDefined();
+            expect(response.data.data.user.login_id).toBe('unverified-patient');
+            expect(mockCheckVerification).toHaveBeenCalledWith('patient-channel-ending-4444', 'candidate-code');
+
+            const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
+            expect(patientProfile?.demographics?.phone_verification?.status).toBe('VERIFIED');
+            expect(patientProfile?.demographics?.phone_verification?.verified_at).toBeDefined();
+        });
+
+        test('should not mark phone verified after Twilio rejects login OTP', async () => {
+            await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
+                $set: {
+                    'phone_verification.status': 'PENDING',
+                    'phone_verification.verified_at': undefined,
+                },
+            });
+            mockCheckVerification.mockResolvedValueOnce({
+                status: 'pending',
+                valid: false,
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-doctor',
+                password: 'testpassword123'
+            });
+            const response = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: loginResponse.data.data.challenge.challenge_id,
+                code: 'candidate-code',
+            });
+
+            expect(response.status).toBe(401);
+            expect(response.data.data?.token).toBeUndefined();
+
+            const doctorProfile = await DoctorProfile.findById(unverifiedDoctorProfile._id);
+            expect(doctorProfile?.phone_verification?.status).toBe('PENDING');
+            expect(doctorProfile?.phone_verification?.verified_at).toBeUndefined();
+        });
+
+        test('should reject expired and locked login OTP challenges before issuing a token', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone_verification.status': 'PENDING',
+                    'demographics.phone_verification.verified_at': undefined,
+                },
+            });
+
+            const expiredLogin = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+            await OtpChallenge.findByIdAndUpdate(expiredLogin.data.data.challenge.challenge_id, {
+                $set: { expires_at: new Date(Date.now() - 1000) },
+            });
+
+            const expiredResponse = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: expiredLogin.data.data.challenge.challenge_id,
+                code: 'candidate-code',
+            });
+            expect(expiredResponse.status).toBe(410);
+
+            const lockedLogin = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+            await OtpChallenge.findByIdAndUpdate(lockedLogin.data.data.challenge.challenge_id, {
+                $set: {
+                    status: OtpChallengeStatus.LOCKED,
+                    attempt_count: 5,
+                },
+            });
+
+            const lockedResponse = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: lockedLogin.data.data.challenge.challenge_id,
+                code: 'candidate-code',
+            });
+            expect(lockedResponse.status).toBe(423);
+            expect(mockCheckVerification).not.toHaveBeenCalledWith('patient-channel-ending-4444', 'candidate-code');
+        });
+
+        test('should prevent cross-account login challenge replay after registered phone changes', async () => {
+            await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
+                $set: {
+                    contact_number: 'doctor-channel-ending-3333',
+                    'phone_verification.status': 'PENDING',
+                },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-doctor',
+                password: 'testpassword123'
+            });
+
+            await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
+                $set: { contact_number: 'doctor-channel-ending-7777' },
+            });
+
+            const response = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: loginResponse.data.data.challenge.challenge_id,
+                code: 'candidate-code',
+            });
+
+            expect(response.status).toBe(403);
+            expect(mockCheckVerification).not.toHaveBeenCalled();
+
+            await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
+                $set: { contact_number: 'doctor-channel-ending-3333' },
+            });
+        });
+
+        test('should not issue a token if the phone changes after Twilio approves but before profile verification update', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone': 'patient-channel-ending-4444',
+                    'demographics.phone_verification.status': 'PENDING',
+                    'demographics.phone_verification.verified_at': undefined,
+                },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+            const challengeId = loginResponse.data.data.challenge.challenge_id;
+
+            mockCheckVerification.mockImplementationOnce(async () => {
+                await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                    $set: { 'demographics.phone': 'patient-channel-ending-8888' },
+                });
+                return {
+                    status: 'approved',
+                    valid: true,
+                };
+            });
+
+            const response = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: challengeId,
+                code: 'candidate-code',
+            });
+
+            expect(response.status).toBe(409);
+            expect(response.data.data?.token).toBeUndefined();
+
+            const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
+            expect(patientProfile?.demographics?.phone).toBe('patient-channel-ending-8888');
+            expect(patientProfile?.demographics?.phone_verification?.status).toBe('PENDING');
+            expect(patientProfile?.demographics?.phone_verification?.verified_at).toBeUndefined();
+        });
+
+        test('should resend login OTP through the existing challenge policy', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-doctor',
+                password: 'testpassword123'
+            });
+            const challengeId = loginResponse.data.data.challenge.challenge_id;
+            await OtpChallenge.findByIdAndUpdate(challengeId, {
+                $set: { resend_available_at: new Date(Date.now() - 1000) },
+            });
+            mockStartVerification.mockClear();
+
+            const response = await api.post('/api/auth/login/otp/resend', {
+                challenge_id: challengeId,
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
+            expect(mockStartVerification).toHaveBeenCalledWith('doctor-channel-ending-3333', 'sms');
         });
 
         test('should fail with invalid login_id', async () => {

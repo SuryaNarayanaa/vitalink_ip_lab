@@ -15,6 +15,27 @@ export const loginSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema> 
 
+export const verifyLoginOtpSchema = z.object({
+  body: z.object({
+    challenge_id: z.string().min(1, 'Challenge ID is required'),
+    code: z.string().min(1, 'OTP code is required'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type VerifyLoginOtpInput = z.infer<typeof verifyLoginOtpSchema>
+
+export const resendLoginOtpSchema = z.object({
+  body: z.object({
+    challenge_id: z.string().min(1, 'Challenge ID is required'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type ResendLoginOtpInput = z.infer<typeof resendLoginOtpSchema>
+
 const strongPasswordSchema = z
   .string()
   .min(8, 'Password must be at least 8 characters')
