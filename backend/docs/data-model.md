@@ -175,7 +175,9 @@ Key fields:
 |---|---|---:|---|
 | `name` | string | Yes | Doctor display name |
 | `department` | string | No | Defaults to `Cardiology` |
-| `contact_number` | string | No | Stored as free-form string |
+| `contact_number` | string | No | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | No | `PENDING` or `VERIFIED`; defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | No | Set when phone verification succeeds |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 
@@ -207,7 +209,9 @@ Embedded structures:
 | `name` | string | Required |
 | `age` | number | Optional |
 | `gender` | enum | `Male`, `Female`, `Other` |
-| `phone` | string | Optional |
+| `phone` | string | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | Defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | Set when phone verification succeeds |
 | `next_of_kin.name` | string | Optional |
 | `next_of_kin.relation` | string | Optional |
 | `next_of_kin.phone` | string | Optional |

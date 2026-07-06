@@ -348,7 +348,7 @@ export async function registerDoctor(data: {
   password: string
   name: string
   department?: string
-  contact_number?: string
+  contact_number: string
   profile_picture_url?: string
   hospital_id?: string
   hospital?: string
@@ -467,12 +467,18 @@ export async function updateDoctor(
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a doctor')
   }
   ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
+  const doctorProfile = user.profile_id as any
 
   // Update profile fields
   const profileUpdate: any = {}
   if (data.name) profileUpdate.name = data.name
   if (data.department) profileUpdate.department = data.department
-  if (data.contact_number !== undefined) profileUpdate.contact_number = data.contact_number
+  if (data.contact_number !== undefined) {
+    profileUpdate.contact_number = data.contact_number
+    if (data.contact_number !== doctorProfile?.contact_number) {
+      profileUpdate.phone_verification = { status: 'PENDING' }
+    }
+  }
   if (data.profile_picture_url !== undefined) profileUpdate.profile_picture_url = data.profile_picture_url
   if (data.hospital_id || data.hospital) {
     profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
@@ -527,7 +533,7 @@ export async function onboardPatient(data: {
     name: string
     age?: number
     gender?: 'Male' | 'Female' | 'Other'
-    phone?: string
+    phone: string
     next_of_kin?: { name?: string; relation?: string; relationship?: string; phone?: string }
   }
   medical_config?: {
@@ -693,9 +699,18 @@ export async function updatePatient(
     throw new ApiError(StatusCodes.BAD_REQUEST, 'User is not a patient')
   }
   ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
+  const patientProfile = user.profile_id as any
 
   const profileUpdate: any = {}
-  if (data.demographics) profileUpdate.demographics = data.demographics
+  if (data.demographics) {
+    profileUpdate.demographics = data.demographics
+    if (
+      data.demographics.phone !== undefined &&
+      data.demographics.phone !== patientProfile?.demographics?.phone
+    ) {
+      profileUpdate.demographics.phone_verification = { status: 'PENDING' }
+    }
+  }
   if (data.medical_config) profileUpdate.medical_config = data.medical_config
   if (data.account_status) profileUpdate.account_status = data.account_status
 

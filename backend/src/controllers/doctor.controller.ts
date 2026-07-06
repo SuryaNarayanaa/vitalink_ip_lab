@@ -475,13 +475,23 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileInput["body"]>, res: Response) => {
   const { name, contact_number, department } = req.body
   const { user_id } = req.user
-  const doctorUser = await User.findById(user_id)
+  const doctorUser = await User.findById(user_id).populate('profile_id')
   if (!doctorUser) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
   }
+  const currentProfile = doctorUser.profile_id as any
+  const profileUpdate: any = {}
+  if (name !== undefined) profileUpdate.name = name
+  if (department !== undefined) profileUpdate.department = department
+  if (contact_number !== undefined) {
+    profileUpdate.contact_number = contact_number
+    if (contact_number !== currentProfile?.contact_number) {
+      profileUpdate.phone_verification = { status: 'PENDING' }
+    }
+  }
   const updatedProfile = await DoctorProfile.findByIdAndUpdate(
-    doctorUser.profile_id,
-    { name, contact_number, department },
+    currentProfile?._id ?? doctorUser.profile_id,
+    profileUpdate,
     { new: true }
   )
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile updated successfully'))
