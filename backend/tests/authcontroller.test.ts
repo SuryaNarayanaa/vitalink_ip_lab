@@ -324,6 +324,45 @@ describe('Auth Routes', () => {
             });
         });
 
+        test('should not issue a token if the phone changes after Twilio approves but before profile verification update', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone': 'patient-channel-ending-4444',
+                    'demographics.phone_verification.status': 'PENDING',
+                    'demographics.phone_verification.verified_at': undefined,
+                },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123'
+            });
+            const challengeId = loginResponse.data.data.challenge.challenge_id;
+
+            mockCheckVerification.mockImplementationOnce(async () => {
+                await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                    $set: { 'demographics.phone': 'patient-channel-ending-8888' },
+                });
+                return {
+                    status: 'approved',
+                    valid: true,
+                };
+            });
+
+            const response = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: challengeId,
+                code: 'candidate-code',
+            });
+
+            expect(response.status).toBe(409);
+            expect(response.data.data?.token).toBeUndefined();
+
+            const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
+            expect(patientProfile?.demographics?.phone).toBe('patient-channel-ending-8888');
+            expect(patientProfile?.demographics?.phone_verification?.status).toBe('PENDING');
+            expect(patientProfile?.demographics?.phone_verification?.verified_at).toBeUndefined();
+        });
+
         test('should resend login OTP through the existing challenge policy', async () => {
             const loginResponse = await api.post('/api/auth/login', {
                 login_id: 'unverified-doctor',

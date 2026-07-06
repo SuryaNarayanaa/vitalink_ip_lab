@@ -134,11 +134,12 @@ const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string
   return { challenge, user, phoneNumber }
 }
 
-const markRegisteredPhoneVerified = async (user: any, verifiedAt: Date) => {
+const markRegisteredPhoneVerified = async (user: any, phoneNumber: string, verifiedAt: Date) => {
   if (user.user_type === UserType.DOCTOR) {
-    await DoctorProfile.updateOne(
+    const result = await DoctorProfile.updateOne(
       {
         _id: user.profile_id,
+        contact_number: phoneNumber,
         'phone_verification.status': { $ne: 'VERIFIED' },
       },
       {
@@ -148,13 +149,14 @@ const markRegisteredPhoneVerified = async (user: any, verifiedAt: Date) => {
         },
       }
     )
-    return
+    return result.matchedCount > 0 && result.modifiedCount > 0
   }
 
   if (user.user_type === UserType.PATIENT) {
-    await PatientProfile.updateOne(
+    const result = await PatientProfile.updateOne(
       {
         _id: user.profile_id,
+        'demographics.phone': phoneNumber,
         'demographics.phone_verification.status': { $ne: 'VERIFIED' },
       },
       {
@@ -164,7 +166,10 @@ const markRegisteredPhoneVerified = async (user: any, verifiedAt: Date) => {
         },
       }
     )
+    return result.matchedCount > 0 && result.modifiedCount > 0
   }
+
+  return false
 }
 
 export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInput["body"]>, res: Response) => {
@@ -292,7 +297,10 @@ export const verifyLoginOtpController = asyncHandler(
     }
 
     const verifiedAt = (result.update as { verified_at?: Date }).verified_at || new Date()
-    await markRegisteredPhoneVerified(user, verifiedAt)
+    const phoneVerified = await markRegisteredPhoneVerified(user, phoneNumber, verifiedAt)
+    if (!phoneVerified) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number changed during OTP verification')
+    }
 
     user.last_login_at = new Date()
     user.failed_login_attempts = 0
