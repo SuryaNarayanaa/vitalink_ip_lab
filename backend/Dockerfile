@@ -27,6 +27,7 @@ ENV PORT=3000
 COPY package*.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
+COPY --from=build /app/docs ./docs
 
 RUN mkdir -p uploads/profiles && chown -R node:node /app
 USER node
