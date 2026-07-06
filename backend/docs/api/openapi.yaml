@@ -1,4 +1,4 @@
-openapi: 3.1.0
+﻿openapi: 3.1.0
 info:
   title: VitaLink API
   version: 1.0.0
@@ -10,23 +10,6 @@ info:
     - The canonical integration base path is `/api/v1`.
     - Legacy `/api/*` routes remain available for backward compatibility but are deprecated.
     - Authentication uses bearer JWTs.
-<<<<<<< HEAD
-    - Some response bodies in the running service are not yet perfectly normalized; this spec documents the intended primary contract for new integrations.
-  contact:
-    name: VitaLink Engineering
-servers:
-  - url: http://localhost:3000/api/v1
-    description: Local development
-  - url: https://api.example.com/api/v1
-    description: Production placeholder
-tags:
-  - name: System
-  - name: Authentication
-  - name: Patient
-  - name: Doctor
-  - name: Admin
-  - name: Statistics
-=======
     - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware responses and logout responses use the older `{ success, message }` envelope.
     - Versioned responses expose `X-API-Version` and `X-API-Supported-Versions`. Legacy `/api/*` responses also expose `Deprecation`, `Sunset`, and `Link` headers.
     - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients may pass the JWT as a `token` query parameter when they cannot set an Authorization header.
@@ -54,7 +37,6 @@ tags:
     description: Administrative management for users, hospitals, roles, billing, audit logs, and configuration.
   - name: Statistics
     description: Administrative analytics and aggregate operational metrics.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 security:
   - bearerAuth: []
 paths:
@@ -868,13 +850,10 @@ paths:
     get:
       tags: [Doctor]
       summary: Stream doctor notifications
-<<<<<<< HEAD
-=======
       description: |
         Opens a Server-Sent Events connection for doctor notifications. The stream
         authenticates a DOCTOR JWT from either the Authorization header or the
         `token` query parameter for EventSource clients.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       parameters:
         - in: query
           name: token
@@ -889,12 +868,9 @@ paths:
             text/event-stream:
               schema:
                 type: string
-<<<<<<< HEAD
-=======
                 example: |
                   event: notification
                   data: {"id":"6870...","title":"Notification","type":"GENERAL"}
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -908,11 +884,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/RolesResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -933,23 +905,14 @@ paths:
         content:
           application/json:
             schema:
-<<<<<<< HEAD
-              type: object
-              additionalProperties: true
-=======
               $ref: "#/components/schemas/RoleUpdateRequest"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "200":
           description: Role updated
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/RoleResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -959,8 +922,6 @@ paths:
     get:
       tags: [Admin]
       summary: List hospitals
-<<<<<<< HEAD
-=======
       parameters:
         - in: query
           name: status
@@ -971,18 +932,13 @@ paths:
           name: search
           schema:
             type: string
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "200":
           description: Hospitals retrieved
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalListResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1002,11 +958,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1028,11 +980,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1056,11 +1004,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1078,11 +1022,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1111,11 +1051,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/HospitalResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1133,12 +1069,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-    post:
-      tags: [Admin]
-      summary: Generate invoices
-=======
                 $ref: "#/components/schemas/InvoiceListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1153,22 +1083,17 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/GenerateInvoicesRequest"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "201":
           description: Invoices generated
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/GenerateInvoicesResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/billing/checkout/{invoiceId}:
     post:
@@ -1186,9 +1111,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/InvoiceCheckoutResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1196,42 +1118,23 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/users:
     get:
       tags: [Admin]
       summary: List users
-<<<<<<< HEAD
-      parameters:
-        - $ref: "#/components/parameters/PageQuery"
-        - $ref: "#/components/parameters/LimitQuery"
-        - in: query
-          name: search
-          schema:
-            type: string
-        - in: query
-          name: hospital_id
-          schema:
-            type: string
-=======
       description: Returns the admin console user list. The current controller does not apply pagination or search query parameters on this route.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "200":
           description: Users retrieved
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminUserListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     post:
       tags: [Admin]
       summary: Invite or create user
@@ -1240,21 +1143,13 @@ paths:
         content:
           application/json:
             schema:
-<<<<<<< HEAD
-              type: object
-              additionalProperties: true
-=======
               $ref: "#/components/schemas/AdminUserInviteRequest"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "201":
           description: User invited
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminUserResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1264,7 +1159,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/users/{id}:
     put:
@@ -1277,21 +1171,13 @@ paths:
         content:
           application/json:
             schema:
-<<<<<<< HEAD
-              type: object
-              additionalProperties: true
-=======
               $ref: "#/components/schemas/AdminUserUpdateRequest"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "200":
           description: User updated
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminUserResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1299,7 +1185,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/users/reset-password:
     post:
@@ -1317,11 +1202,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminResetPasswordResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1329,7 +1209,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/users/batch:
     post:
@@ -1347,11 +1226,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/BatchOperationResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1359,7 +1233,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/doctors:
     get:
@@ -1390,15 +1263,11 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminDoctorListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     post:
       tags: [Admin]
       summary: Create doctor
@@ -1414,11 +1283,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1426,7 +1290,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "409":
           $ref: "#/components/responses/Conflict"
 
@@ -1448,11 +1311,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1462,7 +1320,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     delete:
       tags: [Admin]
       summary: Deactivate doctor
@@ -1474,9 +1331,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminActionMessageResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1484,7 +1338,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/patients:
     get:
@@ -1515,15 +1368,11 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminPatientListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     post:
       tags: [Admin]
       summary: Create patient
@@ -1539,11 +1388,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1551,7 +1395,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "409":
           $ref: "#/components/responses/Conflict"
 
@@ -1573,11 +1416,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1587,7 +1425,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     delete:
       tags: [Admin]
       summary: Deactivate patient
@@ -1599,9 +1436,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminActionMessageResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1609,7 +1443,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/reassign/{op_num}:
     put:
@@ -1629,11 +1462,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/AdminReassignPatientResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1643,14 +1471,11 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/audit-logs:
     get:
       tags: [Admin]
       summary: List audit logs
-<<<<<<< HEAD
-=======
       parameters:
         - $ref: "#/components/parameters/PageQuery"
         - in: query
@@ -1682,22 +1507,17 @@ paths:
           name: success
           schema:
             type: boolean
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
       responses:
         "200":
           description: Audit logs retrieved
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AuditLogListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/config:
     get:
@@ -1710,13 +1530,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemConfigResponse"
-<<<<<<< HEAD
-=======
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
     put:
       tags: [Admin]
       summary: Update system configuration
@@ -1735,13 +1552,10 @@ paths:
                 $ref: "#/components/schemas/SystemConfigResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
-<<<<<<< HEAD
-=======
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/notifications/broadcast:
     post:
@@ -1759,11 +1573,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-=======
                 $ref: "#/components/schemas/BroadcastNotificationResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
@@ -1771,7 +1580,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /admin/system/health:
     get:
@@ -1783,9 +1591,6 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/SystemHealthResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -1851,7 +1656,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   /statistics/admin:
     get:
@@ -1863,11 +1667,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/AdminStatisticsResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1890,11 +1690,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/RegistrationTrendsResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1912,11 +1708,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/InrComplianceResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1932,11 +1724,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/DoctorWorkloadResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1963,11 +1751,7 @@ paths:
           content:
             application/json:
               schema:
-<<<<<<< HEAD
-                $ref: "#/components/schemas/GenericDataResponse"
-=======
                 $ref: "#/components/schemas/PeriodStatisticsResponse"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1981,13 +1765,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-<<<<<<< HEAD
-=======
       description: |
         JWT issued by `POST /auth/login`. Send as `Authorization: Bearer <token>`.
         Route-level authorization is role-based: patient routes require PATIENT users,
         doctor routes require DOCTOR users, and admin/statistics routes require ADMIN users.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
   headers:
     XRequestId:
@@ -2146,9 +1927,6 @@ components:
         success:
           type: boolean
         data:
-<<<<<<< HEAD
-          nullable: true
-=======
           oneOf:
             - type: object
               additionalProperties: true
@@ -2158,7 +1936,6 @@ components:
             - type: number
             - type: boolean
             - type: "null"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
     SimpleSuccessResponse:
       type: object
@@ -2319,21 +2096,11 @@ components:
         failed_login_attempts:
           type: integer
         locked_until:
-<<<<<<< HEAD
-          type: string
-          format: date-time
-          nullable: true
-        last_login_at:
-          type: string
-          format: date-time
-          nullable: true
-=======
           type: [string, "null"]
           format: date-time
         last_login_at:
           type: [string, "null"]
           format: date-time
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
     LoginResponse:
       allOf:
@@ -2436,17 +2203,6 @@ components:
         therapy_drug:
           type: string
         therapy_start_date:
-<<<<<<< HEAD
-          type: string
-          format: date-time
-          nullable: true
-        target_inr:
-          $ref: "#/components/schemas/TargetInr"
-        next_review_date:
-          type: string
-          format: date-time
-          nullable: true
-=======
           type: [string, "null"]
           format: date-time
         target_inr:
@@ -2454,7 +2210,6 @@ components:
         next_review_date:
           type: [string, "null"]
           format: date-time
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         instructions:
           type: array
           items:
@@ -2481,17 +2236,9 @@ components:
         is_critical:
           type: boolean
         file_url:
-<<<<<<< HEAD
-          type: string
-          nullable: true
-        notes:
-          type: string
-          nullable: true
-=======
           type: [string, "null"]
         notes:
           type: [string, "null"]
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
     HealthLogItem:
       type: object
@@ -2544,17 +2291,9 @@ components:
           type: string
           enum: [Active, Discharged, Deceased]
         profile_picture_url:
-<<<<<<< HEAD
-          type: string
-          nullable: true
-        login_id:
-          type: string
-          nullable: true
-=======
           type: [string, "null"]
         login_id:
           type: [string, "null"]
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
     DoctorProfile:
       type: object
@@ -2568,12 +2307,7 @@ components:
         contact_number:
           type: string
         profile_picture_url:
-<<<<<<< HEAD
-          type: string
-          nullable: true
-=======
           type: [string, "null"]
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         hospital_id:
           oneOf:
             - type: string
@@ -2599,14 +2333,8 @@ components:
           type: string
           format: date-time
         read_at:
-<<<<<<< HEAD
-          type: string
-          format: date-time
-          nullable: true
-=======
           type: [string, "null"]
           format: date-time
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         data:
           type: object
           additionalProperties: true
@@ -2632,15 +2360,11 @@ components:
           type: string
           format: date-time
         changed_by_doctor_id:
-<<<<<<< HEAD
-          nullable: true
-=======
           oneOf:
             - type: string
             - type: object
               additionalProperties: true
             - type: "null"
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
 
     NotificationListResponse:
       allOf:
@@ -3081,14 +2805,6 @@ components:
               type: object
               additionalProperties: true
 
-<<<<<<< HEAD
-    HospitalCreateRequest:
-      type: object
-      required: [code, name, location, admin_email]
-      properties:
-        code:
-          type: string
-=======
     AdminRoleKey:
       type: string
       enum: [app_admin, hospital_admin, doctor, patient, auditor]
@@ -3784,7 +3500,6 @@ components:
         code:
           type: string
           description: Optional hospital code. Generated as H### when omitted.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         name:
           type: string
         location:
@@ -3792,8 +3507,6 @@ components:
         admin_email:
           type: string
           format: email
-<<<<<<< HEAD
-=======
         admin:
           type: string
           format: email
@@ -3801,7 +3514,6 @@ components:
         status:
           type: string
           enum: [active, suspended, inactive]
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         metadata:
           type: object
           additionalProperties: true
@@ -3818,13 +3530,10 @@ components:
         admin_email:
           type: string
           format: email
-<<<<<<< HEAD
-=======
         admin:
           type: string
           format: email
           description: Alias accepted by the service for admin_email.
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         status:
           type: string
           enum: [active, suspended, inactive]
@@ -3867,14 +3576,8 @@ components:
         contact_number:
           type: string
         profile_picture_url:
-<<<<<<< HEAD
-          type: string
-          format: uri
-          nullable: true
-=======
           type: [string, "null"]
           format: uri
->>>>>>> 4cb29d5 (docs: tighten VitaLink OpenAPI spec)
         is_active:
           type: boolean
         password:
