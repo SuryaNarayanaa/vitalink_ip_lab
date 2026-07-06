@@ -1,30 +1,32 @@
 import { TwilioVerifyService, maskPhoneNumber } from '@alias/services/twilio-verify.service'
 
 describe('Twilio Verify service', () => {
+  const recipient = 'patient-recipient alpha+sms'
+
   test('starts SMS verification through Twilio Verify API', async () => {
     const post = jest.fn().mockResolvedValue({
       data: {
         sid: 'test-verification-id',
         status: 'pending',
         channel: 'sms',
-        to: '+15555550123',
+        to: recipient,
       },
     })
     const service = new TwilioVerifyService({ post } as any)
 
-    const result = await service.startVerification('+15555550123', 'sms')
+    const result = await service.startVerification(recipient, 'sms')
 
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body, options] = post.mock.calls[0]
     expect(url).toContain('/Verifications')
-    expect(body.toString()).toBe('To=%2B15555550123&Channel=sms')
+    expect(body.toString()).toBe(new URLSearchParams({ To: recipient, Channel: 'sms' }).toString())
     expect(options.auth).toHaveProperty('username')
     expect(options.auth).toHaveProperty('password')
     expect(result).toEqual({
       sid: 'test-verification-id',
       status: 'pending',
       channel: 'sms',
-      to: '+15555550123',
+      to: recipient,
     })
   })
 
@@ -34,29 +36,29 @@ describe('Twilio Verify service', () => {
         sid: 'test-verification-id',
         status: 'approved',
         valid: true,
-        to: '+15555550123',
+        to: recipient,
       },
     })
     const service = new TwilioVerifyService({ post } as any)
 
-    const result = await service.checkVerification('+15555550123', '123456')
+    const result = await service.checkVerification(recipient, 'candidate-code')
 
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body, options] = post.mock.calls[0]
     expect(url).toContain('/VerificationCheck')
-    expect(body.toString()).toBe('To=%2B15555550123&Code=123456')
+    expect(body.toString()).toBe(new URLSearchParams({ To: recipient, Code: 'candidate-code' }).toString())
     expect(options.auth).toHaveProperty('username')
     expect(options.auth).toHaveProperty('password')
     expect(result).toEqual({
       sid: 'test-verification-id',
       status: 'approved',
       valid: true,
-      to: '+15555550123',
+      to: recipient,
     })
   })
 
   test('masks phone numbers for logs', () => {
-    expect(maskPhoneNumber('+1 (555) 555-0123')).toBe('*******0123')
-    expect(maskPhoneNumber('123')).toBe('****')
+    expect(maskPhoneNumber('recipient-token-abcd1234efgh5678')).toBe('****5678')
+    expect(maskPhoneNumber('recipient-ending-1234')).toBe('****')
   })
 })

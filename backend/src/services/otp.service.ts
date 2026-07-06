@@ -1,4 +1,4 @@
-import crypto, { randomInt } from 'crypto'
+import crypto from 'crypto'
 import mongoose from 'mongoose'
 import { config } from '@alias/config'
 import { OtpChallenge } from '@alias/models'
@@ -8,11 +8,9 @@ import {
   OtpDeliveryChannel,
 } from '@alias/models/otpchallenge.model'
 import { UserType } from '@alias/validators'
-import { comparePasswords, generateSalt, hashPassword } from '@alias/utils'
 import { TwilioVerifyClient, twilioVerifyService } from './twilio-verify.service'
 
 export interface OtpPolicy {
-  codeLength: number
   expiryMinutes: number
   maxAttempts: number
   resendCooldownSeconds: number
@@ -52,33 +50,11 @@ export enum OtpResendBlockReason {
 
 export function getDefaultOtpPolicy(): OtpPolicy {
   return {
-    codeLength: config.otpCodeLength,
     expiryMinutes: config.otpExpiryMinutes,
     maxAttempts: config.otpMaxAttempts,
     resendCooldownSeconds: config.otpResendCooldownSeconds,
     maxResends: config.otpMaxResends,
   }
-}
-
-export function generateOtpCode(length = config.otpCodeLength): string {
-  const normalizedLength = Math.min(Math.max(1, length), 10)
-  const upperBound = 10 ** normalizedLength
-  return randomInt(0, upperBound).toString().padStart(normalizedLength, '0')
-}
-
-export async function hashOtpCode(code: string, salt = generateSalt()) {
-  return {
-    hash: await hashPassword(code.trim(), salt),
-    salt,
-  }
-}
-
-export async function compareOtpCode(code: string, salt: string, hashedOtp: string): Promise<boolean> {
-  return comparePasswords({
-    password: code.trim(),
-    salt,
-    hashedPassword: hashedOtp,
-  })
 }
 
 export function normalizePhoneNumber(phoneNumber: string): string {
@@ -325,39 +301,79 @@ export async function resendPhoneVerificationOtp(
   provider: TwilioVerifyClient = twilioVerifyService,
   now = new Date()
 ) {
-  const challenge = await OtpChallenge.findById(challengeId)
-  if (!challenge) return null
+  const policy = getDefaultOtpPolicy()
+  const resendAvailableAt = new Date(now.getTime() + policy.resendCooldownSeconds * 1000)
+  const phoneHash = hashPhoneNumber(phoneNumber)
 
-  if (challenge.phone_hash !== hashPhoneNumber(phoneNumber)) {
+  const reservedChallenge = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: challengeId,
+      phone_hash: phoneHash,
+      status: OtpChallengeStatus.PENDING,
+      expires_at: { $gt: now },
+      $expr: {
+        $and: [
+          { $lt: ['$resend_count', '$max_resends'] },
+          { $lt: ['$attempt_count', '$max_attempts'] },
+        ],
+      },
+      $or: [
+        { resend_available_at: { $exists: false } },
+        { resend_available_at: { $lte: now } },
+      ],
+    },
+    {
+      $inc: { resend_count: 1 },
+      $set: {
+        resend_available_at: resendAvailableAt,
+        last_sent_at: now,
+        provider_status: 'send_reserved',
+      },
+    },
+    { new: true }
+  )
+
+  if (!reservedChallenge) {
+    const challenge = await OtpChallenge.findById(challengeId)
+    if (!challenge) return null
+
+    if (challenge.phone_hash !== phoneHash) {
+      return {
+        allowed: false,
+        availability: {
+          allowed: false,
+          reason: OtpResendBlockReason.PHONE_MISMATCH,
+        },
+      }
+    }
+
     return {
       allowed: false,
-      availability: {
-        allowed: false,
-        reason: OtpResendBlockReason.PHONE_MISMATCH,
-      },
+      availability: getResendAvailability(challenge, now),
     }
   }
 
-  const availability = getResendAvailability(challenge, now)
-  if (!availability.allowed) {
-    return { allowed: false, availability }
-  }
-
   const verification = await provider.startVerification(phoneNumber, config.twilioVerifyChannel)
-  const result = await buildOtpResendUpdate(
-    challenge,
-    getDefaultOtpPolicy(),
-    now,
-    verification.sid,
-    verification.status
-  )
-
-  if (result.allowed && result.update) {
-    challenge.set(result.update)
-    await challenge.save()
+  const update = {
+    provider_verification_sid: verification.sid,
+    provider_status: verification.status,
+    expires_at: new Date(now.getTime() + policy.expiryMinutes * 60 * 1000),
+    attempt_count: 0,
+    resend_available_at: resendAvailableAt,
+    last_sent_at: now,
+    status: OtpChallengeStatus.PENDING,
   }
 
-  return result
+  await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+
+  return {
+    allowed: true,
+    availability: { allowed: true },
+    update: {
+      ...update,
+      resend_count: reservedChallenge.resend_count,
+    },
+  }
 }
 
 export async function verifyOtpChallenge(
@@ -367,40 +383,80 @@ export async function verifyOtpChallenge(
   provider: TwilioVerifyClient = twilioVerifyService,
   now = new Date()
 ) {
-  const challenge = await OtpChallenge.findById(challengeId)
-  if (!challenge) return null
+  const phoneHash = hashPhoneNumber(phoneNumber)
+  const reservedChallenge = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: challengeId,
+      phone_hash: phoneHash,
+      status: OtpChallengeStatus.PENDING,
+      expires_at: { $gt: now },
+      $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+    },
+    {
+      $inc: { attempt_count: 1 },
+      $set: { provider_status: 'check_reserved' },
+    },
+    { new: true }
+  )
 
-  if (challenge.phone_hash !== hashPhoneNumber(phoneNumber)) {
+  if (!reservedChallenge) {
+    const challenge = await OtpChallenge.findById(challengeId)
+    if (!challenge) return null
+
+    if (challenge.phone_hash !== phoneHash) {
+      return {
+        verified: false,
+        result: OtpVerificationResult.PHONE_MISMATCH,
+        update: {},
+      }
+    }
+
+    const preflight = getVerificationPreflightBlock(challenge, now)
+    if (preflight) {
+      if (Object.keys(preflight.update).length > 0) {
+        await OtpChallenge.findByIdAndUpdate(challenge._id, { $set: preflight.update })
+      }
+      return preflight
+    }
+
     return {
       verified: false,
-      result: OtpVerificationResult.PHONE_MISMATCH,
-      update: {},
+      result: OtpVerificationResult.LOCKED,
+      update: { status: OtpChallengeStatus.LOCKED },
     }
-  }
-
-  const preflight = getVerificationPreflightBlock(challenge, now)
-  if (preflight) {
-    if (Object.keys(preflight.update).length > 0) {
-      challenge.set(preflight.update)
-      await challenge.save()
-    }
-    return preflight
   }
 
   const verification = await provider.checkVerification(phoneNumber, candidate)
-  const result = buildVerificationAttemptUpdate(
-    challenge,
-    verification.valid === true || verification.status === 'approved',
-    now
-  )
+  const approved = verification.valid === true || verification.status === 'approved'
 
-  if (Object.keys(result.update).length > 0) {
-    challenge.set(result.update)
-    if (verification.status) {
-      challenge.set({ provider_status: verification.status })
+  if (approved) {
+    const update = {
+      status: OtpChallengeStatus.VERIFIED,
+      verified_at: now,
+      provider_status: verification.status,
     }
-    await challenge.save()
+    await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+
+    return {
+      verified: true,
+      result: OtpVerificationResult.VERIFIED,
+      update,
+    }
   }
 
-  return result
+  const isLocked = reservedChallenge.attempt_count >= reservedChallenge.max_attempts
+  const update = {
+    status: isLocked ? OtpChallengeStatus.LOCKED : OtpChallengeStatus.PENDING,
+    provider_status: verification.status,
+  }
+  await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+
+  return {
+    verified: false,
+    result: isLocked ? OtpVerificationResult.LOCKED : OtpVerificationResult.INVALID,
+    update: {
+      attempt_count: reservedChallenge.attempt_count,
+      status: update.status,
+    },
+  }
 }

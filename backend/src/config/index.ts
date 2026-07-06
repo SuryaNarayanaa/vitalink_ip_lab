@@ -27,7 +27,6 @@ interface Config {
   apiDocsPath: string
   apiDocsUsername: string
   apiDocsPassword: string
-  otpCodeLength: number
   otpExpiryMinutes: number
   otpMaxAttempts: number
   otpResendCooldownSeconds: number
@@ -139,7 +138,6 @@ export const config: Config = {
   apiDocsPath: getEnv('API_DOCS_PATH', { defaultValue: '/docs' }),
   apiDocsUsername: getEnv('API_DOCS_USERNAME', { requiredInProduction: apiDocsEnabled }),
   apiDocsPassword: getEnv('API_DOCS_PASSWORD', { requiredInProduction: apiDocsEnabled }),
-  otpCodeLength: getIntEnv('OTP_CODE_LENGTH', 6),
   otpExpiryMinutes: getIntEnv('OTP_EXPIRY_MINUTES', 10),
   otpMaxAttempts: getIntEnv('OTP_MAX_ATTEMPTS', 5),
   otpResendCooldownSeconds: getIntEnv('OTP_RESEND_COOLDOWN_SECONDS', 60),

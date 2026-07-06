@@ -2,20 +2,19 @@ import {
   buildOtpChallengeValues,
   buildOtpResendUpdate,
   buildVerificationAttemptUpdate,
-  compareOtpCode,
-  generateOtpCode,
   getVerificationPreflightBlock,
   getResendAvailability,
-  hashOtpCode,
   isOtpExpired,
   OtpResendBlockReason,
   OtpVerificationResult,
+  resendPhoneVerificationOtp,
+  verifyOtpChallenge,
 } from '@alias/services/otp.service'
+import { OtpChallenge } from '@alias/models'
 import { OtpChallengeStatus } from '@alias/models/otpchallenge.model'
 import { UserType } from '@alias/validators'
 
 const policy = {
-  codeLength: 6,
   expiryMinutes: 10,
   maxAttempts: 3,
   resendCooldownSeconds: 60,
@@ -23,33 +22,19 @@ const policy = {
 }
 
 describe('OTP service metadata and policy helpers', () => {
-  test('generates fixed-length numeric OTP codes for standalone utility coverage', () => {
-    const code = generateOtpCode(6)
-
-    expect(code).toMatch(/^\d{6}$/)
-  })
-
-  test('hashes and verifies OTP codes without storing raw values', async () => {
-    const { hash, salt } = await hashOtpCode('123456')
-
-    expect(hash).not.toBe('123456')
-    await expect(compareOtpCode('123456', salt, hash)).resolves.toBe(true)
-    await expect(compareOtpCode('654321', salt, hash)).resolves.toBe(false)
-  })
-
   test('builds Twilio Verify challenge metadata without local OTP storage', async () => {
     const now = new Date('2026-07-06T10:00:00.000Z')
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.DOCTOR,
-      phoneNumber: '+91 98765 43210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
       providerVerificationSid: 'test-verification-id',
       providerStatus: 'pending',
     })
 
-    expect(challenge.phone_hash).not.toContain('9876543210')
+    expect(challenge.phone_hash).not.toContain('patient-channel-ending-3210')
     expect(challenge.phone_last4).toBe('3210')
     expect(challenge).not.toHaveProperty('otp_hash')
     expect(challenge).not.toHaveProperty('otp_salt')
@@ -67,7 +52,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.PATIENT,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -85,7 +70,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.DOCTOR,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -106,7 +91,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.DOCTOR,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -124,7 +109,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.PATIENT,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -143,7 +128,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.DOCTOR,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -166,7 +151,7 @@ describe('OTP service metadata and policy helpers', () => {
     const { challenge } = await buildOtpChallengeValues({
       userId: '64f000000000000000000001',
       userType: UserType.PATIENT,
-      phoneNumber: '9876543210',
+      phoneNumber: 'patient-channel-ending-3210',
       now,
       policy,
     })
@@ -187,5 +172,106 @@ describe('OTP service metadata and policy helpers', () => {
     expect(result.update?.resend_count).toBe(1)
     expect(result.update?.expires_at.toISOString()).toBe('2026-07-06T10:11:01.000Z')
     expect(result.update?.resend_available_at.toISOString()).toBe('2026-07-06T10:02:01.000Z')
+  })
+
+  test('reserves resend quota atomically before starting Twilio verification', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      resend_count: 1,
+      attempt_count: 0,
+      max_attempts: 3,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate').mockResolvedValue(reservedChallenge as any)
+    const findByIdAndUpdate = jest.spyOn(OtpChallenge, 'findByIdAndUpdate').mockResolvedValue({} as any)
+    const provider = {
+      startVerification: jest.fn().mockResolvedValue({
+        sid: 'test-verification-id',
+        status: 'pending',
+      }),
+      checkVerification: jest.fn(),
+    }
+
+    const result = await resendPhoneVerificationOtp(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      provider,
+      now
+    )
+
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+        $expr: expect.any(Object),
+      }),
+      expect.objectContaining({
+        $inc: { resend_count: 1 },
+      }),
+      { new: true }
+    )
+    expect(provider.startVerification).toHaveBeenCalledTimes(1)
+    expect(findByIdAndUpdate).toHaveBeenCalledWith(
+      'challenge-id',
+      expect.objectContaining({ $set: expect.objectContaining({ provider_status: 'pending' }) })
+    )
+    expect(result?.allowed).toBe(true)
+
+    findOneAndUpdate.mockRestore()
+    findByIdAndUpdate.mockRestore()
+  })
+
+  test('reserves verification attempt atomically before checking Twilio code', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      attempt_count: 1,
+      max_attempts: 3,
+      resend_count: 0,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate').mockResolvedValue(reservedChallenge as any)
+    const findByIdAndUpdate = jest.spyOn(OtpChallenge, 'findByIdAndUpdate').mockResolvedValue({} as any)
+    const provider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockResolvedValue({
+        status: 'approved',
+        valid: true,
+      }),
+    }
+
+    const result = await verifyOtpChallenge(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      'candidate-code',
+      provider,
+      now
+    )
+
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+        $expr: expect.any(Object),
+      }),
+      expect.objectContaining({
+        $inc: { attempt_count: 1 },
+      }),
+      { new: true }
+    )
+    expect(provider.checkVerification).toHaveBeenCalledTimes(1)
+    expect(findByIdAndUpdate).toHaveBeenCalledWith(
+      'challenge-id',
+      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.VERIFIED }) })
+    )
+    expect(result?.verified).toBe(true)
+
+    findOneAndUpdate.mockRestore()
+    findByIdAndUpdate.mockRestore()
   })
 })
