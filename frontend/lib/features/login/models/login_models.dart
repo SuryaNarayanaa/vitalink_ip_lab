@@ -11,6 +11,27 @@ class LoginRequest {
   Map<String, dynamic> toJson() => {'login_id': loginId, 'password': password};
 }
 
+class VerifyLoginOtpRequest {
+  VerifyLoginOtpRequest({required this.challengeId, required this.code});
+
+  final String challengeId;
+  final String code;
+
+  String get path => AppStrings.loginOtpVerifyPath;
+
+  Map<String, dynamic> toJson() => {'challenge_id': challengeId, 'code': code};
+}
+
+class ResendLoginOtpRequest {
+  ResendLoginOtpRequest({required this.challengeId});
+
+  final String challengeId;
+
+  String get path => AppStrings.loginOtpResendPath;
+
+  Map<String, dynamic> toJson() => {'challenge_id': challengeId};
+}
+
 class UserModel {
   UserModel({
     required this.id,
@@ -85,12 +106,7 @@ class UserModel {
   final String? userTypeModel;
 
   String _normalize(String? raw) =>
-      raw
-          ?.trim()
-          .toUpperCase()
-          .replaceAll(' ', '_')
-          .replaceAll('-', '_') ??
-      '';
+      raw?.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_') ?? '';
 
   String get _roleSource {
     if (userTypeModel != null && userTypeModel!.trim().isNotEmpty) {
@@ -101,9 +117,7 @@ class UserModel {
 
   bool _matchesRole(String target) {
     final role = _roleSource;
-    return role == target ||
-        role.endsWith('_$target') ||
-        role.contains(target);
+    return role == target || role.endsWith('_$target') || role.contains(target);
   }
 
   bool get isDoctor => _matchesRole('DOCTOR');
@@ -116,4 +130,109 @@ class LoginResponse {
 
   final String token;
   final UserModel user;
+}
+
+class LoginOtpPhone {
+  LoginOtpPhone({required this.masked, this.last4});
+
+  factory LoginOtpPhone.fromJson(Map<String, dynamic> json) {
+    return LoginOtpPhone(
+      masked: _readString(json['masked']),
+      last4: _readNullableString(json['last4']),
+    );
+  }
+
+  final String masked;
+  final String? last4;
+}
+
+class LoginOtpChallenge {
+  LoginOtpChallenge({
+    required this.challengeId,
+    required this.purpose,
+    required this.deliveryChannel,
+    required this.phone,
+    this.expiresAt,
+    this.resendAvailableAt,
+    this.attemptsRemaining,
+    this.maxAttempts,
+    this.resendCount,
+    this.maxResends,
+  });
+
+  factory LoginOtpChallenge.fromJson(Map<String, dynamic> json) {
+    final phoneJson = json['phone'] is Map<String, dynamic>
+        ? json['phone'] as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    return LoginOtpChallenge(
+      challengeId: _readString(json['challenge_id']),
+      purpose: _readString(json['purpose']),
+      deliveryChannel: _readString(json['delivery_channel']),
+      phone: LoginOtpPhone.fromJson(phoneJson),
+      expiresAt: _readDateTime(json['expires_at']),
+      resendAvailableAt: _readDateTime(json['resend_available_at']),
+      attemptsRemaining: _readInt(json['attempts_remaining']),
+      maxAttempts: _readInt(json['max_attempts']),
+      resendCount: _readInt(json['resend_count']),
+      maxResends: _readInt(json['max_resends']),
+    );
+  }
+
+  final String challengeId;
+  final String purpose;
+  final String deliveryChannel;
+  final LoginOtpPhone phone;
+  final DateTime? expiresAt;
+  final DateTime? resendAvailableAt;
+  final int? attemptsRemaining;
+  final int? maxAttempts;
+  final int? resendCount;
+  final int? maxResends;
+
+  bool get canResendNow {
+    final availableAt = resendAvailableAt;
+    if (availableAt == null) return true;
+    return !availableAt.isAfter(DateTime.now());
+  }
+
+  String get maskedPhone =>
+      phone.masked.isNotEmpty ? phone.masked : 'your registered phone';
+}
+
+class LoginResult {
+  LoginResult.authenticated(this.response) : otpChallenge = null;
+
+  LoginResult.otpRequired(this.otpChallenge) : response = null;
+
+  final LoginResponse? response;
+  final LoginOtpChallenge? otpChallenge;
+
+  bool get isOtpRequired => otpChallenge != null;
+}
+
+String _readString(dynamic value) {
+  if (value is String) return value;
+  if (value == null) return '';
+  return value.toString();
+}
+
+String? _readNullableString(dynamic value) {
+  final text = _readString(value).trim();
+  return text.isEmpty ? null : text;
+}
+
+int? _readInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
+DateTime? _readDateTime(dynamic value) {
+  if (value is DateTime) return value;
+  if (value is String && value.trim().isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
 }

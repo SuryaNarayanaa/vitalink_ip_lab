@@ -21,6 +21,10 @@ class AppStrings {
 
   /// Auth endpoints.
   static const String loginPath = '$apiPathPrefix/auth/login';
+  static const String loginOtpVerifyPath =
+      '$apiPathPrefix/auth/login/otp/verify';
+  static const String loginOtpResendPath =
+      '$apiPathPrefix/auth/login/otp/resend';
 
   /// Doctor endpoints.
   static const String doctorPatientsPath = '$apiPathPrefix/doctors/patients';
