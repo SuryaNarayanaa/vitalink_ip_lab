@@ -417,13 +417,23 @@ export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
 	}
 
+	const currentProfile = await PatientProfile.findById(user.profile_id).select('demographics.phone')
+	if (!currentProfile) {
+		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+	}
+
 	const updateData: any = {}
 
 	if (demographics) {
 		if (demographics.name) updateData['demographics.name'] = demographics.name
 		if (demographics.age !== undefined) updateData['demographics.age'] = demographics.age
 		if (demographics.gender) updateData['demographics.gender'] = demographics.gender
-		if (demographics.phone) updateData['demographics.phone'] = demographics.phone
+		if (demographics.phone !== undefined) {
+			updateData['demographics.phone'] = demographics.phone
+			if (demographics.phone !== currentProfile.demographics?.phone) {
+				updateData['demographics.phone_verification'] = { status: 'PENDING' }
+			}
+		}
 		if (demographics.next_of_kin) {
 			if (demographics.next_of_kin.name) updateData['demographics.next_of_kin.name'] = demographics.next_of_kin.name
 			if (demographics.next_of_kin.relation) updateData['demographics.next_of_kin.relation'] = demographics.next_of_kin.relation

@@ -555,7 +555,7 @@ Updates:
 
 - `name`
 - `department`
-- `contact_number`
+- `contact_number` (10 digits; changing it resets phone verification to `PENDING`)
 
 ### `POST /api/v1/doctors/profile-pic`
 
@@ -604,6 +604,7 @@ Behavior:
 
 - creates `patientprofiles` document
 - creates linked `users` record
+- initializes patient phone verification as `PENDING`
 - currently uses `contact_no` as the initial temporary password
 
 #### `PATCH /api/v1/doctors/patients/:op_num/reassign`
@@ -753,7 +754,7 @@ Create doctor request body:
 - `password`
 - `name`
 - optional `department`
-- optional `contact_number`
+- `contact_number` (required, 10 digits)
 - optional `profile_picture_url`
 - optional `hospital_id` or `hospital`
 

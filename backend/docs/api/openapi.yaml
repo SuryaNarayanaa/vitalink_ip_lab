@@ -2168,6 +2168,24 @@ components:
         max:
           type: number
 
+    PrimaryPhoneNumber:
+      type: string
+      pattern: "^[0-9]{10}$"
+      minLength: 10
+      maxLength: 10
+      description: Required primary SMS phone number for doctor and patient login verification.
+
+    PhoneVerificationState:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PENDING, VERIFIED]
+          default: PENDING
+        verified_at:
+          type: [string, "null"]
+          format: date-time
+
     NextOfKin:
       type: object
       properties:
@@ -2191,7 +2209,9 @@ components:
           type: string
           enum: [Male, Female, Other]
         phone:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
+        phone_verification:
+          $ref: "#/components/schemas/PhoneVerificationState"
         next_of_kin:
           $ref: "#/components/schemas/NextOfKin"
 
@@ -2305,7 +2325,9 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
+        phone_verification:
+          $ref: "#/components/schemas/PhoneVerificationState"
         profile_picture_url:
           type: [string, "null"]
         hospital_id:
@@ -2638,7 +2660,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
 
     DoctorListResponse:
       allOf:
@@ -2697,9 +2719,7 @@ components:
           type: string
           enum: [Male, Female, Other]
         contact_no:
-          type: string
-          minLength: 10
-          maxLength: 10
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         target_inr_min:
           type: number
         target_inr_max:
@@ -3543,7 +3563,7 @@ components:
 
     AdminCreateDoctorRequest:
       type: object
-      required: [login_id, password, name]
+      required: [login_id, password, name, contact_number]
       properties:
         login_id:
           type: string
@@ -3557,7 +3577,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         profile_picture_url:
           type: string
           format: uri
@@ -3574,7 +3594,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         profile_picture_url:
           type: [string, "null"]
           format: uri
@@ -3603,6 +3623,7 @@ components:
           type: string
         demographics:
           $ref: "#/components/schemas/PatientDemographics"
+          description: Must include `phone` when creating a patient account.
         medical_config:
           type: object
           properties:
