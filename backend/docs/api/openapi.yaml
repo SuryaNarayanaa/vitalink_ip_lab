@@ -1,4 +1,4 @@
-openapi: 3.1.0
+﻿openapi: 3.1.0
 info:
   title: VitaLink API
   version: 1.0.0
@@ -10,21 +10,33 @@ info:
     - The canonical integration base path is `/api/v1`.
     - Legacy `/api/*` routes remain available for backward compatibility but are deprecated.
     - Authentication uses bearer JWTs.
-    - Some response bodies in the running service are not yet perfectly normalized; this spec documents the intended primary contract for new integrations.
+    - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware responses and logout responses use the older `{ success, message }` envelope.
+    - Versioned responses expose `X-API-Version` and `X-API-Supported-Versions`. Legacy `/api/*` responses also expose `Deprecation`, `Sunset`, and `Link` headers.
+    - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients may pass the JWT as a `token` query parameter when they cannot set an Authorization header.
+    - Multipart upload endpoints accept a single form field named `file`; validation failures such as unsupported MIME type or size limit return 400, while cloud storage failures return 507.
   contact:
     name: VitaLink Engineering
+  license:
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://localhost:3000/api/v1
     description: Local development
-  - url: https://api.example.com/api/v1
-    description: Production placeholder
+  - url: https://api.vitalink.invalid/api/v1
+    description: Production deployment placeholder
 tags:
   - name: System
+    description: API indexes, health checks, and version metadata.
   - name: Authentication
+    description: Login, logout, session identity, and password lifecycle.
   - name: Patient
+    description: Patient profile, reports, dosage, health logs, notifications, and SSE streams.
   - name: Doctor
+    description: Doctor profile, patient management, report review, notifications, and SSE streams.
   - name: Admin
+    description: Administrative management for users, hospitals, roles, billing, audit logs, and configuration.
   - name: Statistics
+    description: Administrative analytics and aggregate operational metrics.
 security:
   - bearerAuth: []
 paths:
@@ -838,6 +850,10 @@ paths:
     get:
       tags: [Doctor]
       summary: Stream doctor notifications
+      description: |
+        Opens a Server-Sent Events connection for doctor notifications. The stream
+        authenticates a DOCTOR JWT from either the Authorization header or the
+        `token` query parameter for EventSource clients.
       parameters:
         - in: query
           name: token
@@ -852,6 +868,9 @@ paths:
             text/event-stream:
               schema:
                 type: string
+                example: |
+                  event: notification
+                  data: {"id":"6870...","title":"Notification","type":"GENERAL"}
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -865,7 +884,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/RolesResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -886,15 +905,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/RoleUpdateRequest"
       responses:
         "200":
           description: Role updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/RoleResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -904,13 +922,23 @@ paths:
     get:
       tags: [Admin]
       summary: List hospitals
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, suspended, inactive]
+        - in: query
+          name: search
+          schema:
+            type: string
       responses:
         "200":
           description: Hospitals retrieved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -930,7 +958,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -952,7 +980,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -976,7 +1004,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -994,7 +1022,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1023,7 +1051,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/HospitalResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1041,17 +1069,31 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/InvoiceListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Admin]
       summary: Generate invoices
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateInvoicesRequest"
       responses:
         "201":
           description: Invoices generated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/GenerateInvoicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/billing/checkout/{invoiceId}:
     post:
@@ -1069,30 +1111,30 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/InvoiceCheckoutResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/users:
     get:
       tags: [Admin]
       summary: List users
-      parameters:
-        - $ref: "#/components/parameters/PageQuery"
-        - $ref: "#/components/parameters/LimitQuery"
-        - in: query
-          name: search
-          schema:
-            type: string
-        - in: query
-          name: hospital_id
-          schema:
-            type: string
+      description: Returns the admin console user list. The current controller does not apply pagination or search query parameters on this route.
       responses:
         "200":
           description: Users retrieved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Admin]
       summary: Invite or create user
@@ -1101,15 +1143,22 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/AdminUserInviteRequest"
       responses:
         "201":
           description: User invited
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /admin/users/{id}:
     put:
@@ -1122,15 +1171,20 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/AdminUserUpdateRequest"
       responses:
         "200":
           description: User updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/users/reset-password:
     post:
@@ -1148,9 +1202,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminResetPasswordResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/users/batch:
     post:
@@ -1168,9 +1226,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/BatchOperationResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/doctors:
     get:
@@ -1201,7 +1263,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminDoctorListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Admin]
       summary: Create doctor
@@ -1217,9 +1283,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
 
@@ -1241,9 +1311,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Admin]
       summary: Deactivate doctor
@@ -1255,7 +1331,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminActionMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/patients:
     get:
@@ -1286,7 +1368,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminPatientListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Admin]
       summary: Create patient
@@ -1302,9 +1388,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
 
@@ -1326,9 +1416,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminUserEntityResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Admin]
       summary: Deactivate patient
@@ -1340,7 +1436,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminActionMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/reassign/{op_num}:
     put:
@@ -1360,21 +1462,62 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminReassignPatientResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/audit-logs:
     get:
       tags: [Admin]
       summary: List audit logs
+      parameters:
+        - $ref: "#/components/parameters/PageQuery"
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+        - in: query
+          name: user_id
+          schema:
+            type: string
+        - in: query
+          name: action
+          schema:
+            type: string
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: success
+          schema:
+            type: boolean
       responses:
         "200":
           description: Audit logs retrieved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AuditLogListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/config:
     get:
@@ -1387,6 +1530,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemConfigResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     put:
       tags: [Admin]
       summary: Update system configuration
@@ -1405,6 +1552,10 @@ paths:
                 $ref: "#/components/schemas/SystemConfigResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/notifications/broadcast:
     post:
@@ -1422,9 +1573,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/BroadcastNotificationResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /admin/system/health:
     get:
@@ -1436,7 +1591,71 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/SystemHealthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/legacy/patients:
+    get:
+      tags: [Admin]
+      summary: List all patients using legacy admin shape
+      deprecated: true
+      description: Legacy compatibility endpoint. Prefer `GET /admin/patients` for paginated management views.
+      responses:
+        "200":
+          description: Legacy patient list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacyPatientListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/legacy/patient/{op_num}:
+    get:
+      tags: [Admin]
+      summary: Get patient by OP number using legacy admin shape
+      deprecated: true
+      parameters:
+        - $ref: "#/components/parameters/OpNumPath"
+      responses:
+        "200":
+          description: Legacy patient retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacyPatientResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/legacy/doctor/{id}:
+    get:
+      tags: [Admin]
+      summary: Get doctor by ID using legacy admin shape
+      deprecated: true
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Legacy doctor retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacyDoctorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /statistics/admin:
     get:
@@ -1448,7 +1667,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/AdminStatisticsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1471,7 +1690,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/RegistrationTrendsResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1489,7 +1708,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/InrComplianceResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1505,7 +1724,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/DoctorWorkloadResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1532,7 +1751,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GenericDataResponse"
+                $ref: "#/components/schemas/PeriodStatisticsResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1546,6 +1765,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        JWT issued by `POST /auth/login`. Send as `Authorization: Bearer <token>`.
+        Route-level authorization is role-based: patient routes require PATIENT users,
+        doctor routes require DOCTOR users, and admin/statistics routes require ADMIN users.
 
   headers:
     XRequestId:
@@ -1704,7 +1927,15 @@ components:
         success:
           type: boolean
         data:
-          nullable: true
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+            - type: string
+            - type: number
+            - type: boolean
+            - type: "null"
 
     SimpleSuccessResponse:
       type: object
@@ -1865,13 +2096,11 @@ components:
         failed_login_attempts:
           type: integer
         locked_until:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         last_login_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
 
     LoginResponse:
       allOf:
@@ -1974,15 +2203,13 @@ components:
         therapy_drug:
           type: string
         therapy_start_date:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         target_inr:
           $ref: "#/components/schemas/TargetInr"
         next_review_date:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         instructions:
           type: array
           items:
@@ -2009,11 +2236,9 @@ components:
         is_critical:
           type: boolean
         file_url:
-          type: string
-          nullable: true
+          type: [string, "null"]
         notes:
-          type: string
-          nullable: true
+          type: [string, "null"]
 
     HealthLogItem:
       type: object
@@ -2066,11 +2291,9 @@ components:
           type: string
           enum: [Active, Discharged, Deceased]
         profile_picture_url:
-          type: string
-          nullable: true
+          type: [string, "null"]
         login_id:
-          type: string
-          nullable: true
+          type: [string, "null"]
 
     DoctorProfile:
       type: object
@@ -2084,8 +2307,7 @@ components:
         contact_number:
           type: string
         profile_picture_url:
-          type: string
-          nullable: true
+          type: [string, "null"]
         hospital_id:
           oneOf:
             - type: string
@@ -2111,9 +2333,8 @@ components:
           type: string
           format: date-time
         read_at:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
         data:
           type: object
           additionalProperties: true
@@ -2139,7 +2360,11 @@ components:
           type: string
           format: date-time
         changed_by_doctor_id:
-          nullable: true
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+            - type: "null"
 
     NotificationListResponse:
       allOf:
@@ -2580,12 +2805,701 @@ components:
               type: object
               additionalProperties: true
 
+    AdminRoleKey:
+      type: string
+      enum: [app_admin, hospital_admin, doctor, patient, auditor]
+
+    AdminRolePermissions:
+      type: object
+      properties:
+        manage_hospitals:
+          type: boolean
+        manage_users:
+          type: boolean
+        manage_roles:
+          type: boolean
+        view_audit:
+          type: boolean
+        manage_doctors:
+          type: boolean
+        manage_patients:
+          type: boolean
+        export_data:
+          type: boolean
+        manage_billing:
+          type: boolean
+      additionalProperties:
+        type: boolean
+
+    AdminRoleDefinition:
+      type: object
+      properties:
+        label:
+          type: string
+          example: Hospital Admin
+        color:
+          type: string
+          example: doctor
+        permissions:
+          $ref: "#/components/schemas/AdminRolePermissions"
+
+    RolesResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                roles:
+                  type: object
+                  additionalProperties:
+                    $ref: "#/components/schemas/AdminRoleDefinition"
+
+    RoleUpdateRequest:
+      type: object
+      properties:
+        permissions:
+          $ref: "#/components/schemas/AdminRolePermissions"
+
+    RoleResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                role:
+                  $ref: "#/components/schemas/AdminRoleDefinition"
+
+    AdminHospital:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Hospital code used by the admin console.
+          example: PSG
+        _id:
+          type: string
+          description: MongoDB identifier.
+        name:
+          type: string
+        location:
+          type: string
+        admin:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, suspended, inactive]
+        doctors:
+          type: integer
+        patients:
+          type: integer
+        created:
+          type: string
+          format: date-time
+
+    HospitalListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                hospitals:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AdminHospital"
+
+    HospitalResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                hospital:
+                  $ref: "#/components/schemas/AdminHospital"
+
+    AdminInvoice:
+      type: object
+      properties:
+        id:
+          type: string
+          example: INV-1780000000000-PSG
+        _id:
+          type: string
+        hospital:
+          type: string
+          description: Hospital code or identifier.
+        hospitalName:
+          type: string
+        plan:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+          enum: [Pending, Paid, Overdue]
+        issued:
+          type: string
+          format: date-time
+        due:
+          type: string
+          format: date-time
+
+    InvoiceListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                invoices:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AdminInvoice"
+
+    GenerateInvoicesRequest:
+      type: object
+      properties:
+        plan:
+          type: string
+          default: Standard Tier (B2B)
+        amount:
+          type: number
+          default: 25000
+
+    GenerateInvoicesResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                generated:
+                  type: integer
+
+    InvoiceCheckoutResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                invoice_id:
+                  type: string
+                checkout_url:
+                  type: string
+                  format: uri
+                provider:
+                  type: string
+                  example: placeholder
+
+    AdminConsoleUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        loginId:
+          type: string
+        role:
+          $ref: "#/components/schemas/AdminRoleKey"
+        hospital:
+          type: string
+          description: Hospital code/id or ALL.
+        status:
+          type: string
+          enum: [active, inactive]
+        lastLogin:
+          type: string
+          format: date-time
+          description: Currently backed by the user's updated timestamp.
+
+    AdminUserListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                users:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AdminConsoleUser"
+
+    AdminUserInviteRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          description: Used as login_id when provided.
+        login_id:
+          type: string
+        password:
+          type: string
+          format: password
+          default: Default@123
+        role:
+          type: string
+          enum: [app_admin, hospital_admin, auditor]
+          default: hospital_admin
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+      anyOf:
+        - required: [email]
+        - required: [login_id]
+
+    AdminUserUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum: [app_admin, hospital_admin, auditor]
+        hospital_id:
+          type: string
+        hospital:
+          type: string
+        is_active:
+          type: boolean
+        status:
+          type: string
+          enum: [active, inactive]
+
+    AdminUserResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: "#/components/schemas/AdminConsoleUser"
+
+    AdminUserEntityResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: "#/components/schemas/User"
+
+    AdminDoctorListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                doctors:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+
+    AdminPatientListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patients:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+
+    AdminActionMessageResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                message:
+                  type: string
+
+    AdminReassignPatientResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                message:
+                  type: string
+                previous_doctor_id:
+                  type: [string, "null"]
+                new_doctor_id:
+                  type: string
+
+    AdminResetPasswordResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                temporary_password:
+                  type: string
+                  description: Present when the service generated a password.
+                must_change_password:
+                  type: boolean
+              additionalProperties: true
+
+    BatchOperationResult:
+      type: object
+      properties:
+        userId:
+          type: string
+        success:
+          type: boolean
+        message:
+          type: string
+        temporary_password:
+          type: string
+          description: Returned for successful reset_password operations.
+
+    BatchOperationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum: [activate, deactivate, reset_password]
+                total:
+                  type: integer
+                successful:
+                  type: integer
+                failed:
+                  type: integer
+                results:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/BatchOperationResult"
+
+    AuditLog:
+      type: object
+      properties:
+        _id:
+          type: string
+        user_id:
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                login_id:
+                  type: string
+                user_type:
+                  type: string
+        user_type:
+          type: string
+        action:
+          type: string
+        description:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        previous_data:
+          type: object
+          additionalProperties: true
+        new_data:
+          type: object
+          additionalProperties: true
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        success:
+          type: boolean
+        error_message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AuditLogListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                logs:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AuditLog"
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+
+    LegacyPatientListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patients:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+
+    LegacyPatientResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                patient:
+                  $ref: "#/components/schemas/User"
+
+    LegacyDoctorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                doctor:
+                  $ref: "#/components/schemas/User"
+
+    BroadcastNotificationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties: true
+
+    SystemHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        uptime:
+          type: number
+        database:
+          type: object
+          properties:
+            state:
+              type: string
+              enum: [disconnected, connected, connecting, disconnecting, unknown]
+            host:
+              type: string
+            name:
+              type: string
+        memory:
+          type: object
+          properties:
+            rss:
+              type: string
+              example: 82 MB
+            heapTotal:
+              type: string
+              example: 38 MB
+            heapUsed:
+              type: string
+              example: 24 MB
+        timestamp:
+          type: string
+          format: date-time
+
+    SystemHealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SystemHealth"
+
+    CountBreakdown:
+      type: object
+      properties:
+        total:
+          type: integer
+        active:
+          type: integer
+        inactive:
+          type: integer
+        recent:
+          type: integer
+
+    AdminStatisticsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                doctors:
+                  $ref: "#/components/schemas/CountBreakdown"
+                patients:
+                  $ref: "#/components/schemas/CountBreakdown"
+                audit_logs:
+                  type: integer
+
+    TrendPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+
+    RegistrationTrendsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                period:
+                  type: string
+                  enum: [7d, 30d, 90d, 1y]
+                doctors:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/TrendPoint"
+                patients:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/TrendPoint"
+
+    InrComplianceResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                total_patients:
+                  type: integer
+                in_range:
+                  type: integer
+                below_range:
+                  type: integer
+                above_range:
+                  type: integer
+                no_data:
+                  type: integer
+
+    DoctorWorkloadItem:
+      type: object
+      properties:
+        doctor_id:
+          type: string
+        doctor_name:
+          type: string
+        department:
+          type: string
+        patient_count:
+          type: integer
+
+    DoctorWorkloadResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/DoctorWorkloadItem"
+
+    AuditActionCount:
+      type: object
+      properties:
+        action:
+          type: string
+        count:
+          type: integer
+
+    PeriodStatisticsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                period:
+                  type: object
+                  properties:
+                    start:
+                      type: string
+                      format: date-time
+                    end:
+                      type: string
+                      format: date-time
+                new_doctors:
+                  type: integer
+                new_patients:
+                  type: integer
+                audit_summary:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AuditActionCount"
+
     HospitalCreateRequest:
       type: object
-      required: [code, name, location, admin_email]
+      required: [name, location]
       properties:
         code:
           type: string
+          description: Optional hospital code. Generated as H### when omitted.
         name:
           type: string
         location:
@@ -2593,6 +3507,13 @@ components:
         admin_email:
           type: string
           format: email
+        admin:
+          type: string
+          format: email
+          description: Alias accepted by the service for admin_email.
+        status:
+          type: string
+          enum: [active, suspended, inactive]
         metadata:
           type: object
           additionalProperties: true
@@ -2609,6 +3530,10 @@ components:
         admin_email:
           type: string
           format: email
+        admin:
+          type: string
+          format: email
+          description: Alias accepted by the service for admin_email.
         status:
           type: string
           enum: [active, suspended, inactive]
@@ -2651,9 +3576,8 @@ components:
         contact_number:
           type: string
         profile_picture_url:
-          type: string
+          type: [string, "null"]
           format: uri
-          nullable: true
         is_active:
           type: boolean
         password:
