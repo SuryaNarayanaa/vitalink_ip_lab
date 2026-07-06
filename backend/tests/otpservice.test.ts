@@ -185,8 +185,13 @@ describe('OTP service metadata and policy helpers', () => {
       expires_at: new Date('2026-07-06T10:10:00.000Z'),
       status: OtpChallengeStatus.PENDING,
     }
-    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate').mockResolvedValue(reservedChallenge as any)
-    const findByIdAndUpdate = jest.spyOn(OtpChallenge, 'findByIdAndUpdate').mockResolvedValue({} as any)
+    const finalizedChallenge = {
+      ...reservedChallenge,
+      provider_status: 'pending',
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(finalizedChallenge as any)
     const provider = {
       startVerification: jest.fn().mockResolvedValue({
         sid: 'test-verification-id',
@@ -214,14 +219,63 @@ describe('OTP service metadata and policy helpers', () => {
       { new: true }
     )
     expect(provider.startVerification).toHaveBeenCalledTimes(1)
-    expect(findByIdAndUpdate).toHaveBeenCalledWith(
-      'challenge-id',
-      expect.objectContaining({ $set: expect.objectContaining({ provider_status: 'pending' }) })
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+        provider_status: expect.stringMatching(/^send_reserved:/),
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ provider_status: 'pending' }) }),
+      { new: true }
     )
     expect(result?.allowed).toBe(true)
 
     findOneAndUpdate.mockRestore()
-    findByIdAndUpdate.mockRestore()
+  })
+
+  test('does not let stale resend finalizer reopen a terminal challenge', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      resend_count: 1,
+      attempt_count: 0,
+      max_attempts: 3,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const provider = {
+      startVerification: jest.fn().mockResolvedValue({
+        sid: 'test-verification-id',
+        status: 'pending',
+      }),
+      checkVerification: jest.fn(),
+    }
+
+    const result = await resendPhoneVerificationOtp(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      provider,
+      now
+    )
+
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+        provider_status: expect.stringMatching(/^send_reserved:/),
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.PENDING }) }),
+      { new: true }
+    )
+    expect(result?.allowed).toBe(false)
+
+    findOneAndUpdate.mockRestore()
   })
 
   test('reserves verification attempt atomically before checking Twilio code', async () => {
@@ -235,8 +289,13 @@ describe('OTP service metadata and policy helpers', () => {
       expires_at: new Date('2026-07-06T10:10:00.000Z'),
       status: OtpChallengeStatus.PENDING,
     }
-    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate').mockResolvedValue(reservedChallenge as any)
-    const findByIdAndUpdate = jest.spyOn(OtpChallenge, 'findByIdAndUpdate').mockResolvedValue({} as any)
+    const finalizedChallenge = {
+      ...reservedChallenge,
+      status: OtpChallengeStatus.VERIFIED,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(finalizedChallenge as any)
     const provider = {
       startVerification: jest.fn(),
       checkVerification: jest.fn().mockResolvedValue({
@@ -265,13 +324,64 @@ describe('OTP service metadata and policy helpers', () => {
       { new: true }
     )
     expect(provider.checkVerification).toHaveBeenCalledTimes(1)
-    expect(findByIdAndUpdate).toHaveBeenCalledWith(
-      'challenge-id',
-      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.VERIFIED }) })
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.VERIFIED }) }),
+      { new: true }
     )
     expect(result?.verified).toBe(true)
 
     findOneAndUpdate.mockRestore()
-    findByIdAndUpdate.mockRestore()
+  })
+
+  test('does not let stale failed verification finalizer downgrade a terminal challenge', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      attempt_count: 1,
+      max_attempts: 3,
+      resend_count: 0,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const provider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockResolvedValue({
+        status: 'pending',
+        valid: false,
+      }),
+    }
+
+    const result = await verifyOtpChallenge(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      'candidate-code',
+      provider,
+      now
+    )
+
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: 'challenge-id',
+        status: OtpChallengeStatus.PENDING,
+        provider_status: expect.stringMatching(/^check_reserved:/),
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.PENDING }) }),
+      { new: true }
+    )
+    expect(result?.verified).toBe(false)
+    expect(result?.result).toBe(OtpVerificationResult.ALREADY_VERIFIED)
+    expect(result?.update).toEqual({})
+
+    findOneAndUpdate.mockRestore()
   })
 })

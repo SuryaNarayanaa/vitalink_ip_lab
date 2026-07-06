@@ -304,6 +304,7 @@ export async function resendPhoneVerificationOtp(
   const policy = getDefaultOtpPolicy()
   const resendAvailableAt = new Date(now.getTime() + policy.resendCooldownSeconds * 1000)
   const phoneHash = hashPhoneNumber(phoneNumber)
+  const reservationStatus = `send_reserved:${crypto.randomUUID()}`
 
   const reservedChallenge = await OtpChallenge.findOneAndUpdate(
     {
@@ -327,7 +328,7 @@ export async function resendPhoneVerificationOtp(
       $set: {
         resend_available_at: resendAvailableAt,
         last_sent_at: now,
-        provider_status: 'send_reserved',
+        provider_status: reservationStatus,
       },
     },
     { new: true }
@@ -364,13 +365,21 @@ export async function resendPhoneVerificationOtp(
     status: OtpChallengeStatus.PENDING,
   }
 
-  await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+  const finalizedChallenge = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: reservedChallenge._id,
+      status: OtpChallengeStatus.PENDING,
+      provider_status: reservationStatus,
+    },
+    { $set: update },
+    { new: true }
+  )
 
   return {
-    allowed: true,
+    allowed: Boolean(finalizedChallenge),
     availability: { allowed: true },
     update: {
-      ...update,
+      ...(finalizedChallenge ? update : {}),
       resend_count: reservedChallenge.resend_count,
     },
   }
@@ -384,6 +393,7 @@ export async function verifyOtpChallenge(
   now = new Date()
 ) {
   const phoneHash = hashPhoneNumber(phoneNumber)
+  const reservationStatus = `check_reserved:${crypto.randomUUID()}`
   const reservedChallenge = await OtpChallenge.findOneAndUpdate(
     {
       _id: challengeId,
@@ -394,7 +404,7 @@ export async function verifyOtpChallenge(
     },
     {
       $inc: { attempt_count: 1 },
-      $set: { provider_status: 'check_reserved' },
+      $set: { provider_status: reservationStatus },
     },
     { new: true }
   )
@@ -435,12 +445,19 @@ export async function verifyOtpChallenge(
       verified_at: now,
       provider_status: verification.status,
     }
-    await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+    const finalizedChallenge = await OtpChallenge.findOneAndUpdate(
+      {
+        _id: reservedChallenge._id,
+        status: OtpChallengeStatus.PENDING,
+      },
+      { $set: update },
+      { new: true }
+    )
 
     return {
-      verified: true,
-      result: OtpVerificationResult.VERIFIED,
-      update,
+      verified: Boolean(finalizedChallenge),
+      result: finalizedChallenge ? OtpVerificationResult.VERIFIED : OtpVerificationResult.ALREADY_VERIFIED,
+      update: finalizedChallenge ? update : {},
     }
   }
 
@@ -449,14 +466,26 @@ export async function verifyOtpChallenge(
     status: isLocked ? OtpChallengeStatus.LOCKED : OtpChallengeStatus.PENDING,
     provider_status: verification.status,
   }
-  await OtpChallenge.findByIdAndUpdate(reservedChallenge._id, { $set: update })
+  const finalizedChallenge = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: reservedChallenge._id,
+      status: OtpChallengeStatus.PENDING,
+      provider_status: reservationStatus,
+    },
+    { $set: update },
+    { new: true }
+  )
 
   return {
     verified: false,
-    result: isLocked ? OtpVerificationResult.LOCKED : OtpVerificationResult.INVALID,
-    update: {
-      attempt_count: reservedChallenge.attempt_count,
-      status: update.status,
-    },
+    result: finalizedChallenge
+      ? (isLocked ? OtpVerificationResult.LOCKED : OtpVerificationResult.INVALID)
+      : OtpVerificationResult.ALREADY_VERIFIED,
+    update: finalizedChallenge
+      ? {
+        attempt_count: reservedChallenge.attempt_count,
+        status: update.status,
+      }
+      : {},
   }
 }
