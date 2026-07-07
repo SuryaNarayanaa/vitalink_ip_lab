@@ -6,8 +6,8 @@ class AuthRepository {
   AuthRepository({
     required ApiClient apiClient,
     required SecureStorage secureStorage,
-  })  : _apiClient = apiClient,
-        _secureStorage = secureStorage;
+  }) : _apiClient = apiClient,
+       _secureStorage = secureStorage;
 
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
@@ -50,10 +50,42 @@ class AuthRepository {
       return LoginResult.otpRequired(otpChallenge);
     }
 
+    if (body['auth_status'] == 'TOTP_REQUIRED') {
+      final challenge = body['challenge'] is Map<String, dynamic>
+          ? body['challenge'] as Map<String, dynamic>
+          : null;
+      if (challenge == null) {
+        throw ApiException(
+          'Malformed authenticator challenge response',
+          kind: ApiErrorKind.malformedResponse,
+        );
+      }
+
+      final totpChallenge = LoginTotpChallenge.fromJson(challenge);
+      if (totpChallenge.challengeId.isEmpty) {
+        throw ApiException(
+          'Malformed authenticator challenge response',
+          kind: ApiErrorKind.malformedResponse,
+        );
+      }
+
+      return LoginResult.totpRequired(totpChallenge);
+    }
+
     return LoginResult.authenticated(await _saveSessionFromBody(body));
   }
 
   Future<LoginResponse> verifyLoginOtp(VerifyLoginOtpRequest request) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+      authenticated: false,
+    );
+
+    return _saveSessionFromBody(body);
+  }
+
+  Future<LoginResponse> verifyLoginTotp(VerifyLoginTotpRequest request) async {
     final body = await _apiClient.post(
       request.path,
       data: request.toJson(),

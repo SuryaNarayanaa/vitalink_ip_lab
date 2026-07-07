@@ -32,6 +32,17 @@ class ResendLoginOtpRequest {
   Map<String, dynamic> toJson() => {'challenge_id': challengeId};
 }
 
+class VerifyLoginTotpRequest {
+  VerifyLoginTotpRequest({required this.challengeId, required this.code});
+
+  final String challengeId;
+  final String code;
+
+  String get path => AppStrings.loginTotpVerifyPath;
+
+  Map<String, dynamic> toJson() => {'challenge_id': challengeId, 'code': code};
+}
+
 class UserModel {
   UserModel({
     required this.id,
@@ -200,15 +211,51 @@ class LoginOtpChallenge {
       phone.masked.isNotEmpty ? phone.masked : 'your registered phone';
 }
 
-class LoginResult {
-  LoginResult.authenticated(this.response) : otpChallenge = null;
+class LoginTotpChallenge {
+  LoginTotpChallenge({
+    required this.challengeId,
+    required this.factorType,
+    this.expiresAt,
+    this.attemptsRemaining,
+    this.maxAttempts,
+  });
 
-  LoginResult.otpRequired(this.otpChallenge) : response = null;
+  factory LoginTotpChallenge.fromJson(Map<String, dynamic> json) {
+    return LoginTotpChallenge(
+      challengeId: _readString(json['challenge_id']),
+      factorType: _readString(json['factor_type']),
+      expiresAt: _readDateTime(json['expires_at']),
+      attemptsRemaining: _readInt(json['attempts_remaining']),
+      maxAttempts: _readInt(json['max_attempts']),
+    );
+  }
+
+  final String challengeId;
+  final String factorType;
+  final DateTime? expiresAt;
+  final int? attemptsRemaining;
+  final int? maxAttempts;
+}
+
+class LoginResult {
+  LoginResult.authenticated(this.response)
+    : otpChallenge = null,
+      totpChallenge = null;
+
+  LoginResult.otpRequired(this.otpChallenge)
+    : response = null,
+      totpChallenge = null;
+
+  LoginResult.totpRequired(this.totpChallenge)
+    : response = null,
+      otpChallenge = null;
 
   final LoginResponse? response;
   final LoginOtpChallenge? otpChallenge;
+  final LoginTotpChallenge? totpChallenge;
 
   bool get isOtpRequired => otpChallenge != null;
+  bool get isTotpRequired => totpChallenge != null;
 }
 
 String _readString(dynamic value) {
