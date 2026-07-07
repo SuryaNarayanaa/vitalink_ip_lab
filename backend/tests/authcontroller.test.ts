@@ -2,12 +2,30 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminProfile, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
 import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
+import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
+import { generateTotpCode } from '@alias/services/admin-totp.service';
 
 var mockStartVerification: jest.Mock;
 var mockCheckVerification: jest.Mock;
+
+const expectNoMfaSecrets = (userPayload: any) => {
+    expect(userPayload).toBeDefined();
+    expect(userPayload.password).toBeUndefined();
+    expect(userPayload.salt).toBeUndefined();
+    expect(userPayload.admin_mfa).toBeUndefined();
+
+    const serialized = JSON.stringify(userPayload);
+    expect(serialized).not.toContain('secret_ciphertext');
+    expect(serialized).not.toContain('secret_iv');
+    expect(serialized).not.toContain('secret_auth_tag');
+    expect(serialized).not.toContain('pending_secret_ciphertext');
+    expect(serialized).not.toContain('pending_secret_iv');
+    expect(serialized).not.toContain('pending_secret_auth_tag');
+    expect(serialized).not.toContain('last_verified_time_step');
+}
 
 jest.mock('@alias/services/twilio-verify.service', () => ({
     __esModule: true,
@@ -35,6 +53,8 @@ describe('Auth Routes', () => {
     let unverifiedPatientUser: any;
     let unverifiedPatientProfile: any;
     let adminUser: any;
+    let mfaAdminUser: any;
+    let mfaAdminSecret: string;
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
@@ -113,6 +133,18 @@ describe('Auth Routes', () => {
             profile_id: adminProfile._id,
             is_active: true
         });
+
+        const mfaAdminProfile = await AdminProfile.create({
+            name: 'MFA Admin',
+        }) as any;
+
+        mfaAdminUser = await User.create({
+            login_id: 'mfa-admin',
+            password: 'testpassword123',
+            user_type: 'ADMIN',
+            profile_id: mfaAdminProfile._id,
+            is_active: true
+        });
     }, 120000);
 
     afterAll(async () => {
@@ -147,6 +179,7 @@ describe('Auth Routes', () => {
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.user).toBeDefined();
             expect(response.data.data.user.login_id).toBe('testuser');
+            expectNoMfaSecrets(response.data.data.user);
             testToken = response.data.data.token;
         });
 
@@ -192,7 +225,121 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('admin-user');
+            expectNoMfaSecrets(response.data.data.user);
             expect(mockStartVerification).not.toHaveBeenCalled();
+        });
+
+        test('should setup and activate admin authenticator-app MFA without storing plaintext secret', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'mfa-admin',
+                password: 'testpassword123'
+            });
+            const token = loginResponse.data.data.token;
+
+            const setupResponse = await api.post('/api/auth/admin/mfa/totp/setup', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            expect(setupResponse.status).toBe(200);
+            expect(setupResponse.data.data.factor_type).toBe('AUTHENTICATOR_APP');
+            expect(setupResponse.data.data.secret).toMatch(/^[A-Z2-7]+$/);
+            expect(setupResponse.data.data.otpauth_url).toContain('otpauth://totp/');
+            mfaAdminSecret = setupResponse.data.data.secret;
+
+            const userAfterSetup = await User.findById(mfaAdminUser._id).lean();
+            expect(userAfterSetup?.admin_mfa?.totp?.status).toBe('PENDING');
+            expect(userAfterSetup?.admin_mfa?.totp?.pending_secret_ciphertext).toBeDefined();
+            expect(userAfterSetup?.admin_mfa?.totp?.pending_secret_ciphertext).not.toBe(setupResponse.data.data.secret);
+
+            const activationResponse = await api.post('/api/auth/admin/mfa/totp/activate', {
+                code: generateTotpCode(setupResponse.data.data.secret),
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            expect(activationResponse.status).toBe(200);
+            expect(activationResponse.data.data.status).toBe('ENABLED');
+
+            const userAfterActivation = await User.findById(mfaAdminUser._id).lean();
+            expect(userAfterActivation?.admin_mfa?.totp?.status).toBe('ENABLED');
+            expect(userAfterActivation?.admin_mfa?.totp?.secret_ciphertext).toBeDefined();
+            expect(userAfterActivation?.admin_mfa?.totp?.secret_ciphertext).not.toBe(setupResponse.data.data.secret);
+            expect(userAfterActivation?.admin_mfa?.totp?.pending_secret_ciphertext).toBeUndefined();
+
+            const activeCiphertext = userAfterActivation?.admin_mfa?.totp?.secret_ciphertext;
+            const reEnrollmentResponse = await api.post('/api/auth/admin/mfa/totp/setup', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            expect(reEnrollmentResponse.status).toBe(409);
+
+            const userAfterRejectedSetup = await User.findById(mfaAdminUser._id).lean();
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.status).toBe('ENABLED');
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.secret_ciphertext).toBe(activeCiphertext);
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.pending_secret_ciphertext).toBeUndefined();
+        });
+
+        test('should require admin TOTP challenge after MFA is enabled and issue token only after verification', async () => {
+            expect(mfaAdminSecret).toBeDefined();
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'mfa-admin',
+                password: 'testpassword123'
+            });
+
+            expect(loginResponse.status).toBe(202);
+            expect(loginResponse.data.data.auth_status).toBe('TOTP_REQUIRED');
+            expect(loginResponse.data.data.token).toBeUndefined();
+            expect(loginResponse.data.data.challenge.factor_type).toBe('AUTHENTICATOR_APP');
+            expect(mockStartVerification).not.toHaveBeenCalled();
+
+            const verifyResponse = await api.post('/api/auth/login/totp/verify', {
+                challenge_id: loginResponse.data.data.challenge.challenge_id,
+                code: generateTotpCode(mfaAdminSecret),
+            });
+
+            expect(verifyResponse.status).toBe(200);
+            expect(verifyResponse.data.data.token).toBeDefined();
+            expect(verifyResponse.data.data.user.login_id).toBe('mfa-admin');
+            expectNoMfaSecrets(verifyResponse.data.data.user);
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${verifyResponse.data.data.token}` }
+            });
+            expect(meResponse.status).toBe(200);
+            expect(meResponse.data.data.user.login_id).toBe('mfa-admin');
+            expectNoMfaSecrets(meResponse.data.data.user);
+
+            const challenge = await AdminMfaChallenge.findById(loginResponse.data.data.challenge.challenge_id);
+            expect(challenge?.status).toBe(AdminMfaChallengeStatus.VERIFIED);
+        });
+
+        test('should reject failed and replayed admin TOTP login verification', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'mfa-admin',
+                password: 'testpassword123'
+            });
+            expect(loginResponse.status).toBe(202);
+            const challengeId = loginResponse.data.data.challenge.challenge_id;
+
+            const failedResponse = await api.post('/api/auth/login/totp/verify', {
+                challenge_id: challengeId,
+                code: '000000',
+            });
+
+            expect(failedResponse.status).toBe(401);
+            expect(failedResponse.data.data?.token).toBeUndefined();
+
+            await AdminMfaChallenge.findByIdAndUpdate(challengeId, {
+                $set: { status: AdminMfaChallengeStatus.VERIFIED },
+            });
+
+            const replayResponse = await api.post('/api/auth/login/totp/verify', {
+                challenge_id: challengeId,
+                code: '000000',
+            });
+
+            expect(replayResponse.status).toBe(410);
         });
 
         test('should verify patient login OTP, mark phone verified, and issue a token', async () => {
@@ -491,6 +638,7 @@ describe('Auth Routes', () => {
             expect(response.data.data.user.login_id).toBe('testuser');
             expect(response.data.data.user.password).toBeUndefined();
             expect(response.data.data.user.salt).toBeUndefined();
+            expectNoMfaSecrets(response.data.data.user);
         });
 
         test('should fail without authentication token', async () => {

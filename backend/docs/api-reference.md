@@ -334,6 +334,36 @@ Security notes:
 - login ID is trimmed before lookup
 - duplicate accounts for the same login ID are treated as a conflict
 - locked accounts return `423 Locked`
+- patients and doctors with unverified registered phones receive a first-login SMS OTP challenge instead of a token
+- admins never use SMS/email OTP; when authenticator-app MFA is enabled, password login returns `202 Accepted` with `auth_status: "TOTP_REQUIRED"` and no token
+- in development/test, an un-enrolled admin may log in to bootstrap enrollment; in staging/production, un-enrolled admin login fails closed unless MFA has been provisioned
+
+### `POST /api/v1/auth/login/totp/verify`
+
+Verify an admin authenticator-app login challenge and issue the normal bearer token.
+
+Request body:
+
+```json
+{
+  "challenge_id": "6890...",
+  "code": "<6-digit-code>"
+}
+```
+
+Notes:
+
+- only admin authenticator-app challenges are accepted
+- TOTP codes are rate-limited by challenge attempts and the challenge expires quickly
+- a verified challenge cannot be replayed
+
+### `POST /api/v1/auth/admin/mfa/totp/setup`
+
+Authenticated admin endpoint that starts authenticator-app enrollment. The response contains the one-time setup secret and `otpauth_url` for QR-code generation by a future client UI. The stored pending secret is encrypted.
+
+### `POST /api/v1/auth/admin/mfa/totp/activate`
+
+Authenticated admin endpoint that verifies a setup TOTP code and enables authenticator-app MFA for future admin logins.
 
 ### `POST /api/v1/auth/logout`
 

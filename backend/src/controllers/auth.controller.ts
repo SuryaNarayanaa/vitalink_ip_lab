@@ -9,8 +9,16 @@ import {
 import { AuditAction } from '@alias/models/auditlog.model'
 import { comparePasswords } from '@alias/utils'
 import { UserType } from '@alias/validators'
-import { ChangePasswordInput, LoginInput, ResendLoginOtpInput, VerifyLoginOtpInput } from '@alias/validators/user.validator'
+import { ActivateAdminTotpInput, ChangePasswordInput, LoginInput, ResendLoginOtpInput, VerifyLoginOtpInput, VerifyLoginTotpInput } from '@alias/validators/user.validator'
 import { config } from '@alias/config'
+import {
+  activateAdminTotpEnrollment,
+  createAdminMfaLoginChallenge,
+  createAdminTotpEnrollment,
+  isAdminTotpEnabled,
+  isAdminTotpRequiredForUnenrolledAdmins,
+  verifyAdminMfaLoginChallenge,
+} from '@alias/services/admin-totp.service'
 import {
   hashPhoneNumber,
   issuePhoneVerificationOtp,
@@ -47,13 +55,22 @@ const createAuthAuditLog = async (
 
 const OTP_ELIGIBLE_USER_TYPES = new Set<UserType>([UserType.DOCTOR, UserType.PATIENT])
 
+const sanitizeAuthUser = (user: any) => {
+  if (!user) return user
+  const safeUser = typeof user.toObject === 'function' ? user.toObject() : { ...user }
+  delete safeUser.password
+  delete safeUser.salt
+  delete safeUser.admin_mfa
+  return safeUser
+}
+
 const getSessionPayload = async (user: any) => {
   const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
   const populatedUser = await User.findById(user._id)
     .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
     .select('-password -salt')
 
-  return { token, user: populatedUser }
+  return { token, user: sanitizeAuthUser(populatedUser) }
 }
 
 const getRegisteredPhoneState = async (user: any): Promise<{
@@ -95,6 +112,17 @@ const buildOtpChallengeResponse = (challenge: any, phoneNumber: string) => ({
     max_attempts: challenge.max_attempts,
     resend_count: challenge.resend_count,
     max_resends: challenge.max_resends,
+  },
+})
+
+const buildAdminTotpChallengeResponse = (challenge: any) => ({
+  auth_status: 'TOTP_REQUIRED',
+  challenge: {
+    challenge_id: challenge._id.toString(),
+    factor_type: 'AUTHENTICATOR_APP',
+    expires_at: challenge.expires_at,
+    attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
+    max_attempts: challenge.max_attempts,
   },
 })
 
@@ -265,6 +293,22 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     }
   }
 
+  if (user.user_type === UserType.ADMIN) {
+    if (isAdminTotpEnabled(user)) {
+      const challenge = await createAdminMfaLoginChallenge(user)
+      res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
+        StatusCodes.ACCEPTED,
+        'Admin authenticator MFA required',
+        buildAdminTotpChallengeResponse(challenge)
+      ))
+      return
+    }
+
+    if (isAdminTotpRequiredForUnenrolledAdmins()) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Admin authenticator MFA enrollment is required before login')
+    }
+  }
+
   user.last_login_at = new Date()
   await user.save()
 
@@ -312,6 +356,21 @@ export const verifyLoginOtpController = asyncHandler(
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Phone OTP verified and user logged in successfully',
+      await getSessionPayload(user)
+    ))
+  }
+)
+
+export const verifyLoginTotpController = asyncHandler(
+  async (req: Request<{}, {}, VerifyLoginTotpInput["body"]>, res: Response) => {
+    const { challenge_id, code } = req.body
+    const user = await verifyAdminMfaLoginChallenge(challenge_id, code)
+
+    await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'Admin logged in successfully after authenticator MFA verification')
+
+    res.status(StatusCodes.OK).json(new ApiResponse(
+      StatusCodes.OK,
+      'Admin authenticator MFA verified and user logged in successfully',
       await getSessionPayload(user)
     ))
   }
@@ -386,7 +445,7 @@ export const getMeController = asyncHandler(async (req: Request, res: Response) 
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
   }
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User profile retrieved successfully', { user }))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User profile retrieved successfully', { user: sanitizeAuthUser(user) }))
 })
 
 export const changePasswordController = asyncHandler(
@@ -425,5 +484,44 @@ export const changePasswordController = asyncHandler(
         must_change_password: user.must_change_password,
       })
     )
+  }
+)
+
+export const setupAdminTotpController = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user || req.user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Admin access is required')
+  }
+
+  const user = await User.findById(req.user.user_id)
+  if (!user || !user.is_active) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  }
+
+  const enrollment = await createAdminTotpEnrollment(user)
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP setup started', {
+    factor_type: 'AUTHENTICATOR_APP',
+    secret: enrollment.secret,
+    otpauth_url: enrollment.otpauth_url,
+  }))
+})
+
+export const activateAdminTotpController = asyncHandler(
+  async (req: Request<{}, {}, ActivateAdminTotpInput["body"]>, res: Response) => {
+    if (!req.user || req.user.user_type !== UserType.ADMIN) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Admin access is required')
+    }
+
+    const user = await User.findById(req.user.user_id)
+    if (!user || !user.is_active) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+    }
+
+    await activateAdminTotpEnrollment(user, req.body.code)
+
+    res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP activated', {
+      factor_type: 'AUTHENTICATOR_APP',
+      status: 'ENABLED',
+    }))
   }
 )
