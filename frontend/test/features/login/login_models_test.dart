@@ -74,5 +74,28 @@ void main() {
         'code': '123456',
       });
     });
+
+    test(
+      'builds refresh and revoke requests for backend session endpoints',
+      () {
+        final refresh = RefreshSessionRequest(refreshToken: 'refresh-token');
+        final revoke = RevokeSessionRequest(refreshToken: 'refresh-token');
+
+        expect(refresh.path, AppStrings.authRefreshPath);
+        expect(refresh.toJson(), {'refresh_token': 'refresh-token'});
+        expect(revoke.path, AppStrings.authRevokePath);
+        expect(revoke.toJson(), {'refresh_token': 'refresh-token'});
+      },
+    );
+
+    test('parses backend auth session metadata', () {
+      final session = AuthSessionModel.fromJson({
+        'session_id': 'session-123',
+        'refresh_expires_at': '2026-08-06T12:00:00.000Z',
+      });
+
+      expect(session.sessionId, 'session-123');
+      expect(session.refreshExpiresAt, isNotNull);
+    });
   });
 }

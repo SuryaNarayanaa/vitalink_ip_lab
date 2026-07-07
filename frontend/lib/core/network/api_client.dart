@@ -96,20 +96,18 @@ class ApiException implements Exception {
 /// Lightweight API client that attaches bearer tokens when available and
 /// normalizes the backend's ApiResponse shape.
 class ApiClient {
-  ApiClient({
-    Dio? dio,
-    SecureStorage? secureStorage,
-    String? baseUrl,
-  }) : _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: baseUrl ?? AppStrings.apiBaseUrl,
-                connectTimeout: const Duration(seconds: 15),
-                sendTimeout: const Duration(seconds: 20),
-                receiveTimeout: const Duration(seconds: 20),
-              ),
+  ApiClient({Dio? dio, SecureStorage? secureStorage, String? baseUrl})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: baseUrl ?? AppStrings.apiBaseUrl,
+              connectTimeout: const Duration(seconds: 15),
+              sendTimeout: const Duration(seconds: 20),
+              receiveTimeout: const Duration(seconds: 20),
             ),
-       _secureStorage = secureStorage ?? SecureStorage() {
+          ),
+      _secureStorage = secureStorage ?? SecureStorage() {
     _configureInterceptors();
   }
 
@@ -117,6 +115,10 @@ class ApiClient {
   final SecureStorage _secureStorage;
   static const int _maxGetRetries = 2;
   static const Duration _retryBaseDelay = Duration(milliseconds: 300);
+  static const String _requiresAuthExtra = 'requiresAuth';
+  static const String _skipAuthRefreshExtra = 'skipAuthRefresh';
+  static const String _hasRetriedAfterRefreshExtra = 'hasRetriedAfterRefresh';
+  Future<String?>? _pendingRefresh;
 
   void _logDebug(String message) {
     if (kDebugMode) debugPrint(message);
@@ -127,6 +129,20 @@ class ApiClient {
       InterceptorsWrapper(
         onError: (error, handler) async {
           if (_shouldHandleUnauthorized(error)) {
+            final token = await _refreshAccessToken();
+            if (token != null && token.isNotEmpty) {
+              try {
+                final retryResponse = await _retryWithAccessToken(error, token);
+                handler.resolve(retryResponse);
+                return;
+              } on DioException catch (retryError) {
+                if (retryError.response?.statusCode == 401) {
+                  await SessionExpiryHandler.clearSessionAndRedirectToLogin();
+                }
+                handler.next(retryError);
+                return;
+              }
+            }
             await SessionExpiryHandler.clearSessionAndRedirectToLogin();
           }
           handler.next(error);
@@ -137,21 +153,89 @@ class ApiClient {
 
   bool _shouldHandleUnauthorized(DioException error) {
     if (error.response?.statusCode != 401) return false;
+    if (error.requestOptions.extra[_skipAuthRefreshExtra] == true) {
+      return false;
+    }
+    if (error.requestOptions.extra[_hasRetriedAfterRefreshExtra] == true) {
+      return false;
+    }
 
-    final requiresAuth = error.requestOptions.extra['requiresAuth'] == true;
+    final requiresAuth = error.requestOptions.extra[_requiresAuthExtra] == true;
     final authHeader = error.requestOptions.headers['Authorization'];
     final hasAuthHeader = authHeader is String && authHeader.trim().isNotEmpty;
     return requiresAuth || hasAuthHeader;
+  }
+
+  Future<String?> _refreshAccessToken() {
+    return _pendingRefresh ??= _runRefreshAccessToken().whenComplete(
+      () => _pendingRefresh = null,
+    );
+  }
+
+  Future<String?> _runRefreshAccessToken() async {
+    final refreshToken = await _secureStorage.readRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) return null;
+
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        AppStrings.authRefreshPath,
+        data: {'refresh_token': refreshToken},
+        options: Options(
+          headers: const {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          extra: const {_requiresAuthExtra: false, _skipAuthRefreshExtra: true},
+        ),
+      );
+      final body = _normalizeResponse(response);
+      final token = _firstString([
+        body['token'],
+        body['access_token'],
+        body['accessToken'],
+      ]);
+      final rotatedRefreshToken = _firstString([
+        body['refresh_token'],
+        body['refreshToken'],
+      ]);
+
+      if (token == null || rotatedRefreshToken == null) return null;
+
+      await _secureStorage.saveToken(token);
+      await _secureStorage.saveRefreshToken(rotatedRefreshToken);
+      final session = body['session'];
+      if (session is Map<String, dynamic>) {
+        await _secureStorage.saveAuthSession(session);
+      }
+      return token;
+    } on DioException catch (e) {
+      _logDebug('Session refresh failed: ${e.response?.statusCode ?? e.type}');
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Response<dynamic>> _retryWithAccessToken(
+    DioException error,
+    String token,
+  ) {
+    final request = error.requestOptions;
+    final headers = Map<String, dynamic>.from(request.headers);
+    headers['Authorization'] = 'Bearer $token';
+    final extra = Map<String, dynamic>.from(request.extra);
+    extra[_hasRetriedAfterRefreshExtra] = true;
+
+    return _dio.fetch<dynamic>(
+      request.copyWith(headers: headers, extra: extra),
+    );
   }
 
   Options _buildRequestOptions({
     required Map<String, String> headers,
     required bool requiresAuth,
   }) {
-    return Options(
-      headers: headers,
-      extra: {'requiresAuth': requiresAuth},
-    );
+    return Options(headers: headers, extra: {_requiresAuthExtra: requiresAuth});
   }
 
   Future<Response<Map<String, dynamic>>> _sendWithRetry(
@@ -226,7 +310,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     bool authenticated = true,
   }) async {
-    final hasQueryParams = queryParameters != null && queryParameters.isNotEmpty;
+    final hasQueryParams =
+        queryParameters != null && queryParameters.isNotEmpty;
     try {
       final headers = await _buildHeaders(includeAuth: authenticated);
       _logDebug('GET Request to: $path');
@@ -346,7 +431,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     bool authenticated = true,
   }) async {
-    final hasQueryParams = queryParameters != null && queryParameters.isNotEmpty;
+    final hasQueryParams =
+        queryParameters != null && queryParameters.isNotEmpty;
     try {
       final headers = await _buildHeaders(includeAuth: authenticated);
       final response = await _sendWithRetry(
@@ -437,10 +523,7 @@ class ApiClient {
     return <String, dynamic>{};
   }
 
-  ApiException _apiExceptionFromDio(
-    DioException e, {
-    String? fallbackMessage,
-  }) {
+  ApiException _apiExceptionFromDio(DioException e, {String? fallbackMessage}) {
     final response = e.response;
     if (response != null) {
       final body = response.data is Map<String, dynamic>
@@ -452,7 +535,8 @@ class ApiClient {
     }
 
     final message = fallbackMessage ?? _extractMessage(e);
-    final isTimeout = e.type == DioExceptionType.connectionTimeout ||
+    final isTimeout =
+        e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.sendTimeout ||
         e.type == DioExceptionType.receiveTimeout;
 
@@ -476,9 +560,12 @@ class ApiClient {
     final isDeprecated = response.headers.value('deprecation') == 'true';
     final sunset = response.headers.value('sunset');
     final apiVersion = response.headers.value('x-api-version');
-    final supportedVersions = response.headers.value('x-api-supported-versions');
+    final supportedVersions = response.headers.value(
+      'x-api-supported-versions',
+    );
     final retryAfter = _parseRetryAfter(response.headers.value('retry-after'));
-    final hasApiRouteHint = body['data'] is Map &&
+    final hasApiRouteHint =
+        body['data'] is Map &&
         ((body['data'] as Map).containsKey('current_base_path') ||
             (body['data'] as Map).containsKey('current_api_version'));
 
@@ -497,7 +584,9 @@ class ApiClient {
     switch (statusCode) {
       case 400:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ?? 'The request has invalid or missing details.'),
+          _sanitizeServerMessage(
+            serverMessage ?? 'The request has invalid or missing details.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.badRequest,
           apiVersion: apiVersion,
@@ -505,7 +594,9 @@ class ApiClient {
         );
       case 401:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ?? 'Your session has expired. Please sign in again.'),
+          _sanitizeServerMessage(
+            serverMessage ?? 'Your session has expired. Please sign in again.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.unauthorized,
           apiVersion: apiVersion,
@@ -513,7 +604,9 @@ class ApiClient {
         );
       case 403:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ?? 'You do not have access to this action.'),
+          _sanitizeServerMessage(
+            serverMessage ?? 'You do not have access to this action.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.forbidden,
           apiVersion: apiVersion,
@@ -523,7 +616,10 @@ class ApiClient {
         return ApiException(
           hasApiRouteHint
               ? 'This screen is calling an API route that is not available. Please update the app or contact support.'
-              : _sanitizeServerMessage(serverMessage ?? 'The requested record or service was not found.'),
+              : _sanitizeServerMessage(
+                  serverMessage ??
+                      'The requested record or service was not found.',
+                ),
           statusCode: statusCode,
           kind: ApiErrorKind.notFound,
           title: hasApiRouteHint ? 'API route not found' : null,
@@ -532,7 +628,10 @@ class ApiClient {
         );
       case 413:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ?? 'The selected file or request is larger than allowed.'),
+          _sanitizeServerMessage(
+            serverMessage ??
+                'The selected file or request is larger than allowed.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.requestTooLarge,
           apiVersion: apiVersion,
@@ -540,8 +639,10 @@ class ApiClient {
         );
       case 423:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ??
-              'This account is temporarily locked because of repeated failed login attempts. Try again later or contact an administrator.'),
+          _sanitizeServerMessage(
+            serverMessage ??
+                'This account is temporarily locked because of repeated failed login attempts. Try again later or contact an administrator.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.locked,
           retryAfter: retryAfter,
@@ -550,7 +651,10 @@ class ApiClient {
         );
       case 429:
         return ApiException(
-          _sanitizeServerMessage(serverMessage ?? 'Too many attempts. Please wait before trying again.'),
+          _sanitizeServerMessage(
+            serverMessage ??
+                'Too many attempts. Please wait before trying again.',
+          ),
           statusCode: statusCode,
           kind: ApiErrorKind.rateLimited,
           retryAfter: retryAfter,
@@ -560,8 +664,10 @@ class ApiClient {
       default:
         if (statusCode >= 500) {
           return ApiException(
-            _sanitizeServerMessage(serverMessage ??
-                'The server could not complete the request. Please try again in a moment.'),
+            _sanitizeServerMessage(
+              serverMessage ??
+                  'The server could not complete the request. Please try again in a moment.',
+            ),
             statusCode: statusCode,
             kind: ApiErrorKind.server,
             apiVersion: apiVersion,
@@ -632,11 +738,14 @@ class ApiClient {
   bool _isIncomingMessageQuerySetterError(String message) {
     final lower = message.toLowerCase();
     return lower.contains('cannot set property query') &&
-        (lower.contains('incomingmessage') || lower.contains('incommingmessage'));
+        (lower.contains('incomingmessage') ||
+            lower.contains('incommingmessage'));
   }
 
   String _sanitizeServerMessage(String? raw) {
-    final message = (raw == null || raw.trim().isEmpty) ? 'Request failed' : raw;
+    final message = (raw == null || raw.trim().isEmpty)
+        ? 'Request failed'
+        : raw;
 
     // Flutter Web often wraps CORS/TLS/DNS failures in this XHR onError text.
     if (_isBrowserXhrNetworkError(message)) {
