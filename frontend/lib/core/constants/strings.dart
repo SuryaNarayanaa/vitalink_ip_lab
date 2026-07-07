@@ -25,6 +25,12 @@ class AppStrings {
       '$apiPathPrefix/auth/login/otp/verify';
   static const String loginOtpResendPath =
       '$apiPathPrefix/auth/login/otp/resend';
+  static const String loginTotpVerifyPath =
+      '$apiPathPrefix/auth/login/totp/verify';
+  static const String adminTotpSetupPath =
+      '$apiPathPrefix/auth/admin/mfa/totp/setup';
+  static const String adminTotpActivatePath =
+      '$apiPathPrefix/auth/admin/mfa/totp/activate';
 
   /// Doctor endpoints.
   static const String doctorPatientsPath = '$apiPathPrefix/doctors/patients';

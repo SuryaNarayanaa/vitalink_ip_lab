@@ -9,10 +9,7 @@ void main() {
         'challenge_id': 'challenge-123',
         'purpose': 'PHONE_FIRST_LOGIN',
         'delivery_channel': 'SMS',
-        'phone': {
-          'masked': '+********1234',
-          'last4': '1234',
-        },
+        'phone': {'masked': '+********1234', 'last4': '1234'},
         'expires_at': '2026-07-06T10:30:00.000Z',
         'resend_available_at': '2026-07-06T10:25:00.000Z',
         'attempts_remaining': 4,
@@ -30,21 +27,52 @@ void main() {
       expect(challenge.resendAvailableAt, isNotNull);
     });
 
-    test('builds verify and resend requests for backend login OTP endpoints',
-        () {
-      final verify = VerifyLoginOtpRequest(
-        challengeId: 'challenge-123',
-        code: 'test-code',
-      );
-      final resend = ResendLoginOtpRequest(challengeId: 'challenge-123');
+    test(
+      'builds verify and resend requests for backend login OTP endpoints',
+      () {
+        final verify = VerifyLoginOtpRequest(
+          challengeId: 'challenge-123',
+          code: 'test-code',
+        );
+        final resend = ResendLoginOtpRequest(challengeId: 'challenge-123');
 
-      expect(verify.path, AppStrings.loginOtpVerifyPath);
-      expect(verify.toJson(), {
-        'challenge_id': 'challenge-123',
-        'code': 'test-code',
+        expect(verify.path, AppStrings.loginOtpVerifyPath);
+        expect(verify.toJson(), {
+          'challenge_id': 'challenge-123',
+          'code': 'test-code',
+        });
+        expect(resend.path, AppStrings.loginOtpResendPath);
+        expect(resend.toJson(), {'challenge_id': 'challenge-123'});
+      },
+    );
+
+    test('parses backend admin TOTP challenge response', () {
+      final challenge = LoginTotpChallenge.fromJson({
+        'challenge_id': 'admin-mfa-123',
+        'factor_type': 'AUTHENTICATOR_APP',
+        'expires_at': '2026-07-06T10:30:00.000Z',
+        'attempts_remaining': 3,
+        'max_attempts': 5,
       });
-      expect(resend.path, AppStrings.loginOtpResendPath);
-      expect(resend.toJson(), {'challenge_id': 'challenge-123'});
+
+      expect(challenge.challengeId, 'admin-mfa-123');
+      expect(challenge.factorType, 'AUTHENTICATOR_APP');
+      expect(challenge.attemptsRemaining, 3);
+      expect(challenge.maxAttempts, 5);
+      expect(challenge.expiresAt, isNotNull);
+    });
+
+    test('builds verify request for backend login TOTP endpoint', () {
+      final verify = VerifyLoginTotpRequest(
+        challengeId: 'admin-mfa-123',
+        code: '123456',
+      );
+
+      expect(verify.path, AppStrings.loginTotpVerifyPath);
+      expect(verify.toJson(), {
+        'challenge_id': 'admin-mfa-123',
+        'code': '123456',
+      });
     });
   });
 }

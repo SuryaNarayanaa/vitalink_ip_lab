@@ -29,6 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   final AuthRepository _authRepository = AppDependencies.authRepository;
   bool _obscurePassword = true;
   LoginOtpChallenge? _otpChallenge;
+  LoginTotpChallenge? _totpChallenge;
   bool _isVerifyingOtp = false;
   bool _isResendingOtp = false;
   Object? _otpError;
@@ -140,6 +141,38 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _verifyTotp() async {
+    final challenge = _totpChallenge;
+    if (challenge == null || !_otpFormKey.currentState!.validate()) return;
+
+    setState(() {
+      _isVerifyingOtp = true;
+      _otpError = null;
+    });
+
+    try {
+      final response = await _authRepository.verifyLoginTotp(
+        VerifyLoginTotpRequest(
+          challengeId: challenge.challengeId,
+          code: _otpController.text.trim(),
+        ),
+      );
+      await _handleSuccess(response);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _otpError = error;
+      });
+      _handleError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVerifyingOtp = false;
+        });
+      }
+    }
+  }
+
   Future<void> _resendOtp() async {
     final challenge = _otpChallenge;
     if (challenge == null) return;
@@ -179,6 +212,7 @@ class _LoginPageState extends State<LoginPage> {
   void _returnToLogin() {
     setState(() {
       _otpChallenge = null;
+      _totpChallenge = null;
       _otpController.clear();
       _otpError = null;
     });
@@ -199,6 +233,17 @@ class _LoginPageState extends State<LoginPage> {
             if (data.isOtpRequired) {
               setState(() {
                 _otpChallenge = data.otpChallenge;
+                _totpChallenge = null;
+                _otpController.clear();
+                _otpError = null;
+              });
+              return;
+            }
+
+            if (data.isTotpRequired) {
+              setState(() {
+                _totpChallenge = data.totpChallenge;
+                _otpChallenge = null;
                 _otpController.clear();
                 _otpError = null;
               });
@@ -217,8 +262,9 @@ class _LoginPageState extends State<LoginPage> {
         ),
         builder: (context, mutation) {
           final error = mutation.error;
-          final errorText =
-              error is ApiException ? error.message : error?.toString();
+          final errorText = error is ApiException
+              ? error.message
+              : error?.toString();
 
           return SizedBox(
             width: screenWidth,
@@ -251,7 +297,8 @@ class _LoginPageState extends State<LoginPage> {
                     physics: const BouncingScrollPhysics(),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight: screenHeight -
+                        minHeight:
+                            screenHeight -
                             MediaQuery.of(context).padding.top -
                             MediaQuery.of(context).padding.bottom,
                       ),
@@ -298,10 +345,12 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             SizedBox(height: screenHeight * 0.04),
 
-                            if (_otpChallenge == null)
+                            if (_otpChallenge == null && _totpChallenge == null)
                               _buildLoginForm(mutation, error, errorText)
-                            else
+                            else if (_otpChallenge != null)
                               _buildOtpForm(_otpChallenge!),
+                            if (_totpChallenge != null)
+                              _buildTotpForm(_totpChallenge!),
 
                             SizedBox(height: screenHeight * 0.04),
 
@@ -620,6 +669,105 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotpForm(LoginTotpChallenge challenge) {
+    final attempts = challenge.attemptsRemaining;
+
+    return Form(
+      key: _otpFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _lightPurple.withAlpha(22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.admin_panel_settings_outlined,
+                  color: _primaryPurple,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Authenticator verification',
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2D3142),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Enter the 6-digit code from your authenticator app.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          height: 1.45,
+                          color: const Color(0xFF4B5164),
+                        ),
+                      ),
+                      if (attempts != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '$attempts attempts remaining',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: const Color(0xFF5D6475),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _buildTextField(
+            controller: _otpController,
+            hintText: 'Authenticator code',
+            icon: Icons.pin_outlined,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(6),
+            ],
+            validator: (value) {
+              final v = value?.trim() ?? '';
+              if (v.isEmpty) return 'Authenticator code is required';
+              if (v.length != 6) return 'Enter the 6-digit code';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          if (_otpError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ApiErrorState(error: _otpError, compact: true),
+            ),
+          _buildPrimaryButton(
+            label: 'VERIFY',
+            isLoading: _isVerifyingOtp,
+            onPressed: _isVerifyingOtp ? null : _verifyTotp,
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: _isVerifyingOtp ? null : _returnToLogin,
+            icon: const Icon(Icons.arrow_back_outlined, size: 18),
+            label: const Text('Back'),
+          ),
         ],
       ),
     );
