@@ -1,3 +1,4 @@
+import { sendPushToUser } from '@alias/services/fcm.service'
 import { Request, Response } from 'express'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
@@ -72,6 +73,7 @@ const getPatientProfileOrThrow = async (profileId: unknown, notFoundMessage = 'P
   return patient
 }
 
+
 const notifyPatientDoctorUpdate = async (
   patientUserId: unknown,
   doctorId: unknown,
@@ -80,6 +82,7 @@ const notifyPatientDoctorUpdate = async (
   message: string,
   changedFields: string[] = []
 ) => {
+  // Save in-app notification (existing)
   await createDoctorUpdateNotification({
     patientUserId,
     changedByDoctorId: doctorId,
@@ -87,6 +90,15 @@ const notifyPatientDoctorUpdate = async (
     title,
     message,
     changedFields,
+  })
+
+  // Also send FCM push notification (new)
+  await sendPushToUser(String(patientUserId), {
+    title,
+    body: message,
+    data: {
+      change_type: changeType,
+    },
   })
 }
 
