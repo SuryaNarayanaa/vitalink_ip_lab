@@ -4,6 +4,7 @@ import connectDB from "./config/db";
 import mongoose from "mongoose";
 import { Server } from "http";
 import logger from './utils/logger'
+import '@alias/jobs/dosage.scheduler'  
 
 let server: Server | null = null;
 let shuttingDown = false;
