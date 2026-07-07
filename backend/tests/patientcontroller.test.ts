@@ -1020,6 +1020,42 @@ describe('Patient Routes', () => {
             const fresh = await Notification.findById(created._id);
             expect(fresh?.is_read).toBe(true);
         });
+
+        test('should reject notification stream with a revoked session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'patient001',
+                password: 'patient123'
+            });
+            const token = loginResponse.data.data.token;
+
+            await api.post('/api/auth/logout', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const response = await api.get(`/api/patient/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should reject notification stream with a rotated session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'patient001',
+                password: 'patient123'
+            });
+            const token = loginResponse.data.data.token;
+            const refreshToken = loginResponse.data.data.refresh_token;
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: refreshToken,
+            });
+            expect(refreshResponse.status).toBe(200);
+
+            const response = await api.get(`/api/patient/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
+        });
     });
 
     describe('GET /api/patient/dosage-calendar', () => {
