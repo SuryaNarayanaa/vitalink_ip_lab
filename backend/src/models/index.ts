@@ -43,7 +43,9 @@ import Hospital from './hospital.model'
 import Invoice from './invoice.model'
 
 
-export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice }
+import DeviceToken from './DeviceToken.model'
+
+export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice, DeviceToken  }
 
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile
