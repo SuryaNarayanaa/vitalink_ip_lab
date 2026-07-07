@@ -47,6 +47,26 @@ export const verifyLoginTotpSchema = z.object({
 
 export type VerifyLoginTotpInput = z.infer<typeof verifyLoginTotpSchema>
 
+export const refreshTokenSchema = z.object({
+  body: z.object({
+    refresh_token: z.string().min(1, 'Refresh token is required'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>
+
+export const revokeTokenSchema = z.object({
+  body: z.object({
+    refresh_token: z.string().min(1, 'Refresh token is required'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type RevokeTokenInput = z.infer<typeof revokeTokenSchema>
+
 export const activateAdminTotpSchema = z.object({
   body: z.object({
     code: z.string().regex(/^\d{6}$/, 'TOTP code must be 6 digits'),

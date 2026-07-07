@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminMfaChallenge, AdminProfile, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
 import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
@@ -177,10 +177,18 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.token).toBeDefined();
+            expect(response.data.data.refresh_token).toBeDefined();
+            expect(response.data.data.session.session_id).toBeDefined();
             expect(response.data.data.user).toBeDefined();
             expect(response.data.data.user.login_id).toBe('testuser');
             expectNoMfaSecrets(response.data.data.user);
             testToken = response.data.data.token;
+
+            const session = await AuthSession.findById(response.data.data.session.session_id).lean();
+            expect(session).toBeDefined();
+            expect(session?.refresh_token_hash).toBeDefined();
+            expect(session?.refresh_token_hash).not.toBe(response.data.data.refresh_token);
+            expect(session?.refresh_token_hash).not.toContain(response.data.data.refresh_token);
         });
 
         test('should return a phone OTP challenge for unverified patient login without issuing a token', async () => {
@@ -224,6 +232,7 @@ describe('Auth Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.data.token).toBeDefined();
+            expect(response.data.data.refresh_token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('admin-user');
             expectNoMfaSecrets(response.data.data.user);
             expect(mockStartVerification).not.toHaveBeenCalled();
@@ -300,6 +309,7 @@ describe('Auth Routes', () => {
 
             expect(verifyResponse.status).toBe(200);
             expect(verifyResponse.data.data.token).toBeDefined();
+            expect(verifyResponse.data.data.refresh_token).toBeDefined();
             expect(verifyResponse.data.data.user.login_id).toBe('mfa-admin');
             expectNoMfaSecrets(verifyResponse.data.data.user);
 
@@ -363,6 +373,7 @@ describe('Auth Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.data.token).toBeDefined();
+            expect(response.data.data.refresh_token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('unverified-patient');
             expect(mockCheckVerification).toHaveBeenCalledWith('patient-channel-ending-4444', 'candidate-code');
 
@@ -586,6 +597,80 @@ describe('Auth Routes', () => {
         });
     });
 
+    describe('POST /api/auth/refresh', () => {
+        test('should rotate refresh token and invalidate the previous access token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'testuser',
+                password: 'testpassword123'
+            });
+            const originalToken = loginResponse.data.data.token;
+            const originalRefreshToken = loginResponse.data.data.refresh_token;
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: originalRefreshToken,
+            });
+
+            expect(refreshResponse.status).toBe(200);
+            expect(refreshResponse.data.data.token).toBeDefined();
+            expect(refreshResponse.data.data.refresh_token).toBeDefined();
+            expect(refreshResponse.data.data.token).not.toBe(originalToken);
+            expect(refreshResponse.data.data.refresh_token).not.toBe(originalRefreshToken);
+
+            const oldTokenResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${originalToken}` }
+            });
+            expect(oldTokenResponse.status).toBe(401);
+
+            const newTokenResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${refreshResponse.data.data.token}` }
+            });
+            expect(newTokenResponse.status).toBe(200);
+
+            const replayResponse = await api.post('/api/auth/refresh', {
+                refresh_token: originalRefreshToken,
+            });
+            expect(replayResponse.status).toBe(401);
+        });
+
+        test('should reject missing or invalid refresh tokens', async () => {
+            const missingResponse = await api.post('/api/auth/refresh', {});
+            expect(missingResponse.status).toBe(400);
+
+            const invalidResponse = await api.post('/api/auth/refresh', {
+                refresh_token: 'not-a-real-refresh-token',
+            });
+            expect(invalidResponse.status).toBe(401);
+        });
+    });
+
+    describe('POST /api/auth/revoke', () => {
+        test('should revoke a refresh token and reject the current access token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'testuser',
+                password: 'testpassword123'
+            });
+            const token = loginResponse.data.data.token;
+            const refreshToken = loginResponse.data.data.refresh_token;
+
+            const response = await api.post('/api/auth/revoke', {
+                refresh_token: refreshToken,
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            expect(meResponse.status).toBe(401);
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: refreshToken,
+            });
+            expect(refreshResponse.status).toBe(401);
+        });
+    });
+
     describe('POST /api/auth/logout', () => {
         test('should logout successfully with valid token', async () => {
             const loginResponse = await api.post('/api/auth/login', {
@@ -601,6 +686,11 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.message).toBe('Logout successful. Please clear the token from client-side.');
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            expect(meResponse.status).toBe(401);
         });
 
         test('should fail without authentication token', async () => {

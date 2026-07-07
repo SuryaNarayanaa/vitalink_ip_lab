@@ -18,7 +18,8 @@ import mongoose from 'mongoose'
 import { getDownloadUrl, uploadFile } from '@alias/utils/fileUpload'
 import logger from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
-import { extractTokenFromHeader, verifyToken } from '@alias/utils/jwt.utils'
+import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
+import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import * as notificationService from '@alias/services/notification.service'
 import {
@@ -110,16 +111,7 @@ const resolveDoctorStreamUserOrThrow = async (req: Request) => {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
   }
 
-  const payload = verifyToken(token)
-  if (!payload || payload.user_type !== UserType.DOCTOR) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-  }
-
-  const user = await User.findById(payload.user_id).select('_id user_type is_active')
-  if (!user || user.user_type !== UserType.DOCTOR || !user.is_active) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-  }
-
+  const { user } = await validateAuthToken(token, UserType.DOCTOR)
   return user
 }
 
