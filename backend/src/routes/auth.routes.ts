@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { validate } from "@alias/middlewares/ValidateResource";
 import { authenticate } from "@alias/middlewares/authProvider.middleware";
-import { activateAdminTotpSchema, changePasswordSchema, loginSchema, resendLoginOtpSchema, verifyLoginOtpSchema, verifyLoginTotpSchema } from "@alias/validators/user.validator";
+import { activateAdminTotpSchema, changePasswordSchema, loginSchema, refreshTokenSchema, resendLoginOtpSchema, revokeTokenSchema, verifyLoginOtpSchema, verifyLoginTotpSchema } from "@alias/validators/user.validator";
 import {
   changePasswordController,
   activateAdminTotpController,
@@ -10,6 +10,8 @@ import {
   loginController,
   logoutController,
   getMeController,
+  refreshTokenController,
+  revokeTokenController,
   verifyLoginTotpController,
   verifyLoginOtpController,
 } from "@alias/controllers/auth.controller";
@@ -23,6 +25,10 @@ router.post("/login/otp/verify", validate(verifyLoginOtpSchema), verifyLoginOtpC
 router.post("/login/otp/resend", validate(resendLoginOtpSchema), resendLoginOtpController);
 
 router.post("/login/totp/verify", validate(verifyLoginTotpSchema), verifyLoginTotpController);
+
+router.post("/refresh", validate(refreshTokenSchema), refreshTokenController);
+
+router.post("/revoke", validate(revokeTokenSchema), revokeTokenController);
 
 router.post("/logout", authenticate, logoutController);
 

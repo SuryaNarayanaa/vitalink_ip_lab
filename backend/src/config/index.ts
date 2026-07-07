@@ -34,6 +34,7 @@ interface Config {
   adminTotpEncryptionKey: string
   adminTotpChallengeExpiryMinutes: number
   adminTotpMaxAttempts: number
+  refreshTokenExpiryDays: number
   twilioAccountSid: string
   twilioAuthToken: string
   twilioVerifyServiceSid: string
@@ -152,6 +153,7 @@ export const config: Config = {
   }),
   adminTotpChallengeExpiryMinutes: getIntEnv('ADMIN_TOTP_CHALLENGE_EXPIRY_MINUTES', 5),
   adminTotpMaxAttempts: getIntEnv('ADMIN_TOTP_MAX_ATTEMPTS', 5),
+  refreshTokenExpiryDays: getIntEnv('REFRESH_TOKEN_EXPIRY_DAYS', 30),
   twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID', { requiredInProduction: true, requiredInStaging: true }),
   twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN', { requiredInProduction: true, requiredInStaging: true }),
   twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID', { requiredInProduction: true, requiredInStaging: true }),

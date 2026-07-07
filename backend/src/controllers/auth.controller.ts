@@ -1,15 +1,16 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { asyncHandler, ApiError, ApiResponse, generateToken } from '@alias/utils'
+import { asyncHandler, ApiError, ApiResponse } from '@alias/utils'
 import { AuditLog, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models'
 import {
   OtpChallengePurpose,
   OtpChallengeStatus,
 } from '@alias/models/otpchallenge.model'
+import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { AuditAction } from '@alias/models/auditlog.model'
 import { comparePasswords } from '@alias/utils'
 import { UserType } from '@alias/validators'
-import { ActivateAdminTotpInput, ChangePasswordInput, LoginInput, ResendLoginOtpInput, VerifyLoginOtpInput, VerifyLoginTotpInput } from '@alias/validators/user.validator'
+import { ActivateAdminTotpInput, ChangePasswordInput, LoginInput, RefreshTokenInput, ResendLoginOtpInput, RevokeTokenInput, VerifyLoginOtpInput, VerifyLoginTotpInput } from '@alias/validators/user.validator'
 import { config } from '@alias/config'
 import {
   activateAdminTotpEnrollment,
@@ -28,6 +29,12 @@ import {
   verifyOtpChallenge,
 } from '@alias/services/otp.service'
 import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
+import {
+  createAuthSession,
+  refreshAuthSession,
+  revokeAuthSessionById,
+  revokeAuthSessionByRefreshToken,
+} from '@alias/services/auth-session.service'
 
 const createAuthAuditLog = async (
   req: Request,
@@ -64,13 +71,17 @@ const sanitizeAuthUser = (user: any) => {
   return safeUser
 }
 
-const getSessionPayload = async (user: any) => {
-  const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
+const getSessionPayload = async (req: Request, user: any) => {
+  const sessionPayload = await createAuthSession({
+    user,
+    ipAddress: req.ip || req.socket?.remoteAddress,
+    userAgent: req.headers['user-agent'],
+  })
   const populatedUser = await User.findById(user._id)
     .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
     .select('-password -salt')
 
-  return { token, user: sanitizeAuthUser(populatedUser) }
+  return { ...sessionPayload, user: sanitizeAuthUser(populatedUser) }
 }
 
 const getRegisteredPhoneState = async (user: any): Promise<{
@@ -314,7 +325,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
   await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully')
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", await getSessionPayload(user)))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", await getSessionPayload(req, user)))
 })
 
 export const verifyLoginOtpController = asyncHandler(
@@ -356,7 +367,7 @@ export const verifyLoginOtpController = asyncHandler(
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Phone OTP verified and user logged in successfully',
-      await getSessionPayload(user)
+      await getSessionPayload(req, user)
     ))
   }
 )
@@ -371,7 +382,38 @@ export const verifyLoginTotpController = asyncHandler(
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Admin authenticator MFA verified and user logged in successfully',
-      await getSessionPayload(user)
+      await getSessionPayload(req, user)
+    ))
+  }
+)
+
+export const refreshTokenController = asyncHandler(
+  async (req: Request<{}, {}, RefreshTokenInput["body"]>, res: Response) => {
+    const refreshed = await refreshAuthSession({
+      refreshToken: req.body.refresh_token,
+      ipAddress: req.ip || req.socket?.remoteAddress,
+      userAgent: req.headers['user-agent'],
+    })
+
+    if (!refreshed) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired refresh token')
+    }
+
+    res.status(StatusCodes.OK).json(new ApiResponse(
+      StatusCodes.OK,
+      'Session refreshed successfully',
+      refreshed
+    ))
+  }
+)
+
+export const revokeTokenController = asyncHandler(
+  async (req: Request<{}, {}, RevokeTokenInput["body"]>, res: Response) => {
+    await revokeAuthSessionByRefreshToken(req.body.refresh_token, AuthSessionRevocationReason.USER_REVOKED)
+
+    res.status(StatusCodes.OK).json(new ApiResponse(
+      StatusCodes.OK,
+      'Session revoked successfully'
     ))
   }
 )
@@ -429,10 +471,9 @@ export const logoutController = asyncHandler(async (req: Request, res: Response)
     }
   }
 
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: 'Logout successful. Please clear the token from client-side.',
-  })
+  await revokeAuthSessionById(req.user?.session_id, AuthSessionRevocationReason.LOGOUT)
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Logout successful. Please clear the token from client-side.'))
 })
 
 export const getMeController = asyncHandler(async (req: Request, res: Response) => {

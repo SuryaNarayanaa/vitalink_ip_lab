@@ -3,6 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { verifyToken, extractTokenFromHeader } from '@alias/utils/jwt.utils'
 import { JWTPayload, UserType } from '@alias/validators'
 import { User } from '@alias/models'
+import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
 
 /**
  * Extend Express Request to include user data
@@ -60,6 +61,19 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return
     }
     if (user.user_type !== payload.user_type) {
+      res.status(StatusCodes.UNAUTHORIZED).json({
+        success: false,
+        message: 'Invalid or expired authentication token.',
+      })
+      return
+    }
+    const session = await findActiveSessionForAccessToken({
+      sessionId: payload.session_id,
+      tokenId: payload.token_id,
+      userId: payload.user_id,
+      userType: payload.user_type,
+    })
+    if (!session) {
       res.status(StatusCodes.UNAUTHORIZED).json({
         success: false,
         message: 'Invalid or expired authentication token.',
