@@ -182,10 +182,23 @@ export const createAdminTotpEnrollment = async (user: any) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Admin MFA enrollment is only available for admins')
   }
 
+  const currentUser = await User.findOne({ _id: user._id, user_type: UserType.ADMIN, is_active: true })
+  if (!currentUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  }
+
+  if (isAdminTotpEnabled(currentUser)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  }
+
   const secret = generateAdminTotpSecret()
   const encrypted = encryptSecret(secret)
-  await User.updateOne(
-    { _id: user._id, user_type: UserType.ADMIN },
+  const result = await User.updateOne(
+    {
+      _id: currentUser._id,
+      user_type: UserType.ADMIN,
+      'admin_mfa.totp.status': { $ne: 'ENABLED' },
+    },
     {
       $set: {
         'admin_mfa.totp.status': 'PENDING',
@@ -196,9 +209,12 @@ export const createAdminTotpEnrollment = async (user: any) => {
       },
     }
   )
+  if (result.matchedCount === 0) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  }
 
   const issuer = 'VitaLink'
-  const accountName = encodeURIComponent(user.login_id)
+  const accountName = encodeURIComponent(currentUser.login_id)
   const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
   return { secret, otpauth_url }
 }

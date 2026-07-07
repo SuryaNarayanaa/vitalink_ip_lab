@@ -11,6 +11,22 @@ import { generateTotpCode } from '@alias/services/admin-totp.service';
 var mockStartVerification: jest.Mock;
 var mockCheckVerification: jest.Mock;
 
+const expectNoMfaSecrets = (userPayload: any) => {
+    expect(userPayload).toBeDefined();
+    expect(userPayload.password).toBeUndefined();
+    expect(userPayload.salt).toBeUndefined();
+    expect(userPayload.admin_mfa).toBeUndefined();
+
+    const serialized = JSON.stringify(userPayload);
+    expect(serialized).not.toContain('secret_ciphertext');
+    expect(serialized).not.toContain('secret_iv');
+    expect(serialized).not.toContain('secret_auth_tag');
+    expect(serialized).not.toContain('pending_secret_ciphertext');
+    expect(serialized).not.toContain('pending_secret_iv');
+    expect(serialized).not.toContain('pending_secret_auth_tag');
+    expect(serialized).not.toContain('last_verified_time_step');
+}
+
 jest.mock('@alias/services/twilio-verify.service', () => ({
     __esModule: true,
     maskPhoneNumber: (phoneNumber: string) => {
@@ -163,6 +179,7 @@ describe('Auth Routes', () => {
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.user).toBeDefined();
             expect(response.data.data.user.login_id).toBe('testuser');
+            expectNoMfaSecrets(response.data.data.user);
             testToken = response.data.data.token;
         });
 
@@ -208,6 +225,7 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('admin-user');
+            expectNoMfaSecrets(response.data.data.user);
             expect(mockStartVerification).not.toHaveBeenCalled();
         });
 
@@ -247,6 +265,18 @@ describe('Auth Routes', () => {
             expect(userAfterActivation?.admin_mfa?.totp?.secret_ciphertext).toBeDefined();
             expect(userAfterActivation?.admin_mfa?.totp?.secret_ciphertext).not.toBe(setupResponse.data.data.secret);
             expect(userAfterActivation?.admin_mfa?.totp?.pending_secret_ciphertext).toBeUndefined();
+
+            const activeCiphertext = userAfterActivation?.admin_mfa?.totp?.secret_ciphertext;
+            const reEnrollmentResponse = await api.post('/api/auth/admin/mfa/totp/setup', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            expect(reEnrollmentResponse.status).toBe(409);
+
+            const userAfterRejectedSetup = await User.findById(mfaAdminUser._id).lean();
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.status).toBe('ENABLED');
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.secret_ciphertext).toBe(activeCiphertext);
+            expect(userAfterRejectedSetup?.admin_mfa?.totp?.pending_secret_ciphertext).toBeUndefined();
         });
 
         test('should require admin TOTP challenge after MFA is enabled and issue token only after verification', async () => {
@@ -271,6 +301,14 @@ describe('Auth Routes', () => {
             expect(verifyResponse.status).toBe(200);
             expect(verifyResponse.data.data.token).toBeDefined();
             expect(verifyResponse.data.data.user.login_id).toBe('mfa-admin');
+            expectNoMfaSecrets(verifyResponse.data.data.user);
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${verifyResponse.data.data.token}` }
+            });
+            expect(meResponse.status).toBe(200);
+            expect(meResponse.data.data.user.login_id).toBe('mfa-admin');
+            expectNoMfaSecrets(meResponse.data.data.user);
 
             const challenge = await AdminMfaChallenge.findById(loginResponse.data.data.challenge.challenge_id);
             expect(challenge?.status).toBe(AdminMfaChallengeStatus.VERIFIED);
@@ -600,6 +638,7 @@ describe('Auth Routes', () => {
             expect(response.data.data.user.login_id).toBe('testuser');
             expect(response.data.data.user.password).toBeUndefined();
             expect(response.data.data.user.salt).toBeUndefined();
+            expectNoMfaSecrets(response.data.data.user);
         });
 
         test('should fail without authentication token', async () => {

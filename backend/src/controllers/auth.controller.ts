@@ -55,13 +55,22 @@ const createAuthAuditLog = async (
 
 const OTP_ELIGIBLE_USER_TYPES = new Set<UserType>([UserType.DOCTOR, UserType.PATIENT])
 
+const sanitizeAuthUser = (user: any) => {
+  if (!user) return user
+  const safeUser = typeof user.toObject === 'function' ? user.toObject() : { ...user }
+  delete safeUser.password
+  delete safeUser.salt
+  delete safeUser.admin_mfa
+  return safeUser
+}
+
 const getSessionPayload = async (user: any) => {
   const token = generateToken({ user_id: user._id.toString(), user_type: user.user_type as UserType })
   const populatedUser = await User.findById(user._id)
     .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
     .select('-password -salt')
 
-  return { token, user: populatedUser }
+  return { token, user: sanitizeAuthUser(populatedUser) }
 }
 
 const getRegisteredPhoneState = async (user: any): Promise<{
@@ -436,7 +445,7 @@ export const getMeController = asyncHandler(async (req: Request, res: Response) 
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
   }
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User profile retrieved successfully', { user }))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User profile retrieved successfully', { user: sanitizeAuthUser(user) }))
 })
 
 export const changePasswordController = asyncHandler(
