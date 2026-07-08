@@ -93,6 +93,8 @@ Future<bool> showAddDoctorDialog(
                     controller: contact,
                     decoration: const InputDecoration(
                       labelText: 'Contact Number',
+                      hintText: '10-digit Indian number',
+                      helperText: '+91 is added automatically',
                       prefixIcon: Icon(Icons.phone_rounded),
                     ),
                     keyboardType: TextInputType.phone,
@@ -211,6 +213,8 @@ Future<bool> showEditDoctorDialog(
                     controller: contact,
                     decoration: const InputDecoration(
                       labelText: 'Contact Number',
+                      hintText: '10-digit Indian number',
+                      helperText: '+91 is added automatically',
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
@@ -305,25 +309,22 @@ Future<bool> showAddPatientDialog(
       builder: (ctx, setState) {
         // Fetch doctors on first build if list is empty
         if (doctorsLoading && doctorsError == null) {
-          _repo
-              .getAllDoctors(limit: 100, isActive: 'true')
-              .then((response) {
-                final items = response['doctors'] as List? ?? [];
-                if (ctx.mounted) {
-                  setState(() {
-                    doctorList = items.cast<Map<String, dynamic>>();
-                    doctorsLoading = false;
-                  });
-                }
-              })
-              .catchError((e) {
-                if (ctx.mounted) {
-                  setState(() {
-                    doctorsError = e.toString();
-                    doctorsLoading = false;
-                  });
-                }
+          _repo.getAllDoctors(limit: 100, isActive: 'true').then((response) {
+            final items = response['doctors'] as List? ?? [];
+            if (ctx.mounted) {
+              setState(() {
+                doctorList = items.cast<Map<String, dynamic>>();
+                doctorsLoading = false;
               });
+            }
+          }).catchError((e) {
+            if (ctx.mounted) {
+              setState(() {
+                doctorsError = e.toString();
+                doctorsLoading = false;
+              });
+            }
+          });
         }
 
         return AlertDialog(
@@ -399,8 +400,7 @@ Future<bool> showAddPatientDialog(
                       items: doctorList.map((d) {
                         final profile =
                             d['profile_id'] as Map<String, dynamic>? ?? {};
-                        final dName =
-                            profile['name'] as String? ??
+                        final dName = profile['name'] as String? ??
                             d['name'] as String? ??
                             d['login_id'] as String? ??
                             'Unknown';
@@ -452,6 +452,8 @@ Future<bool> showAddPatientDialog(
                     controller: phone,
                     decoration: const InputDecoration(
                       labelText: 'Phone Number',
+                      hintText: '10-digit Indian number',
+                      helperText: '+91 is added automatically',
                       prefixIcon: Icon(Icons.phone_rounded),
                     ),
                     keyboardType: TextInputType.phone,
@@ -536,7 +538,8 @@ Future<bool> showEditPatientDialog(
   VoidCallback? onSuccess,
 }) async {
   final formKey = GlobalKey<FormState>();
-  final name = TextEditingController(text: currentData['name'] as String? ?? '');
+  final name =
+      TextEditingController(text: currentData['name'] as String? ?? '');
   final age = TextEditingController(
     text: currentData['age'] != null ? '${currentData['age']}' : '',
   );
@@ -587,14 +590,17 @@ Future<bool> showEditPatientDialog(
                           )
                               ? selectedGender
                               : null,
-                          decoration: const InputDecoration(labelText: 'Gender'),
+                          decoration:
+                              const InputDecoration(labelText: 'Gender'),
                           items: const [
-                            DropdownMenuItem(value: 'Male', child: Text('Male')),
+                            DropdownMenuItem(
+                                value: 'Male', child: Text('Male')),
                             DropdownMenuItem(
                               value: 'Female',
                               child: Text('Female'),
                             ),
-                            DropdownMenuItem(value: 'Other', child: Text('Other')),
+                            DropdownMenuItem(
+                                value: 'Other', child: Text('Other')),
                           ],
                           onChanged: loading
                               ? null
@@ -608,6 +614,8 @@ Future<bool> showEditPatientDialog(
                     controller: phone,
                     decoration: const InputDecoration(
                       labelText: 'Phone Number',
+                      hintText: '10-digit Indian number',
+                      helperText: '+91 is added automatically',
                       prefixIcon: Icon(Icons.phone_rounded),
                     ),
                     keyboardType: TextInputType.phone,
@@ -926,9 +934,8 @@ Future<bool> showReassignPatientDialog(
   List<Map<String, dynamic>> doctors = const [],
   VoidCallback? onSuccess,
 }) async {
-  String? selectedDoctorId = currentDoctorId.isNotEmpty
-      ? currentDoctorId
-      : null;
+  String? selectedDoctorId =
+      currentDoctorId.isNotEmpty ? currentDoctorId : null;
 
   // Auto-fetch doctors if none provided
   List<Map<String, dynamic>> doctorList = List.from(doctors);
@@ -942,25 +949,22 @@ Future<bool> showReassignPatientDialog(
       builder: (ctx, setState) {
         // Fetch doctors on first build if list is empty
         if (doctorsLoading && doctorsError == null) {
-          _repo
-              .getAllDoctors(limit: 100, isActive: 'true')
-              .then((response) {
-                final items = response['doctors'] as List? ?? [];
-                if (ctx.mounted) {
-                  setState(() {
-                    doctorList = items.cast<Map<String, dynamic>>();
-                    doctorsLoading = false;
-                  });
-                }
-              })
-              .catchError((e) {
-                if (ctx.mounted) {
-                  setState(() {
-                    doctorsError = e.toString();
-                    doctorsLoading = false;
-                  });
-                }
+          _repo.getAllDoctors(limit: 100, isActive: 'true').then((response) {
+            final items = response['doctors'] as List? ?? [];
+            if (ctx.mounted) {
+              setState(() {
+                doctorList = items.cast<Map<String, dynamic>>();
+                doctorsLoading = false;
               });
+            }
+          }).catchError((e) {
+            if (ctx.mounted) {
+              setState(() {
+                doctorsError = e.toString();
+                doctorsLoading = false;
+              });
+            }
+          });
         }
 
         return AlertDialog(
@@ -995,10 +999,9 @@ Future<bool> showReassignPatientDialog(
                 )
               else
                 DropdownButtonFormField<String>(
-                  initialValue:
-                      doctorList.any(
-                        (d) => (d['_id'] ?? d['id']) == selectedDoctorId,
-                      )
+                  initialValue: doctorList.any(
+                    (d) => (d['_id'] ?? d['id']) == selectedDoctorId,
+                  )
                       ? selectedDoctorId
                       : null,
                   decoration: const InputDecoration(
@@ -1008,8 +1011,7 @@ Future<bool> showReassignPatientDialog(
                   items: doctorList.map((d) {
                     final profile =
                         d['profile_id'] as Map<String, dynamic>? ?? {};
-                    final dName =
-                        profile['name'] as String? ??
+                    final dName = profile['name'] as String? ??
                         d['name'] as String? ??
                         d['login_id'] as String? ??
                         'Unknown';
@@ -1028,8 +1030,7 @@ Future<bool> showReassignPatientDialog(
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed:
-                  (loading ||
+              onPressed: (loading ||
                       selectedDoctorId == null ||
                       selectedDoctorId == currentDoctorId)
                   ? null

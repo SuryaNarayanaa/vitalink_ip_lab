@@ -157,9 +157,8 @@ class PatientProfileContent extends StatelessWidget {
 
   Widget _buildHeaderDetails({bool isCompact = false}) {
     return Column(
-      crossAxisAlignment: isCompact
-          ? CrossAxisAlignment.center
-          : CrossAxisAlignment.start,
+      crossAxisAlignment:
+          isCompact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
         Text(
           profile['name'] ?? 'Patient Name',
@@ -730,8 +729,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
       }
 
       if (_therapyStartController.text.trim().isNotEmpty) {
-        medicalConfig['therapy_start_date'] = _therapyStartController.text
-            .trim();
+        medicalConfig['therapy_start_date'] =
+            _therapyStartController.text.trim();
       }
 
       await PatientService.updateProfile(
@@ -888,6 +887,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       label: 'Phone Number',
                       icon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
+                      helperText: '+91 is added automatically',
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Caregiver & Kin'),
@@ -908,6 +908,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       label: 'Kin Phone Number',
                       icon: Icons.contact_phone_outlined,
                       keyboardType: TextInputType.phone,
+                      helperText: 'Use a 10-digit Indian number',
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Therapy Configuration'),
@@ -1000,9 +1001,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                   Expanded(
                                     flex: 2,
                                     child: ElevatedButton(
-                                      onPressed: _isLoading
-                                          ? null
-                                          : _saveProfile,
+                                      onPressed:
+                                          _isLoading ? null : _saveProfile,
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(
                                           0xFF6366F1,
@@ -1067,6 +1067,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
     bool readOnly = false,
     VoidCallback? onTap,
     Widget? suffixIcon,
+    String? helperText,
   }) {
     return TextFormField(
       controller: controller,
@@ -1078,6 +1079,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
         labelText: label,
         prefixIcon: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
         suffixIcon: suffixIcon,
+        helperText: helperText,
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(
@@ -1108,9 +1110,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
   }) {
     return DropdownButtonFormField<String>(
       initialValue: value,
-      items: items
-          .map((i) => DropdownMenuItem(value: i, child: Text(i)))
-          .toList(),
+      items:
+          items.map((i) => DropdownMenuItem(value: i, child: Text(i))).toList(),
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,

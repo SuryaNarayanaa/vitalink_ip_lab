@@ -607,11 +607,14 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
                   label: 'Contact Number',
                   icon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
+                  helperText: '+91 is added automatically',
                   validator: (value) {
+                    final digits = value?.replaceAll(RegExp(r'\D'), '') ?? '';
                     if (value != null &&
                         value.isNotEmpty &&
-                        value.length != 10) {
-                      return 'Contact number must be 10 digits';
+                        digits.length != 10 &&
+                        !(digits.length == 12 && digits.startsWith('91'))) {
+                      return 'Enter a 10-digit Indian number';
                     }
                     return null;
                   },
@@ -679,6 +682,7 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
     required IconData icon,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    String? helperText,
   }) {
     return TextFormField(
       controller: controller,
@@ -689,6 +693,7 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
         labelText: label,
         labelStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
         prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 22),
+        helperText: helperText,
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(
