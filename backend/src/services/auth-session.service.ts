@@ -177,3 +177,26 @@ export const revokeAuthSessionById = async (
     { new: true }
   )
 }
+
+export const revokeActiveAuthSessionsForUser = async (
+  userId: string,
+  reason: AuthSessionRevocationReason = AuthSessionRevocationReason.USER_REVOKED
+) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return { modifiedCount: 0 }
+  }
+
+  return AuthSession.updateMany(
+    {
+      user_id: userId,
+      revoked_at: { $exists: false },
+      expires_at: { $gt: new Date() },
+    },
+    {
+      $set: {
+        revoked_at: new Date(),
+        revoked_reason: reason,
+      },
+    }
+  )
+}

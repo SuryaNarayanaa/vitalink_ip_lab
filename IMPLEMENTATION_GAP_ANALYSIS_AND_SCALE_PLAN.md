@@ -110,15 +110,15 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing Firebase Cloud Messaging integration, device token model, push delivery worker, retries, and delivery status.
 
 3. MFA and login hardening
+   - Coordination workflow for the remaining auth-hardening work now exists at `backend/docs/codex-thread-workflow-auth-hardening.md`.
+   - Verification and promotion runbook now exists at `backend/docs/auth-hardening-verification.md`.
    - `[x]` Admin authenticator-app MFA is implemented for privileged users, including enrollment, activation, login challenge, Flutter setup UI, and Flutter login verification UI.
    - `[x]` Patient and doctor first-login phone OTP verification is implemented through Twilio Verify, with registered-phone binding and Flutter login OTP UI.
    - `[x]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
    - `[x]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
-   - `[x]` Refresh-token/session invalidation is implemented with persisted auth sessions, hashed refresh tokens, refresh rotation, revoke, and logout revocation.
-   - `[ ]` Still missing password expiry/history.
-   - `[~]` Further implementation needed:
-     - Add explicit admin/session invalidation after password reset.
-     - Consider adding login-attempt telemetry keyed by both IP and normalized login ID for better forensic visibility.
+   - `[x]` Refresh-token/session invalidation is implemented with persisted auth sessions, hashed refresh tokens, refresh rotation, revoke, logout revocation, and admin password-reset revocation.
+   - `[x]` Password expiry/history is implemented with configurable defaults, salted/hashed password-history entries, login/`me` policy state, and enforcement on password change/reset.
+   - `[x]` Login-attempt telemetry now records IP plus normalized login ID in auth audit metadata for matched users, with structured unmatched-user warnings for forensic correlation.
 
 4. Secrets management
    - `[~]` `.env.example` now documents more runtime controls, including API docs settings.
@@ -231,7 +231,7 @@ Deliverables:
   - `[x]` Access tokens are session-bound.
   - `[x]` Refresh token rotation.
   - `[x]` Logout invalidates the active session and refresh token.
-  - `[ ]` Admin password reset invalidates sessions.
+  - `[x]` Admin password reset invalidates active target-user sessions and records the invalidation count in audit metadata.
 - `[ ]` Move production secrets to AWS SSM/Secrets Manager or equivalent.
 - `[~]` Expand audit logging to auth success/failure, doctor changes, patient report upload, file access, data export, and password changes.
   - Auth success/failure is now audited.
@@ -241,8 +241,9 @@ Acceptance:
 
 - `[x]` Admin login requires MFA for enrolled admins, and production/staging policy requires authenticator enrollment.
 - `[~]` Lockout and throttling are implemented; automated verification coverage should be strengthened.
-- `[ ]` Sensitive body fields redacted in all logs/audit entries.
+- `[~]` Sensitive body/query fields are redacted in request URL logs and admin audit bodies; keep extending this as new logging surfaces are added.
 - `[x]` Session invalidation verified for refresh rotation and logout.
+- `[~]` Auth hardening verification runbook exists at `backend/docs/auth-hardening-verification.md`; local integration execution still requires Docker/Testcontainers.
 
 ### Phase 2: File Upload Hardening
 
@@ -525,6 +526,8 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
   - `backend/docs/api/openapi.yaml`
   - `backend/docs/api-reference.md`
   - `backend/docs/data-model.md`
+- Added auth hardening verification artifact:
+  - `backend/docs/auth-hardening-verification.md`
 - Verified Swagger UI integration exists and is wired through:
   - `backend/src/routes/docs.routes.ts`
   - `backend/src/app.ts`

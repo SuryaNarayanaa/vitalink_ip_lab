@@ -22,6 +22,8 @@ interface Config {
   authRateLimitMaxRequests: number
   maxFailedLoginAttempts: number
   accountLockoutMinutes: number
+  passwordExpiryDays: number
+  passwordHistoryCount: number
   trustProxy: boolean | number
   apiDocsEnabled: boolean
   apiDocsPath: string
@@ -84,6 +86,13 @@ function getIntEnv(key: string, defaultValue: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
 }
 
+function getNonNegativeIntEnv(key: string, defaultValue: number): number {
+  const value = process.env[key]?.trim()
+  if (!value) return defaultValue
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : defaultValue
+}
+
 function getBoolEnv(key: string, defaultValue: boolean): boolean {
   const value = process.env[key]?.trim().toLowerCase()
   if (!value) return defaultValue
@@ -139,6 +148,8 @@ export const config: Config = {
   authRateLimitMaxRequests: getIntEnv('AUTH_RATE_LIMIT_MAX_REQUESTS', 20),
   maxFailedLoginAttempts: getIntEnv('MAX_FAILED_LOGIN_ATTEMPTS', 5),
   accountLockoutMinutes: getIntEnv('ACCOUNT_LOCKOUT_MINUTES', 15),
+  passwordExpiryDays: getNonNegativeIntEnv('PASSWORD_EXPIRY_DAYS', 90),
+  passwordHistoryCount: getNonNegativeIntEnv('PASSWORD_HISTORY_COUNT', 5),
   trustProxy: getTrustProxy(),
   apiDocsEnabled,
   apiDocsPath: getEnv('API_DOCS_PATH', { defaultValue: '/docs' }),

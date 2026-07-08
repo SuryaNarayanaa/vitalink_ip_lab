@@ -1237,6 +1237,7 @@ paths:
     post:
       tags: [Admin]
       summary: Reset user password
+      description: Resets the target user's password, marks it for change on next login, enforces password history, revokes active target-user sessions, and audits session-invalidation metadata.
       requestBody:
         required: true
         content:
@@ -2149,6 +2150,24 @@ components:
           type: boolean
         must_change_password:
           type: boolean
+        password_expired:
+          type: boolean
+          description: True when the configured password expiry window has elapsed.
+        password_changed_at:
+          type: [string, "null"]
+          format: date-time
+        password_expires_at:
+          type: [string, "null"]
+          format: date-time
+        password_policy:
+          type: object
+          properties:
+            expiry_days:
+              type: integer
+              description: Configured password expiry interval. Zero disables expiry.
+            history_count:
+              type: integer
+              description: Number of previous passwords checked for reuse. Zero disables stored history checks.
         failed_login_attempts:
           type: integer
         locked_until:
@@ -2221,6 +2240,14 @@ components:
               properties:
                 must_change_password:
                   type: boolean
+                password_expired:
+                  type: boolean
+                password_changed_at:
+                  type: [string, "null"]
+                  format: date-time
+                password_expires_at:
+                  type: [string, "null"]
+                  format: date-time
 
     DosageSchedule:
       type: object
@@ -3280,6 +3307,10 @@ components:
                   description: Present when the service generated a password.
                 must_change_password:
                   type: boolean
+                invalidated_sessions:
+                  type: integer
+                  minimum: 0
+                  description: Number of active target-user sessions revoked by the reset.
               additionalProperties: true
 
     BatchOperationResult:

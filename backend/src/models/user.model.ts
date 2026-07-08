@@ -2,6 +2,21 @@ import { generateSalt, hashPassword } from "@alias/utils";
 import { UserType } from "@alias/validators";
 import mongoose from "mongoose";
 
+const PasswordHistoryEntrySchema = new mongoose.Schema({
+  password: {
+    type: String,
+    required: true,
+  },
+  salt: {
+    type: String,
+    required: true,
+  },
+  changed_at: {
+    type: Date,
+    required: true,
+  },
+}, { _id: false })
+
 const UserSchema = new mongoose.Schema({
   login_id: {
     type: String,
@@ -34,6 +49,12 @@ const UserSchema = new mongoose.Schema({
   },
   is_active: { type: Boolean, default: true },
   must_change_password: { type: Boolean, default: false },
+  password_changed_at: { type: Date, default: Date.now },
+  password_history: {
+    type: [PasswordHistoryEntrySchema],
+    default: [],
+    select: false,
+  },
   failed_login_attempts: { type: Number, default: 0, min: 0 },
   locked_until: { type: Date },
   last_login_at: { type: Date },
@@ -77,6 +98,7 @@ UserSchema.pre('validate', async function () {
   if (this.isModified('password')) {
     this.salt = generateSalt()
     this.password = await hashPassword(this.password, this.salt)
+    this.password_changed_at = new Date()
   }
 })
 
@@ -84,6 +106,7 @@ UserSchema.methods.toJSON = function () {
   var object = this.toObject();
   delete object.password;
   delete object.salt;
+  delete object.password_history;
   return object;
 }
 

@@ -392,6 +392,15 @@ Notes:
 
 Returns the authenticated user with populated profile data.
 
+The sanitized user payload includes password-policy state for clients:
+
+- `must_change_password`
+- `password_expired`
+- `password_changed_at`
+- `password_expires_at`
+- `password_policy.expiry_days`
+- `password_policy.history_count`
+
 ### `POST /api/v1/auth/change-password`
 
 Change the authenticated user password.
@@ -410,6 +419,9 @@ Rules:
 - minimum length 8
 - must contain uppercase, lowercase, digit, and special character
 - new password must differ from current password
+- new password cannot match the current password or the configured recent password history
+
+Successful changes clear `must_change_password` and return the updated password expiry state.
 
 ## Patient API
 
@@ -784,6 +796,8 @@ The admin router also applies audit middleware to all routes under `/api/v1/admi
 - `PUT /api/v1/admin/users/:id`
 - `POST /api/v1/admin/users/reset-password`
 - `POST /api/v1/admin/users/batch`
+
+Password resets mark the target user `must_change_password=true`, enforce password history, revoke the target user's active sessions, and return `invalidated_sessions`. Existing target-user access tokens and refresh tokens are rejected after a successful reset. The reset audit entry includes session-invalidation metadata.
 
 ### Doctor administration
 
