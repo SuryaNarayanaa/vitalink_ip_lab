@@ -35,6 +35,9 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 ### Authentication and Access Control
 
 - JWT login, logout, `/me`, and password change exist.
+- Session-bound JWTs, hashed refresh-token persistence, refresh rotation, revoke, and logout revocation are implemented.
+- Patient and doctor first-login phone OTP verification is implemented through Twilio Verify.
+- Admin authenticator-app MFA enrollment, activation, login challenge, and Flutter setup/login verification UI are implemented.
 - Password hashing uses per-user salt.
 - Role-based authorization exists for ADMIN, DOCTOR, and PATIENT.
 - Route guards exist in Flutter based on stored authenticated user role.
@@ -107,13 +110,13 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing Firebase Cloud Messaging integration, device token model, push delivery worker, retries, and delivery status.
 
 3. MFA and login hardening
-   - `[ ]` Missing MFA for privileged users.
-   - `[~]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
-   - `[~]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
-   - `[ ]` Still missing password expiry/history and refresh-token/session invalidation.
+   - `[x]` Admin authenticator-app MFA is implemented for privileged users, including enrollment, activation, login challenge, Flutter setup UI, and Flutter login verification UI.
+   - `[x]` Patient and doctor first-login phone OTP verification is implemented through Twilio Verify, with registered-phone binding and Flutter login OTP UI.
+   - `[x]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
+   - `[x]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
+   - `[x]` Refresh-token/session invalidation is implemented with persisted auth sessions, hashed refresh tokens, refresh rotation, revoke, and logout revocation.
+   - `[ ]` Still missing password expiry/history.
    - `[~]` Further implementation needed:
-     - Add MFA enrollment and challenge flow for admins.
-     - Add refresh token/session store with rotation and revocation.
      - Add explicit admin/session invalidation after password reset.
      - Consider adding login-attempt telemetry keyed by both IP and normalized login ID for better forensic visibility.
 
@@ -220,15 +223,15 @@ Deliverables:
 - `[x]` Add failed login tracking to `User`.
 - `[x]` Lock account after configurable failed attempts.
 - Add MFA for privileged users:
-  - TOTP secret enrollment for admins.
-  - Recovery codes.
-  - MFA-required flag on AdminProfile.
-  - Login response changes for MFA challenge.
+  - `[x]` TOTP secret enrollment for admins.
+  - `[ ]` Recovery codes.
+  - `[x]` MFA-required admin login flow is enforced for enrolled admins; production bootstrap policy fails closed for unenrolled admins.
+  - `[x]` Login response changes for MFA challenge.
 - Add refresh-token/session model:
-  - Access token short TTL.
-  - Refresh token rotation.
-  - Logout invalidates refresh token.
-  - Admin password reset invalidates sessions.
+  - `[x]` Access tokens are session-bound.
+  - `[x]` Refresh token rotation.
+  - `[x]` Logout invalidates the active session and refresh token.
+  - `[ ]` Admin password reset invalidates sessions.
 - `[ ]` Move production secrets to AWS SSM/Secrets Manager or equivalent.
 - `[~]` Expand audit logging to auth success/failure, doctor changes, patient report upload, file access, data export, and password changes.
   - Auth success/failure is now audited.
@@ -236,10 +239,10 @@ Deliverables:
 
 Acceptance:
 
-- `[ ]` Admin login requires MFA.
+- `[x]` Admin login requires MFA for enrolled admins, and production/staging policy requires authenticator enrollment.
 - `[~]` Lockout and throttling are implemented; automated verification coverage should be strengthened.
 - `[ ]` Sensitive body fields redacted in all logs/audit entries.
-- `[ ]` Session invalidation verified.
+- `[x]` Session invalidation verified for refresh rotation and logout.
 
 ### Phase 2: File Upload Hardening
 
@@ -482,7 +485,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 
 ### Must Do Before Clinical Production
 
-1. MFA for admins plus refresh-token/session invalidation.
+1. `[x]` MFA for admins plus refresh-token/session invalidation.
 2. Tenant authorization audit across all routes.
 3. File metadata model and tenant-scoped file access.
 4. Backup/restore/DR runbook and first restore drill.
@@ -515,6 +518,9 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Read current backend, frontend, and deployment source.
 - Ran `npm run build` in `backend`: passed.
 - Ran `npm test -- --runInBand` in `backend`: failed because Testcontainers could not find a working container runtime strategy on this machine.
+- Verified first-login phone OTP and Twilio Verify integration on deployed doctor flow, including successful OTP completion and subsequent normal login.
+- Verified deployed session hardening behavior: `/me` succeeds with a valid token, refresh rotates tokens, old access tokens are rejected after refresh, logout revokes the session, and refresh tokens are rejected after logout.
+- Verified Twilio Verify template TTL support locally and against Twilio; direct Verify start with template SID plus `ttl` substitution returned pending.
 - Verified formal API documentation artifacts now exist:
   - `backend/docs/api/openapi.yaml`
   - `backend/docs/api-reference.md`
