@@ -43,6 +43,26 @@ class VerifyLoginTotpRequest {
   Map<String, dynamic> toJson() => {'challenge_id': challengeId, 'code': code};
 }
 
+class RefreshSessionRequest {
+  RefreshSessionRequest({required this.refreshToken});
+
+  final String refreshToken;
+
+  String get path => AppStrings.authRefreshPath;
+
+  Map<String, dynamic> toJson() => {'refresh_token': refreshToken};
+}
+
+class RevokeSessionRequest {
+  RevokeSessionRequest({required this.refreshToken});
+
+  final String refreshToken;
+
+  String get path => AppStrings.authRevokePath;
+
+  Map<String, dynamic> toJson() => {'refresh_token': refreshToken};
+}
+
 class UserModel {
   UserModel({
     required this.id,
@@ -137,10 +157,31 @@ class UserModel {
 }
 
 class LoginResponse {
-  LoginResponse({required this.token, required this.user});
+  LoginResponse({
+    required this.token,
+    required this.refreshToken,
+    required this.user,
+    this.session,
+  });
 
   final String token;
+  final String refreshToken;
   final UserModel user;
+  final AuthSessionModel? session;
+}
+
+class AuthSessionModel {
+  AuthSessionModel({required this.sessionId, this.refreshExpiresAt});
+
+  factory AuthSessionModel.fromJson(Map<String, dynamic> json) {
+    return AuthSessionModel(
+      sessionId: _readString(json['session_id']),
+      refreshExpiresAt: _readDateTime(json['refresh_expires_at']),
+    );
+  }
+
+  final String sessionId;
+  final DateTime? refreshExpiresAt;
 }
 
 class LoginOtpPhone {

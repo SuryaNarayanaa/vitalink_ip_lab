@@ -27,6 +27,9 @@ class AppStrings {
       '$apiPathPrefix/auth/login/otp/resend';
   static const String loginTotpVerifyPath =
       '$apiPathPrefix/auth/login/totp/verify';
+  static const String authRefreshPath = '$apiPathPrefix/auth/refresh';
+  static const String authRevokePath = '$apiPathPrefix/auth/revoke';
+  static const String logoutPath = '$apiPathPrefix/auth/logout';
   static const String adminTotpSetupPath =
       '$apiPathPrefix/auth/admin/mfa/totp/setup';
   static const String adminTotpActivatePath =
@@ -75,6 +78,8 @@ class AppStrings {
 
   /// Secure storage keys.
   static const String tokenKey = 'auth_token';
+  static const String refreshTokenKey = 'auth_refresh_token';
+  static const String authSessionKey = 'auth_session';
   static const String userKey = 'auth_user';
   static const String onboardingCompletedKey = 'onboarding_completed';
 }
