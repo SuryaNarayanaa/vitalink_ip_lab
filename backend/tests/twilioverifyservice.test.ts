@@ -19,7 +19,11 @@ describe('Twilio Verify service', () => {
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body, options] = post.mock.calls[0]
     expect(url).toContain('/Verifications')
-    expect(body.toString()).toBe(new URLSearchParams({ To: recipient, Channel: 'sms' }).toString())
+    expect(body.toString()).toBe(new URLSearchParams({
+      To: recipient,
+      Channel: 'sms',
+      CustomFriendlyName: 'VitaLink',
+    }).toString())
     expect(options.auth).toHaveProperty('username')
     expect(options.auth).toHaveProperty('password')
     expect(result).toEqual({

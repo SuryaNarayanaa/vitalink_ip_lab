@@ -61,6 +61,7 @@ export class TwilioVerifyService implements TwilioVerifyClient {
         new URLSearchParams({
           To: to,
           Channel: channel,
+          CustomFriendlyName: config.twilioVerifyFriendlyName,
         }),
         {
           auth: {

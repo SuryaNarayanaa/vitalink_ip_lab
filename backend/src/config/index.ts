@@ -39,6 +39,7 @@ interface Config {
   twilioAuthToken: string
   twilioVerifyServiceSid: string
   twilioVerifyChannel: string
+  twilioVerifyFriendlyName: string
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -158,5 +159,6 @@ export const config: Config = {
   twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN', { requiredInProduction: true, requiredInStaging: true }),
   twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID', { requiredInProduction: true, requiredInStaging: true }),
   twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
+  twilioVerifyFriendlyName: getEnv('TWILIO_VERIFY_FRIENDLY_NAME', { defaultValue: 'VitaLink' }),
 }
 
