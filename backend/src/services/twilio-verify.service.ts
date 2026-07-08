@@ -47,6 +47,20 @@ function sanitizeTwilioError(error: unknown): Error {
   return error instanceof Error ? new Error(error.message) : new Error('Twilio Verify request failed')
 }
 
+function getTwilioErrorDetails(error: unknown): Record<string, unknown> {
+  if (!axios.isAxiosError(error)) {
+    return {}
+  }
+
+  const data = error.response?.data as any
+  return {
+    status: error.response?.status,
+    code: data?.code,
+    message: data?.message,
+    moreInfo: data?.more_info,
+  }
+}
+
 export class TwilioVerifyService implements TwilioVerifyClient {
   private readonly httpClient: AxiosInstance
 
@@ -56,13 +70,21 @@ export class TwilioVerifyService implements TwilioVerifyClient {
 
   async startVerification(to: string, channel = config.twilioVerifyChannel): Promise<StartVerificationResult> {
     try {
+      const verificationParams = new URLSearchParams({
+        To: to,
+        Channel: channel,
+        TemplateCustomSubstitutions: JSON.stringify({
+          ttl: String(config.twilioVerifyTemplateTtlMinutes),
+        }),
+      })
+
+      if (config.twilioVerifyTemplateSid) {
+        verificationParams.set('TemplateSid', config.twilioVerifyTemplateSid)
+      }
+
       const response = await this.httpClient.post(
         buildTwilioVerifyUrl('Verifications'),
-        new URLSearchParams({
-          To: to,
-          Channel: channel,
-          CustomFriendlyName: config.twilioVerifyFriendlyName,
-        }),
+        verificationParams,
         {
           auth: {
             username: config.twilioAccountSid,
@@ -89,6 +111,7 @@ export class TwilioVerifyService implements TwilioVerifyClient {
         to: maskPhoneNumber(to),
         channel,
         provider: 'twilio_verify',
+        ...getTwilioErrorDetails(error),
       })
       throw sanitizeTwilioError(error)
     }
@@ -127,6 +150,7 @@ export class TwilioVerifyService implements TwilioVerifyClient {
       logger.warn('Twilio Verify verification check failed', {
         to: maskPhoneNumber(to),
         provider: 'twilio_verify',
+        ...getTwilioErrorDetails(error),
       })
       throw sanitizeTwilioError(error)
     }
