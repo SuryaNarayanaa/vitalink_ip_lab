@@ -269,6 +269,17 @@ describe('Auth Routes', () => {
             expect(activationResponse.status).toBe(200);
             expect(activationResponse.data.data.status).toBe('ENABLED');
 
+            const statusResponse = await api.get('/api/auth/admin/mfa/totp/status', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            expect(statusResponse.status).toBe(200);
+            expect(statusResponse.data.data.factor_type).toBe('AUTHENTICATOR_APP');
+            expect(statusResponse.data.data.status).toBe('ENABLED');
+            expect(statusResponse.data.data.enabled).toBe(true);
+            expect(statusResponse.data.data.secret_ciphertext).toBeUndefined();
+            expect(statusResponse.data.data.pending_secret_ciphertext).toBeUndefined();
+
             const userAfterActivation = await User.findById(mfaAdminUser._id).lean();
             expect(userAfterActivation?.admin_mfa?.totp?.status).toBe('ENABLED');
             expect(userAfterActivation?.admin_mfa?.totp?.secret_ciphertext).toBeDefined();

@@ -32,6 +32,8 @@ class AppStrings {
   static const String logoutPath = '$apiPathPrefix/auth/logout';
   static const String adminTotpSetupPath =
       '$apiPathPrefix/auth/admin/mfa/totp/setup';
+  static const String adminTotpStatusPath =
+      '$apiPathPrefix/auth/admin/mfa/totp/status';
   static const String adminTotpActivatePath =
       '$apiPathPrefix/auth/admin/mfa/totp/activate';
 

@@ -292,6 +292,11 @@ class AdminRepository {
     return AdminTotpEnrollment.fromJson(response);
   }
 
+  Future<AdminTotpStatus> getAdminTotpStatus() async {
+    final response = await _apiClient.get(AppStrings.adminTotpStatusPath);
+    return AdminTotpStatus.fromJson(response);
+  }
+
   Future<AdminTotpActivation> activateAdminTotp(String code) async {
     final response = await _apiClient.post(
       AppStrings.adminTotpActivatePath,

@@ -25,5 +25,20 @@ void main() {
       expect(activation.status, 'ENABLED');
       expect(activation.isEnabled, isTrue);
     });
+
+    test('parses persistent TOTP status response', () {
+      final status = AdminTotpStatus.fromJson({
+        'factor_type': 'AUTHENTICATOR_APP',
+        'status': 'ENABLED',
+        'enabled': true,
+        'activated_at': '2026-07-08T10:15:00.000Z',
+      });
+
+      expect(status.factorType, 'AUTHENTICATOR_APP');
+      expect(status.status, 'ENABLED');
+      expect(status.isEnabled, isTrue);
+      expect(status.isPending, isFalse);
+      expect(status.activatedAt, isNotNull);
+    });
   });
 }

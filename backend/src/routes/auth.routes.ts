@@ -5,6 +5,7 @@ import { activateAdminTotpSchema, changePasswordSchema, loginSchema, refreshToke
 import {
   changePasswordController,
   activateAdminTotpController,
+  getAdminTotpStatusController,
   setupAdminTotpController,
   resendLoginOtpController,
   loginController,
@@ -37,6 +38,8 @@ router.get("/me", authenticate, getMeController);
 router.post("/change-password", authenticate, validate(changePasswordSchema), changePasswordController);
 
 router.post("/admin/mfa/totp/setup", authenticate, setupAdminTotpController);
+
+router.get("/admin/mfa/totp/status", authenticate, getAdminTotpStatusController);
 
 router.post("/admin/mfa/totp/activate", authenticate, validate(activateAdminTotpSchema), activateAdminTotpController);
 

@@ -16,6 +16,7 @@ import {
   activateAdminTotpEnrollment,
   createAdminMfaLoginChallenge,
   createAdminTotpEnrollment,
+  getAdminTotpStatus,
   isAdminTotpEnabled,
   isAdminTotpRequiredForUnenrolledAdmins,
   verifyAdminMfaLoginChallenge,
@@ -545,6 +546,23 @@ export const setupAdminTotpController = asyncHandler(async (req: Request, res: R
     secret: enrollment.secret,
     otpauth_url: enrollment.otpauth_url,
   }))
+})
+
+export const getAdminTotpStatusController = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user || req.user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Admin access is required')
+  }
+
+  const user = await User.findById(req.user.user_id)
+  if (!user || !user.is_active) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  }
+
+  res.status(StatusCodes.OK).json(new ApiResponse(
+    StatusCodes.OK,
+    'Admin TOTP status retrieved',
+    getAdminTotpStatus(user)
+  ))
 })
 
 export const activateAdminTotpController = asyncHandler(

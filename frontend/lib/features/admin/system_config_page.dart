@@ -30,9 +30,9 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   final _totpCodeCtrl = TextEditingController();
   final _mfaFormKey = GlobalKey<FormState>();
   AdminTotpEnrollment? _totpEnrollment;
+  AdminTotpStatus? _totpStatus;
   bool _isStartingTotp = false;
   bool _isActivatingTotp = false;
-  bool _totpEnabledThisSession = false;
 
   Map<String, bool> _featureFlags = {
     'enable_notifications': true,
@@ -46,6 +46,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   void initState() {
     super.initState();
     _loadConfig();
+    _loadTotpStatus();
     _loadHealth();
     _healthTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -186,7 +187,11 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
       setState(() {
         _totpEnrollment = enrollment;
         _totpCodeCtrl.clear();
-        _totpEnabledThisSession = false;
+        _totpStatus = AdminTotpStatus(
+          factorType: enrollment.factorType,
+          status: 'PENDING',
+          enabled: false,
+        );
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Authenticator setup started')),
@@ -214,7 +219,12 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
       setState(() {
         _totpEnrollment = null;
         _totpCodeCtrl.clear();
-        _totpEnabledThisSession = activation.isEnabled;
+        _totpStatus = AdminTotpStatus(
+          factorType: activation.factorType,
+          status: activation.status,
+          enabled: activation.isEnabled,
+          activatedAt: DateTime.now(),
+        );
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Authenticator MFA enabled')),
@@ -237,6 +247,20 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('$label copied')));
+  }
+
+  Future<void> _loadTotpStatus() async {
+    try {
+      final status = await _repo.getAdminTotpStatus();
+      if (!mounted) return;
+      setState(() {
+        _totpStatus = status;
+        if (status.isEnabled) {
+          _totpEnrollment = null;
+          _totpCodeCtrl.clear();
+        }
+      });
+    } catch (_) {}
   }
 
   void _onFieldChanged(String _) {
@@ -533,6 +557,17 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   Widget _buildAdminMfaSection(ThemeData theme) {
     final enrollment = _totpEnrollment;
     final hasPendingSetup = enrollment != null;
+    final isEnabled = _totpStatus?.isEnabled ?? false;
+    final statusLabel = isEnabled
+        ? 'Enabled'
+        : hasPendingSetup || (_totpStatus?.isPending ?? false)
+            ? 'Setup pending'
+            : 'Not set up';
+    final statusColor = isEnabled
+        ? Colors.green
+        : hasPendingSetup || (_totpStatus?.isPending ?? false)
+            ? Colors.orange
+            : theme.colorScheme.outline;
 
     return Card(
       child: Padding(
@@ -556,19 +591,8 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                     ),
                   ),
                   Chip(
-                    label: Text(
-                      _totpEnabledThisSession
-                          ? 'Enabled'
-                          : hasPendingSetup
-                              ? 'Setup pending'
-                              : 'Setup',
-                    ),
-                    backgroundColor: (_totpEnabledThisSession
-                            ? Colors.green
-                            : hasPendingSetup
-                                ? Colors.orange
-                                : theme.colorScheme.primary)
-                        .withValues(alpha: 0.1),
+                    label: Text(statusLabel),
+                    backgroundColor: statusColor.withValues(alpha: 0.1),
                   ),
                 ],
               ),
@@ -580,7 +604,13 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              if (!hasPendingSetup)
+              if (isEnabled)
+                OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.verified_user_rounded),
+                  label: const Text('Authenticator MFA is enabled'),
+                )
+              else if (!hasPendingSetup)
                 FilledButton.icon(
                   onPressed: _isStartingTotp ? null : _startTotpSetup,
                   icon: _isStartingTotp

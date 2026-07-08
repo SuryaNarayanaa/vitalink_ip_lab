@@ -27,6 +27,9 @@ type TotpSlot = {
   pending_secret_auth_tag?: string
   status?: string
   last_verified_time_step?: number
+  enrolled_at?: Date
+  activated_at?: Date
+  last_verified_at?: Date
 }
 
 export const isAdminTotpRequiredForUnenrolledAdmins = () =>
@@ -175,6 +178,25 @@ const getPendingSecret = (user: any): string => {
 export const isAdminTotpEnabled = (user: any): boolean => {
   const totp = getTotpSlot(user)
   return totp.status === 'ENABLED' && Boolean(totp.secret_ciphertext && totp.secret_iv && totp.secret_auth_tag)
+}
+
+export const getAdminTotpStatus = (user: any) => {
+  const totp = getTotpSlot(user)
+  const enabled = isAdminTotpEnabled(user)
+  const hasPendingSetup = Boolean(
+    totp.pending_secret_ciphertext &&
+    totp.pending_secret_iv &&
+    totp.pending_secret_auth_tag
+  )
+
+  return {
+    factor_type: 'AUTHENTICATOR_APP',
+    status: enabled ? 'ENABLED' : hasPendingSetup ? 'PENDING' : 'DISABLED',
+    enabled,
+    enrolled_at: totp.enrolled_at,
+    activated_at: totp.activated_at,
+    last_verified_at: totp.last_verified_at,
+  }
 }
 
 export const createAdminTotpEnrollment = async (user: any) => {
