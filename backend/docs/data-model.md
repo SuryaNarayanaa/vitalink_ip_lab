@@ -40,6 +40,7 @@ erDiagram
         objectId profile_id UK
         boolean is_active
         boolean must_change_password
+        date password_changed_at
         int failed_login_attempts
         date locked_until
         date last_login_at
@@ -141,6 +142,8 @@ Key fields:
 | `user_type_model` | string | Yes | Derived discriminator-like ref target |
 | `is_active` | boolean | No | Default `true` |
 | `must_change_password` | boolean | No | Default `false` |
+| `password_changed_at` | date | No | Updated whenever the password hash changes |
+| `password_history` | array | No | Hidden salted/hash history entries used to block recent password reuse |
 | `failed_login_attempts` | number | No | Default `0` |
 | `locked_until` | date | No | Temporary lockout marker |
 | `last_login_at` | date | No | Operational telemetry |
@@ -153,6 +156,8 @@ Key fields:
 Security notes:
 
 - Passwords are never returned by `toJSON()`.
+- Password history stores only previous salted password hashes plus salts and change timestamps; it is hidden from default queries and JSON serialization.
+- Password expiry defaults to `PASSWORD_EXPIRY_DAYS=90`; `PASSWORD_HISTORY_COUNT=5` controls how many previous passwords are retained and checked.
 - `profile_id` is a one-to-one link to the owning role profile.
 - `user_type_model` is computed from `user_type` and is used by Mongoose `refPath`.
 - Admin TOTP secrets are stored encrypted with AES-GCM using `ADMIN_TOTP_ENCRYPTION_KEY` when configured.
@@ -352,6 +357,8 @@ Key fields:
 | `error_message` | string | No | Failure detail |
 | `metadata` | mixed | No | Additional structured context |
 
+Password reset audit records include `metadata.invalidated_sessions` and `metadata.revocation_reason` when active target-user sessions are revoked. Login attempt audit records include `metadata.login_attempt.normalized_login_id`, `metadata.login_attempt.ip_address`, request ID, and outcome for forensic lookup.
+
 ### `systemconfigs`
 
 Operational runtime configuration collection.
@@ -445,6 +452,7 @@ These should be treated as PHI/PII or security-sensitive data:
 
 - `users.password`
 - `users.salt`
+- `users.password_history`
 - `users.login_id` when it represents a patient OP number or personal login
 - `doctorprofiles.contact_number`
 - `patientprofiles.demographics.*`

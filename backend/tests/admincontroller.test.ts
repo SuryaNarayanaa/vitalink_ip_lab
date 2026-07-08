@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminProfile, DoctorProfile, PatientProfile, User } from '@alias/models';
+import { AdminProfile, AuthSession, DoctorProfile, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
 
 describe('Admin Routes', () => {
@@ -365,6 +365,67 @@ describe('Admin Routes', () => {
             expect(response.data.data.user_id).toBe(baselinePatientUser._id.toString());
             expect(response.data.data.must_change_password).toBe(true);
             expect(response.data.data.temporary_password).toBeDefined();
+            expect(response.data.data.invalidated_sessions).toBeGreaterThanOrEqual(0);
+        });
+
+        test('should reject admin reset to a recently used password', async () => {
+            const profile = await AdminProfile.create({ name: 'Reset History Admin' });
+            const target = await User.create({
+                login_id: 'reset-history-admin',
+                password: 'ResetHist@123',
+                user_type: 'ADMIN',
+                profile_id: profile._id,
+                is_active: true
+            });
+
+            const response = await api.post('/api/admin/users/reset-password', {
+                target_user_id: target._id.toString(),
+                new_password: 'ResetHist@123'
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.message).toBe('New password cannot match a recently used password');
+        });
+
+        test('should invalidate active sessions after admin password reset', async () => {
+            const profile = await AdminProfile.create({ name: 'Reset Session Admin' });
+            const target = await User.create({
+                login_id: 'reset-session-admin',
+                password: 'ResetSess@123',
+                user_type: 'ADMIN',
+                profile_id: profile._id,
+                is_active: true
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'reset-session-admin',
+                password: 'ResetSess@123'
+            });
+            expect(loginResponse.status).toBe(200);
+            const oldToken = loginResponse.data.data.token;
+            const sessionId = loginResponse.data.data.session.session_id;
+
+            const resetResponse = await api.post('/api/admin/users/reset-password', {
+                target_user_id: target._id.toString(),
+                new_password: 'ResetSess@456'
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(resetResponse.status).toBe(200);
+            expect(resetResponse.data.data.must_change_password).toBe(true);
+            expect(resetResponse.data.data.invalidated_sessions).toBeGreaterThanOrEqual(1);
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${oldToken}` }
+            });
+            expect(meResponse.status).toBe(401);
+
+            const session = await AuthSession.findById(sessionId).lean();
+            expect(session?.revoked_at).toBeDefined();
+            expect(session?.revoked_reason).toBe('PASSWORD_RESET');
         });
 
         test('should fail resetting password for unknown user', async () => {

@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, AuditLog, AuthSession, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
 import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
@@ -181,6 +181,10 @@ describe('Auth Routes', () => {
             expect(response.data.data.session.session_id).toBeDefined();
             expect(response.data.data.user).toBeDefined();
             expect(response.data.data.user.login_id).toBe('testuser');
+            expect(response.data.data.user.password_expired).toBe(false);
+            expect(response.data.data.user.must_change_password).toBe(false);
+            expect(response.data.data.user.password_policy.expiry_days).toBe(90);
+            expect(response.data.data.user.password_policy.history_count).toBe(5);
             expectNoMfaSecrets(response.data.data.user);
             testToken = response.data.data.token;
 
@@ -189,6 +193,17 @@ describe('Auth Routes', () => {
             expect(session?.refresh_token_hash).toBeDefined();
             expect(session?.refresh_token_hash).not.toBe(response.data.data.refresh_token);
             expect(session?.refresh_token_hash).not.toContain(response.data.data.refresh_token);
+
+            const auditLog: any = await AuditLog.findOne({
+                user_id: testUser._id,
+                action: 'LOGIN',
+                'metadata.login_attempt.outcome': 'success',
+            }).sort({ createdAt: -1 }).lean();
+            expect(auditLog).toBeDefined();
+            expect(auditLog?.ip_address).toBeDefined();
+            expect(auditLog?.metadata?.login_attempt?.ip_address).toBeDefined();
+            expect(auditLog?.metadata?.login_attempt?.normalized_login_id).toBe('testuser');
+            expect(JSON.stringify(auditLog?.metadata)).not.toContain('testpassword123');
         });
 
         test('should return a phone OTP challenge for unverified patient login without issuing a token', async () => {
@@ -572,6 +587,17 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(401);
             expect(response.data.success).toBe(false);
             expect(response.data.message).toBe('Invalid credentials');
+
+            const auditLog: any = await AuditLog.findOne({
+                user_id: testUser._id,
+                action: 'LOGIN_FAILED',
+                'metadata.login_attempt.outcome': 'invalid_credentials',
+            }).sort({ createdAt: -1 }).lean();
+            expect(auditLog).toBeDefined();
+            expect(auditLog?.success).toBe(false);
+            expect(auditLog?.metadata?.login_attempt?.normalized_login_id).toBe('testuser');
+            expect(auditLog?.metadata?.login_attempt?.failed_login_attempts).toBeGreaterThanOrEqual(1);
+            expect(JSON.stringify(auditLog?.metadata)).not.toContain('wrongpassword');
         });
 
         test('should fail with inactive user account', async () => {
@@ -739,6 +765,9 @@ describe('Auth Routes', () => {
             expect(response.data.data.user.login_id).toBe('testuser');
             expect(response.data.data.user.password).toBeUndefined();
             expect(response.data.data.user.salt).toBeUndefined();
+            expect(response.data.data.user.password_history).toBeUndefined();
+            expect(response.data.data.user.password_expired).toBe(false);
+            expect(response.data.data.user.password_expires_at).toBeDefined();
             expectNoMfaSecrets(response.data.data.user);
         });
 
@@ -756,6 +785,97 @@ describe('Auth Routes', () => {
 
             expect(response.status).toBe(401);
             expect(response.data.success).toBe(false);
+        });
+    });
+
+    describe('Password policy', () => {
+        test('should expose expired password state on login and me responses', async () => {
+            const profile = await DoctorProfile.create({
+                name: 'Expired Password Doctor',
+                department: 'General',
+                contact_number: 'doctor-channel-ending-5555',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date(),
+                },
+            });
+            const expiredUser = await User.create({
+                login_id: 'expired-password-user',
+                password: 'Expired@123',
+                user_type: 'DOCTOR',
+                profile_id: profile._id,
+                is_active: true,
+            });
+            await User.findByIdAndUpdate(expiredUser._id, {
+                $set: { password_changed_at: new Date(Date.now() - 91 * 24 * 60 * 60 * 1000) },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'expired-password-user',
+                password: 'Expired@123',
+            });
+
+            expect(loginResponse.status).toBe(200);
+            expect(loginResponse.data.data.token).toBeDefined();
+            expect(loginResponse.data.data.user.password_expired).toBe(true);
+            expect(loginResponse.data.data.user.must_change_password).toBe(true);
+            expect(loginResponse.data.data.user.password_expires_at).toBeDefined();
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${loginResponse.data.data.token}` },
+            });
+            expect(meResponse.status).toBe(200);
+            expect(meResponse.data.data.user.password_expired).toBe(true);
+            expect(meResponse.data.data.user.must_change_password).toBe(true);
+        });
+
+        test('should reject password reuse from recent password history', async () => {
+            const profile = await DoctorProfile.create({
+                name: 'History Doctor',
+                department: 'General',
+                contact_number: 'doctor-channel-ending-6666',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date(),
+                },
+            });
+            const historyUser = await User.create({
+                login_id: 'history-user',
+                password: 'History@123',
+                user_type: 'DOCTOR',
+                profile_id: profile._id,
+                is_active: true,
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'history-user',
+                password: 'History@123',
+            });
+            const token = loginResponse.data.data.token;
+
+            const changeResponse = await api.post('/api/auth/change-password', {
+                current_password: 'History@123',
+                new_password: 'History@456',
+            }, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            expect(changeResponse.status).toBe(200);
+            expect(changeResponse.data.data.must_change_password).toBe(false);
+
+            const storedUser = await User.findById(historyUser._id).select('+password_history').lean();
+            expect(storedUser?.password_history?.length).toBe(1);
+            expect(storedUser?.password_history?.[0].password).toBeDefined();
+            expect(storedUser?.password_history?.[0].password).not.toBe('History@123');
+            expect(storedUser?.password_history?.[0].salt).toBeDefined();
+
+            const reuseResponse = await api.post('/api/auth/change-password', {
+                current_password: 'History@456',
+                new_password: 'History@123',
+            }, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            expect(reuseResponse.status).toBe(400);
+            expect(reuseResponse.data.message).toBe('New password cannot match a recently used password');
         });
     });
 });

@@ -2,7 +2,9 @@ import { StatusCodes } from 'http-status-codes'
 import { User, DoctorProfile, PatientProfile, AuditLog, AdminProfile, Hospital, Invoice } from '@alias/models'
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
-import { generateTemporaryPassword } from './password.service'
+import { generateTemporaryPassword, setUserPasswordWithPolicy } from './password.service'
+import { revokeActiveAuthSessionsForUser } from './auth-session.service'
+import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
@@ -494,9 +496,14 @@ export async function updateDoctor(
     user.is_active = data.is_active
   }
   if (data.password) {
-    user.password = data.password
+    const userWithHistory = await User.findById(user._id).select('+password_history')
+    if (!userWithHistory) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
+    if (typeof data.is_active === 'boolean') userWithHistory.is_active = data.is_active
+    await setUserPasswordWithPolicy(userWithHistory, data.password, { mustChangePassword: true })
+    await revokeActiveAuthSessionsForUser(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
+  } else {
+    await user.save()
   }
-  await user.save()
 
   return await User.findById(user._id).populate('profile_id')
 }
@@ -751,9 +758,14 @@ export async function updatePatient(
     user.is_active = data.is_active
   }
   if (data.password) {
-    user.password = data.password
+    const userWithHistory = await User.findById(user._id).select('+password_history')
+    if (!userWithHistory) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
+    if (typeof data.is_active === 'boolean') userWithHistory.is_active = data.is_active
+    await setUserPasswordWithPolicy(userWithHistory, data.password, { mustChangePassword: true })
+    await revokeActiveAuthSessionsForUser(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
+  } else {
+    await user.save()
   }
-  await user.save()
 
   return await User.findById(user._id).populate('profile_id')
 }
@@ -892,9 +904,13 @@ export async function performBatchOperation(
 
         case 'reset_password': {
           const temporaryPassword = generateTemporaryPassword()
-          user.password = temporaryPassword
-          user.must_change_password = true
-          await user.save()
+          const userWithHistory = await User.findById(user._id).select('+password_history')
+          if (!userWithHistory) {
+            results.push({ userId, success: false, message: 'User not found' })
+            continue
+          }
+          await setUserPasswordWithPolicy(userWithHistory, temporaryPassword, { mustChangePassword: true })
+          await revokeActiveAuthSessionsForUser(userId, AuthSessionRevocationReason.PASSWORD_RESET)
           results.push({
             userId,
             success: true,

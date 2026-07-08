@@ -36,6 +36,24 @@ import {
   revokeAuthSessionById,
   revokeAuthSessionByRefreshToken,
 } from '@alias/services/auth-session.service'
+import {
+  getPasswordPolicyState,
+  setUserPasswordWithPolicy,
+} from '@alias/services/password.service'
+import logger from '@alias/utils/logger'
+
+const getRequestIp = (req: Request) => req.ip || req.socket?.remoteAddress
+
+const normalizeLoginTelemetryId = (loginId?: string) => (loginId || '').trim().toLowerCase()
+
+const getLoginAttemptMetadata = (req: Request, loginId?: string, extra: Record<string, unknown> = {}) => ({
+  login_attempt: {
+    ip_address: getRequestIp(req),
+    normalized_login_id: normalizeLoginTelemetryId(loginId),
+    request_id: (req as any).requestId,
+    ...extra,
+  },
+})
 
 const createAuthAuditLog = async (
   req: Request,
@@ -43,7 +61,8 @@ const createAuthAuditLog = async (
   action: AuditAction.LOGIN | AuditAction.LOGOUT | AuditAction.LOGIN_FAILED,
   success: boolean,
   description: string,
-  errorMessage?: string
+  errorMessage?: string,
+  metadata?: Record<string, unknown>
 ) => {
   if (!user?._id || !user?.user_type) return
 
@@ -54,10 +73,21 @@ const createAuthAuditLog = async (
     description,
     resource_type: 'Auth',
     resource_id: String(user._id),
-    ip_address: req.ip || req.socket?.remoteAddress,
+    ip_address: getRequestIp(req),
     user_agent: req.headers['user-agent'],
     success,
     error_message: errorMessage,
+    metadata,
+  })
+}
+
+const logUnmatchedLoginAttempt = (req: Request, loginId: string, outcome: string) => {
+  logger.warn('Login attempt could not be associated with a user', {
+    event: 'auth.login_attempt',
+    outcome,
+    ip_address: getRequestIp(req),
+    normalized_login_id: normalizeLoginTelemetryId(loginId),
+    request_id: (req as any).requestId,
   })
 }
 
@@ -68,7 +98,9 @@ const sanitizeAuthUser = (user: any) => {
   const safeUser = typeof user.toObject === 'function' ? user.toObject() : { ...user }
   delete safeUser.password
   delete safeUser.salt
+  delete safeUser.password_history
   delete safeUser.admin_mfa
+  Object.assign(safeUser, getPasswordPolicyState(safeUser))
   return safeUser
 }
 
@@ -215,17 +247,30 @@ const markRegisteredPhoneVerified = async (user: any, phoneNumber: string, verif
 export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInput["body"]>, res: Response) => {
   const { login_id, password } = req.body;
   const normalizedLoginId = login_id.trim()
+  const loginAttemptMetadata = (outcome: string, extra: Record<string, unknown> = {}) =>
+    getLoginAttemptMetadata(req, normalizedLoginId, { outcome, ...extra })
 
   const matchedUsers = await User.find({ login_id: normalizedLoginId }).limit(2)
   if (matchedUsers.length === 0) {
+    logUnmatchedLoginAttempt(req, normalizedLoginId, 'unknown_login_id')
     throw new ApiError(StatusCodes.BAD_REQUEST, "User Doesn't exist")
   }
   if (matchedUsers.length > 1) {
+    logUnmatchedLoginAttempt(req, normalizedLoginId, 'duplicate_login_id')
     throw new ApiError(StatusCodes.CONFLICT, 'Multiple accounts found for this login ID. Please contact support.')
   }
 
   const user = matchedUsers[0]
   if (!user.is_active) {
+    await createAuthAuditLog(
+      req,
+      user,
+      AuditAction.LOGIN_FAILED,
+      false,
+      'Login blocked because account is inactive',
+      'Account inactive',
+      loginAttemptMetadata('inactive_account')
+    )
     throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive. Please contact support.')
   }
 
@@ -237,7 +282,8 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       AuditAction.LOGIN_FAILED,
       false,
       'Login blocked because account is temporarily locked',
-      'Account locked'
+      'Account locked',
+      loginAttemptMetadata('locked')
     )
     throw new ApiError(StatusCodes.LOCKED, 'Account is temporarily locked due to repeated failed login attempts. Please try again later.')
   }
@@ -264,7 +310,11 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       AuditAction.LOGIN_FAILED,
       false,
       'Login failed due to invalid credentials',
-      failedAttempts >= config.maxFailedLoginAttempts ? 'Account locked after repeated failed attempts' : 'Invalid credentials'
+      failedAttempts >= config.maxFailedLoginAttempts ? 'Account locked after repeated failed attempts' : 'Invalid credentials',
+      loginAttemptMetadata(failedAttempts >= config.maxFailedLoginAttempts ? 'locked_after_failure' : 'invalid_credentials', {
+        failed_login_attempts: failedAttempts,
+        account_locked: failedAttempts >= config.maxFailedLoginAttempts,
+      })
     )
 
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
@@ -296,6 +346,16 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         phoneNumber,
       })
 
+      await createAuthAuditLog(
+        req,
+        user,
+        AuditAction.LOGIN,
+        true,
+        'Password accepted; phone OTP verification required',
+        undefined,
+        loginAttemptMetadata('otp_required')
+      )
+
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
         StatusCodes.ACCEPTED,
         'Phone OTP verification required',
@@ -308,6 +368,15 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   if (user.user_type === UserType.ADMIN) {
     if (isAdminTotpEnabled(user)) {
       const challenge = await createAdminMfaLoginChallenge(user)
+      await createAuthAuditLog(
+        req,
+        user,
+        AuditAction.LOGIN,
+        true,
+        'Admin password accepted; authenticator MFA challenge issued',
+        undefined,
+        loginAttemptMetadata('totp_required')
+      )
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
         StatusCodes.ACCEPTED,
         'Admin authenticator MFA required',
@@ -317,6 +386,15 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     }
 
     if (isAdminTotpRequiredForUnenrolledAdmins()) {
+      await createAuthAuditLog(
+        req,
+        user,
+        AuditAction.LOGIN_FAILED,
+        false,
+        'Admin login blocked because authenticator MFA enrollment is required',
+        'Authenticator MFA enrollment required',
+        loginAttemptMetadata('totp_enrollment_required')
+      )
       throw new ApiError(StatusCodes.FORBIDDEN, 'Admin authenticator MFA enrollment is required before login')
     }
   }
@@ -324,7 +402,15 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   user.last_login_at = new Date()
   await user.save()
 
-  await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully')
+  await createAuthAuditLog(
+    req,
+    user,
+    AuditAction.LOGIN,
+    true,
+    'User logged in successfully',
+    undefined,
+    loginAttemptMetadata('success')
+  )
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", await getSessionPayload(req, user)))
 })
@@ -496,7 +582,7 @@ export const changePasswordController = asyncHandler(
       throw new ApiError(StatusCodes.UNAUTHORIZED, 'User not authenticated')
     }
 
-    const user = await User.findById(req.user.user_id)
+    const user = await User.findById(req.user.user_id).select('+password_history')
     if (!user) {
       throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
     }
@@ -517,13 +603,14 @@ export const changePasswordController = asyncHandler(
       throw new ApiError(StatusCodes.UNAUTHORIZED, 'Current password is incorrect')
     }
 
-    user.password = new_password
-    user.must_change_password = false
-    await user.save()
+    await setUserPasswordWithPolicy(user, new_password, { mustChangePassword: false })
 
     res.status(StatusCodes.OK).json(
       new ApiResponse(StatusCodes.OK, 'Password changed successfully', {
         must_change_password: user.must_change_password,
+        password_expired: false,
+        password_changed_at: user.password_changed_at,
+        password_expires_at: getPasswordPolicyState(user).password_expires_at,
       })
     )
   }

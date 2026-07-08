@@ -5,6 +5,7 @@ export enum AuthSessionRevocationReason {
   LOGOUT = 'LOGOUT',
   USER_REVOKED = 'USER_REVOKED',
   REFRESH_ROTATED = 'REFRESH_ROTATED',
+  PASSWORD_RESET = 'PASSWORD_RESET',
 }
 
 const AuthSessionSchema = new mongoose.Schema({
