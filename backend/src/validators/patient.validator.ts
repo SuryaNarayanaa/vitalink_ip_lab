@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { HealthLog } from '.'
+import { optionalPrimaryPhoneNumberSchema } from './phone.validator'
 
 const ddmmyyyy = z.string('Date should be a string')
     .regex(/^\d{2}-\d{2}-\d{4}$/, 'Date must be in DD-MM-YYYY format')
@@ -44,7 +45,7 @@ export const updateProfileSchema = z.object({
             name: z.string().min(1, "Name is required").optional(),
             age: z.number().int().positive().optional(),
             gender: z.enum(["Male", "Female", "Other"]).optional(),
-            phone: z.string().optional(),
+            phone: optionalPrimaryPhoneNumberSchema,
             next_of_kin: z.object({
                 name: z.string().optional(),
                 relation: z.string().optional(),

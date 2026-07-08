@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
+import 'package:frontend/features/admin/models/admin_mfa_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
 class SystemConfigPage extends StatefulWidget {
@@ -25,6 +27,12 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   final _sessionTimeoutCtrl = TextEditingController();
   final _maxRequestsCtrl = TextEditingController();
   final _windowDurationCtrl = TextEditingController();
+  final _totpCodeCtrl = TextEditingController();
+  final _mfaFormKey = GlobalKey<FormState>();
+  AdminTotpEnrollment? _totpEnrollment;
+  bool _isStartingTotp = false;
+  bool _isActivatingTotp = false;
+  bool _totpEnabledThisSession = false;
 
   Map<String, bool> _featureFlags = {
     'enable_notifications': true,
@@ -53,6 +61,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     _sessionTimeoutCtrl.dispose();
     _maxRequestsCtrl.dispose();
     _windowDurationCtrl.dispose();
+    _totpCodeCtrl.dispose();
     super.dispose();
   }
 
@@ -169,6 +178,67 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     }
   }
 
+  Future<void> _startTotpSetup() async {
+    setState(() => _isStartingTotp = true);
+    try {
+      final enrollment = await _repo.setupAdminTotp();
+      if (!mounted) return;
+      setState(() {
+        _totpEnrollment = enrollment;
+        _totpCodeCtrl.clear();
+        _totpEnabledThisSession = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Authenticator setup started')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start authenticator setup: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isStartingTotp = false);
+    }
+  }
+
+  Future<void> _activateTotp() async {
+    if (!_mfaFormKey.currentState!.validate()) return;
+
+    setState(() => _isActivatingTotp = true);
+    try {
+      final activation = await _repo.activateAdminTotp(
+        _totpCodeCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _totpEnrollment = null;
+        _totpCodeCtrl.clear();
+        _totpEnabledThisSession = activation.isEnabled;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Authenticator MFA enabled')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to activate authenticator MFA: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isActivatingTotp = false);
+    }
+  }
+
+  Future<void> _copySetupValue(String label, String value) async {
+    if (value.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label copied')));
+  }
+
   void _onFieldChanged(String _) {
     if (!_hasUnsavedChanges) setState(() => _hasUnsavedChanges = true);
   }
@@ -242,6 +312,9 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
 
                 // System Health
                 _buildHealthSection(theme),
+                const SizedBox(height: 16),
+
+                _buildAdminMfaSection(theme),
                 const SizedBox(height: 16),
 
                 // INR Thresholds
@@ -457,6 +530,145 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     );
   }
 
+  Widget _buildAdminMfaSection(ThemeData theme) {
+    final enrollment = _totpEnrollment;
+    final hasPendingSetup = enrollment != null;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _mfaFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.admin_panel_settings,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Admin Authenticator MFA',
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      _totpEnabledThisSession
+                          ? 'Enabled'
+                          : hasPendingSetup
+                              ? 'Setup pending'
+                              : 'Setup',
+                    ),
+                    backgroundColor: (_totpEnabledThisSession
+                            ? Colors.green
+                            : hasPendingSetup
+                                ? Colors.orange
+                                : theme.colorScheme.primary)
+                        .withValues(alpha: 0.1),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Use an authenticator app for admin login challenges.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!hasPendingSetup)
+                FilledButton.icon(
+                  onPressed: _isStartingTotp ? null : _startTotpSetup,
+                  icon: _isStartingTotp
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.qr_code_2_rounded),
+                  label: const Text('Start authenticator setup'),
+                ),
+              if (hasPendingSetup) ...[
+                _SetupValueTile(
+                  label: 'Setup key',
+                  value: enrollment.secret,
+                  onCopy: () => _copySetupValue('Setup key', enrollment.secret),
+                ),
+                const SizedBox(height: 10),
+                _SetupValueTile(
+                  label: 'otpauth URL',
+                  value: enrollment.otpauthUrl,
+                  onCopy: () =>
+                      _copySetupValue('otpauth URL', enrollment.otpauthUrl),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _totpCodeCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Authenticator code',
+                    prefixIcon: Icon(Icons.pin_outlined),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  validator: (value) {
+                    final code = value?.trim() ?? '';
+                    if (code.isEmpty) return 'Code is required';
+                    if (code.length != 6) return 'Enter 6 digits';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isActivatingTotp ? null : _activateTotp,
+                        icon: _isActivatingTotp
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.verified_user_rounded),
+                        label: const Text('Activate'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isActivatingTotp
+                            ? null
+                            : () => setState(() {
+                                  _totpEnrollment = null;
+                                  _totpCodeCtrl.clear();
+                                }),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Cancel'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String _formatUptime(double seconds) {
     final hours = (seconds / 3600).floor();
     final minutes = ((seconds % 3600) / 60).floor();
@@ -529,6 +741,62 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SetupValueTile extends StatelessWidget {
+  const _SetupValueTile({
+    required this.label,
+    required this.value,
+    required this.onCopy,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  value,
+                  maxLines: 2,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onCopy,
+            icon: const Icon(Icons.copy_rounded),
+            tooltip: 'Copy',
+          ),
+        ],
       ),
     );
   }

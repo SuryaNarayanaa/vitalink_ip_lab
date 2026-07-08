@@ -27,16 +27,30 @@ interface Config {
   apiDocsPath: string
   apiDocsUsername: string
   apiDocsPassword: string
+  otpExpiryMinutes: number
+  otpMaxAttempts: number
+  otpResendCooldownSeconds: number
+  otpMaxResends: number
+  adminTotpEncryptionKey: string
+  adminTotpChallengeExpiryMinutes: number
+  adminTotpMaxAttempts: number
+  refreshTokenExpiryDays: number
+  twilioAccountSid: string
+  twilioAuthToken: string
+  twilioVerifyServiceSid: string
+  twilioVerifyChannel: string
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
 const isProduction = nodeEnv === 'production'
+const isStaging = nodeEnv === 'staging'
 const isTest = nodeEnv === 'test'
 
 function getEnv(
   key: string,
   options: {
     requiredInProduction?: boolean
+    requiredInStaging?: boolean
     defaultValue?: string
   } = {}
 ): string {
@@ -48,6 +62,10 @@ function getEnv(
 
   if (isProduction && options.requiredInProduction) {
     throw new Error(`Missing required environment variable in production: ${key}`)
+  }
+
+  if (isStaging && options.requiredInStaging) {
+    throw new Error(`Missing required environment variable in staging: ${key}`)
   }
 
   if (options.defaultValue !== undefined) {
@@ -124,5 +142,21 @@ export const config: Config = {
   apiDocsPath: getEnv('API_DOCS_PATH', { defaultValue: '/docs' }),
   apiDocsUsername: getEnv('API_DOCS_USERNAME', { requiredInProduction: apiDocsEnabled }),
   apiDocsPassword: getEnv('API_DOCS_PASSWORD', { requiredInProduction: apiDocsEnabled }),
+  otpExpiryMinutes: getIntEnv('OTP_EXPIRY_MINUTES', 10),
+  otpMaxAttempts: getIntEnv('OTP_MAX_ATTEMPTS', 5),
+  otpResendCooldownSeconds: getIntEnv('OTP_RESEND_COOLDOWN_SECONDS', 60),
+  otpMaxResends: getIntEnv('OTP_MAX_RESENDS', 3),
+  adminTotpEncryptionKey: getEnv('ADMIN_TOTP_ENCRYPTION_KEY', {
+    requiredInProduction: true,
+    requiredInStaging: true,
+    defaultValue: isTest ? 'test-only-admin-totp-encryption-key-32b' : '',
+  }),
+  adminTotpChallengeExpiryMinutes: getIntEnv('ADMIN_TOTP_CHALLENGE_EXPIRY_MINUTES', 5),
+  adminTotpMaxAttempts: getIntEnv('ADMIN_TOTP_MAX_ATTEMPTS', 5),
+  refreshTokenExpiryDays: getIntEnv('REFRESH_TOKEN_EXPIRY_DAYS', 30),
+  twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID', { requiredInProduction: true, requiredInStaging: true }),
+  twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN', { requiredInProduction: true, requiredInStaging: true }),
+  twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID', { requiredInProduction: true, requiredInStaging: true }),
+  twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
 }
 

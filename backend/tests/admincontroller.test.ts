@@ -17,6 +17,7 @@ describe('Admin Routes', () => {
     let secondaryDoctorUser: any;
     let baselinePatientUser: any;
     let createdDoctorId: string;
+    let createdPatientId: string;
     let createdPatientLoginId: string;
 
     beforeAll(async () => {
@@ -160,6 +161,7 @@ describe('Admin Routes', () => {
             expect(response.status).toBe(201);
             expect(response.data.success).toBe(true);
             expect(response.data.data.user.login_id).toBe('doctor_admin_03');
+            expect(response.data.data.user.profile_id.phone_verification.status).toBe('PENDING');
             createdDoctorId = response.data.data.user._id;
         });
 
@@ -167,12 +169,40 @@ describe('Admin Routes', () => {
             const response = await api.post('/api/admin/doctors', {
                 login_id: 'doctor_admin_03',
                 password: 'Doctor@456',
-                name: 'Dr. Duplicate'
+                name: 'Dr. Duplicate',
+                contact_number: '9000000004'
             }, {
                 headers: { Authorization: `Bearer ${adminToken}` }
             });
 
             expect(response.status).toBe(409);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should fail creating doctor without contact_number', async () => {
+            const response = await api.post('/api/admin/doctors', {
+                login_id: 'doctor_admin_no_phone',
+                password: 'Doctor@456',
+                name: 'Dr. No Phone'
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should fail creating doctor with invalid contact_number', async () => {
+            const response = await api.post('/api/admin/doctors', {
+                login_id: 'doctor_admin_bad_phone',
+                password: 'Doctor@456',
+                name: 'Dr. Bad Phone',
+                contact_number: '90000abc03'
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(400);
             expect(response.data.success).toBe(false);
         });
 
@@ -232,6 +262,8 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(true);
             expect(response.data.data.user.user_type).toBe('PATIENT');
             expect(response.data.data.user.login_id).toBe(createdPatientLoginId);
+            expect(response.data.data.user.profile_id.demographics.phone_verification.status).toBe('PENDING');
+            createdPatientId = response.data.data.user._id;
         });
 
         test('should fail creating patient with invalid doctor identifier', async () => {
@@ -241,6 +273,7 @@ describe('Admin Routes', () => {
                 assigned_doctor_id: 'no_such_doctor',
                 demographics: {
                     name: 'Invalid Assignment',
+                    phone: '9444444444',
                 }
             }, {
                 headers: { Authorization: `Bearer ${adminToken}` }
@@ -248,6 +281,47 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(400);
             expect(response.data.success).toBe(false);
+        });
+
+        test('should fail creating patient without demographics phone', async () => {
+            const response = await api.post('/api/admin/patients', {
+                login_id: 'PAT_ADMIN_NO_PHONE',
+                password: 'Patient@456',
+                assigned_doctor_id: primaryDoctorUser.login_id,
+                demographics: {
+                    name: 'Missing Phone Patient'
+                }
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should preserve patient phone and verification when updating demographics without phone', async () => {
+            const createdPatient = await User.findById(createdPatientId);
+            await PatientProfile.findByIdAndUpdate(createdPatient?.profile_id, {
+                'demographics.phone_verification': {
+                    status: 'VERIFIED',
+                    verified_at: new Date('2026-01-01T00:00:00.000Z')
+                }
+            });
+
+            const response = await api.put(`/api/admin/patients/${createdPatientId}`, {
+                demographics: {
+                    name: 'Renamed Admin Patient'
+                }
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.profile_id.demographics.name).toBe('Renamed Admin Patient');
+            expect(response.data.data.profile_id.demographics.phone).toBe('9222222222');
+            expect(response.data.data.profile_id.demographics.phone_verification.status).toBe('VERIFIED');
+            expect(response.data.data.profile_id.demographics.phone_verification.verified_at).toBeDefined();
         });
 
         test('should reassign patient to another doctor', async () => {

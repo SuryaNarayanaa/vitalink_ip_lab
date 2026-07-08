@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { therapy_drug } from '.'
+import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
 
 const dosageScheduleBaseSchema = z.object({
   monday: z.number().default(0),
@@ -51,7 +52,7 @@ export const createPatient = z.object({
     op_num: z.string("Op num should be a String").nonempty("op_num should not be nonempty"),
     age: z.number("age should be a number").max(100, "Age cannot exceed 100").optional(),
     gender: z.enum(["Male", "Female", "Other"], "The gender should be a valid option"),
-    contact_no: z.string("Contact number should be a string").length(10, "Contact number must be exactly 10 digits"),
+    contact_no: primaryPhoneNumberSchema,
     target_inr_min: z.number("target_inr_min should be a number").optional(),
     target_inr_max: z.number("target_inr_max should be a number").optional(),
     therapy: z.enum(therapy_drug, "Therapy Drug Should only Take The given Drug Values").optional(),
@@ -71,7 +72,7 @@ export const updateProfile = z.object({
   body: z.object({
     name: z.string("Name should be a String").nonempty("Name Should Not be Empty").optional(),
     department: z.string("Department should be a String").optional(),
-    contact_number: z.string("Contact number should be a string").length(10, "Contact number must be exactly 10 digits").optional(),
+    contact_number: optionalPrimaryPhoneNumberSchema,
   }).strict()
 })
 

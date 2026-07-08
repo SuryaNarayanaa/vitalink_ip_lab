@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
@@ -21,15 +22,23 @@ class _LoginPageState extends State<LoginPage> {
   static const Color _lightPurple = Color(0xFF9B8FD9);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> _otpFormKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
   final AuthRepository _authRepository = AppDependencies.authRepository;
   bool _obscurePassword = true;
+  LoginOtpChallenge? _otpChallenge;
+  LoginTotpChallenge? _totpChallenge;
+  bool _isVerifyingOtp = false;
+  bool _isResendingOtp = false;
+  Object? _otpError;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -61,8 +70,9 @@ class _LoginPageState extends State<LoginPage> {
         final route = response.user.isDoctor
             ? AppRoutes.doctorDashboard
             : AppRoutes.patient;
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil(route, (previous) => false);
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(route, (previous) => false);
       } else {
         Navigator.of(context).pushNamedAndRemoveUntil(
           AppRoutes.onboarding,
@@ -88,7 +98,7 @@ class _LoginPageState extends State<LoginPage> {
     ).showSnackBar(SnackBar(content: Text('Login failed: $message')));
   }
 
-  void _submit(MutationResult<LoginResponse, LoginRequest> mutation) {
+  void _submit(MutationResult<LoginResult, LoginRequest> mutation) {
     if (!_formKey.currentState!.validate()) return;
 
     final request = LoginRequest(
@@ -99,6 +109,115 @@ class _LoginPageState extends State<LoginPage> {
     mutation.mutate(request);
   }
 
+  Future<void> _verifyOtp() async {
+    final challenge = _otpChallenge;
+    if (challenge == null || !_otpFormKey.currentState!.validate()) return;
+
+    setState(() {
+      _isVerifyingOtp = true;
+      _otpError = null;
+    });
+
+    try {
+      final response = await _authRepository.verifyLoginOtp(
+        VerifyLoginOtpRequest(
+          challengeId: challenge.challengeId,
+          code: _otpController.text.trim(),
+        ),
+      );
+      await _handleSuccess(response);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _otpError = error;
+      });
+      _handleError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVerifyingOtp = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _verifyTotp() async {
+    final challenge = _totpChallenge;
+    if (challenge == null || !_otpFormKey.currentState!.validate()) return;
+
+    setState(() {
+      _isVerifyingOtp = true;
+      _otpError = null;
+    });
+
+    try {
+      final response = await _authRepository.verifyLoginTotp(
+        VerifyLoginTotpRequest(
+          challengeId: challenge.challengeId,
+          code: _otpController.text.trim(),
+        ),
+      );
+      await _handleSuccess(response);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _otpError = error;
+      });
+      _handleError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVerifyingOtp = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _resendOtp() async {
+    final challenge = _otpChallenge;
+    if (challenge == null) return;
+
+    setState(() {
+      _isResendingOtp = true;
+      _otpError = null;
+    });
+
+    try {
+      final updatedChallenge = await _authRepository.resendLoginOtp(
+        ResendLoginOtpRequest(challengeId: challenge.challengeId),
+      );
+      if (!mounted) return;
+      setState(() {
+        _otpChallenge = updatedChallenge;
+        _otpController.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OTP sent to ${updatedChallenge.maskedPhone}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _otpError = error;
+      });
+      _handleError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isResendingOtp = false;
+        });
+      }
+    }
+  }
+
+  void _returnToLogin() {
+    setState(() {
+      _otpChallenge = null;
+      _totpChallenge = null;
+      _otpController.clear();
+      _otpError = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -106,12 +225,35 @@ class _LoginPageState extends State<LoginPage> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: UseMutation<LoginResponse, LoginRequest>(
-        options: MutationOptions<LoginResponse, LoginRequest>(
+      body: UseMutation<LoginResult, LoginRequest>(
+        options: MutationOptions<LoginResult, LoginRequest>(
           mutationFn: _authRepository.login,
           onSuccess: (data, variables) async {
             if (!mounted) return;
-            await _handleSuccess(data);
+            if (data.isOtpRequired) {
+              setState(() {
+                _otpChallenge = data.otpChallenge;
+                _totpChallenge = null;
+                _otpController.clear();
+                _otpError = null;
+              });
+              return;
+            }
+
+            if (data.isTotpRequired) {
+              setState(() {
+                _totpChallenge = data.totpChallenge;
+                _otpChallenge = null;
+                _otpController.clear();
+                _otpError = null;
+              });
+              return;
+            }
+
+            final response = data.response;
+            if (response != null) {
+              await _handleSuccess(response);
+            }
           },
           onError: (error, variables) {
             if (!mounted) return;
@@ -120,8 +262,9 @@ class _LoginPageState extends State<LoginPage> {
         ),
         builder: (context, mutation) {
           final error = mutation.error;
-          final errorText =
-              error is ApiException ? error.message : error?.toString();
+          final errorText = error is ApiException
+              ? error.message
+              : error?.toString();
 
           return SizedBox(
             width: screenWidth,
@@ -154,7 +297,8 @@ class _LoginPageState extends State<LoginPage> {
                     physics: const BouncingScrollPhysics(),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight: screenHeight -
+                        minHeight:
+                            screenHeight -
                             MediaQuery.of(context).padding.top -
                             MediaQuery.of(context).padding.bottom,
                       ),
@@ -201,110 +345,12 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             SizedBox(height: screenHeight * 0.04),
 
-                            // Login form
-                            Form(
-                              key: _formKey,
-                              child: Column(
-                                children: [
-                                  // Username field
-                                  _buildTextField(
-                                    controller: _emailController,
-                                    hintText: 'Username',
-                                    icon: Icons.person_outline,
-                                    validator: (value) {
-                                      final v = value?.trim() ?? '';
-                                      if (v.isEmpty) {
-                                        return 'Username is required';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-
-                                  // Password field
-                                  _buildTextField(
-                                    controller: _passwordController,
-                                    hintText: 'Password',
-                                    icon: Icons.lock_outline,
-                                    obscureText: _obscurePassword,
-                                    suffixIcon: IconButton(
-                                      onPressed: _togglePasswordVisibility,
-                                      icon: Icon(
-                                        _obscurePassword
-                                            ? Icons.visibility_off_outlined
-                                            : Icons.visibility_outlined,
-                                        color: Colors.grey[500],
-                                        size: 22,
-                                      ),
-                                    ),
-                                    validator: (value) {
-                                      final v = value ?? '';
-                                      if (v.isEmpty) {
-                                        return 'Password is required';
-                                      }
-                                      if (v.length < 6) {
-                                        return 'Must be at least 6 characters';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 28),
-
-                                  // Error message
-                                  if (mutation.isError && errorText != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 16,
-                                      ),
-                                      child: ApiErrorState(
-                                        error: error,
-                                        compact: true,
-                                      ),
-                                    ),
-
-                                  // Login button
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 52,
-                                    child: ElevatedButton(
-                                      onPressed: mutation.isLoading
-                                          ? null
-                                          : () => _submit(mutation),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _lightPurple,
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            30,
-                                          ),
-                                        ),
-                                      ),
-                                      child: mutation.isLoading
-                                          ? const SizedBox(
-                                              height: 22,
-                                              width: 22,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.5,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation(
-                                                  Colors.white,
-                                                ),
-                                              ),
-                                            )
-                                          : Text(
-                                              'LOGIN',
-                                              style: GoogleFonts.poppins(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w600,
-                                                letterSpacing: 1.5,
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            if (_otpChallenge == null && _totpChallenge == null)
+                              _buildLoginForm(mutation, error, errorText)
+                            else if (_otpChallenge != null)
+                              _buildOtpForm(_otpChallenge!),
+                            if (_totpChallenge != null)
+                              _buildTotpForm(_totpChallenge!),
 
                             SizedBox(height: screenHeight * 0.04),
 
@@ -385,6 +431,8 @@ class _LoginPageState extends State<LoginPage> {
     required IconData icon,
     bool obscureText = false,
     Widget? suffixIcon,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
   }) {
     return Container(
@@ -395,6 +443,8 @@ class _LoginPageState extends State<LoginPage> {
       child: TextFormField(
         controller: controller,
         obscureText: obscureText,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         validator: validator,
         style: GoogleFonts.poppins(fontSize: 15),
         decoration: InputDecoration(
@@ -416,6 +466,348 @@ class _LoginPageState extends State<LoginPage> {
           ),
           errorStyle: GoogleFonts.poppins(fontSize: 12),
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoginForm(
+    MutationResult<LoginResult, LoginRequest> mutation,
+    Object? error,
+    String? errorText,
+  ) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        children: [
+          _buildTextField(
+            controller: _emailController,
+            hintText: 'Username',
+            icon: Icons.person_outline,
+            validator: (value) {
+              final v = value?.trim() ?? '';
+              if (v.isEmpty) {
+                return 'Username is required';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _passwordController,
+            hintText: 'Password',
+            icon: Icons.lock_outline,
+            obscureText: _obscurePassword,
+            suffixIcon: IconButton(
+              onPressed: _togglePasswordVisibility,
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                color: Colors.grey[500],
+                size: 22,
+              ),
+            ),
+            validator: (value) {
+              final v = value ?? '';
+              if (v.isEmpty) {
+                return 'Password is required';
+              }
+              if (v.length < 6) {
+                return 'Must be at least 6 characters';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 28),
+          if (mutation.isError && errorText != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ApiErrorState(error: error, compact: true),
+            ),
+          _buildPrimaryButton(
+            label: 'LOGIN',
+            isLoading: mutation.isLoading,
+            onPressed: mutation.isLoading ? null : () => _submit(mutation),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOtpForm(LoginOtpChallenge challenge) {
+    final attempts = challenge.attemptsRemaining;
+    final resendCount = challenge.resendCount;
+    final maxResends = challenge.maxResends;
+    final resendDetail = resendCount != null && maxResends != null
+        ? 'Resends used: $resendCount of $maxResends'
+        : null;
+
+    return Form(
+      key: _otpFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _lightPurple.withAlpha(22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.verified_user_outlined,
+                      color: _primaryPurple,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Verify your phone',
+                            style: GoogleFonts.poppins(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF2D3142),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Enter the OTP sent to ${challenge.maskedPhone}.',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              height: 1.45,
+                              color: const Color(0xFF4B5164),
+                            ),
+                          ),
+                          if (attempts != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              '$attempts attempts remaining',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: const Color(0xFF5D6475),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _buildTextField(
+            controller: _otpController,
+            hintText: 'OTP code',
+            icon: Icons.pin_outlined,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            validator: (value) {
+              final v = value?.trim() ?? '';
+              if (v.isEmpty) {
+                return 'OTP code is required';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          if (_otpError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ApiErrorState(error: _otpError, compact: true),
+            ),
+          _buildPrimaryButton(
+            label: 'VERIFY OTP',
+            isLoading: _isVerifyingOtp,
+            onPressed: _isVerifyingOtp ? null : _verifyOtp,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _isResendingOtp ? null : _resendOtp,
+                  icon: _isResendingOtp
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_outlined, size: 18),
+                  label: Text(_isResendingOtp ? 'Sending' : 'Resend OTP'),
+                ),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _isVerifyingOtp || _isResendingOtp
+                      ? null
+                      : _returnToLogin,
+                  icon: const Icon(Icons.arrow_back_outlined, size: 18),
+                  label: const Text('Back'),
+                ),
+              ),
+            ],
+          ),
+          if (resendDetail != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                resendDetail,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: const Color(0xFF5D6475),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotpForm(LoginTotpChallenge challenge) {
+    final attempts = challenge.attemptsRemaining;
+
+    return Form(
+      key: _otpFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _lightPurple.withAlpha(22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.admin_panel_settings_outlined,
+                  color: _primaryPurple,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Authenticator verification',
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2D3142),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Enter the 6-digit code from your authenticator app.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          height: 1.45,
+                          color: const Color(0xFF4B5164),
+                        ),
+                      ),
+                      if (attempts != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '$attempts attempts remaining',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: const Color(0xFF5D6475),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _buildTextField(
+            controller: _otpController,
+            hintText: 'Authenticator code',
+            icon: Icons.pin_outlined,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(6),
+            ],
+            validator: (value) {
+              final v = value?.trim() ?? '';
+              if (v.isEmpty) return 'Authenticator code is required';
+              if (v.length != 6) return 'Enter the 6-digit code';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          if (_otpError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ApiErrorState(error: _otpError, compact: true),
+            ),
+          _buildPrimaryButton(
+            label: 'VERIFY',
+            isLoading: _isVerifyingOtp,
+            onPressed: _isVerifyingOtp ? null : _verifyTotp,
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: _isVerifyingOtp ? null : _returnToLogin,
+            icon: const Icon(Icons.arrow_back_outlined, size: 18),
+            label: const Text('Back'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrimaryButton({
+    required String label,
+    required bool isLoading,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _lightPurple,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+        ),
+        child: isLoading
+            ? const SizedBox(
+                height: 22,
+                width: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              )
+            : Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.5,
+                ),
+              ),
       ),
     );
   }

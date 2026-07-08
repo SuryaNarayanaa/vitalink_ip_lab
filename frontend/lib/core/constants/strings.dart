@@ -21,6 +21,19 @@ class AppStrings {
 
   /// Auth endpoints.
   static const String loginPath = '$apiPathPrefix/auth/login';
+  static const String loginOtpVerifyPath =
+      '$apiPathPrefix/auth/login/otp/verify';
+  static const String loginOtpResendPath =
+      '$apiPathPrefix/auth/login/otp/resend';
+  static const String loginTotpVerifyPath =
+      '$apiPathPrefix/auth/login/totp/verify';
+  static const String authRefreshPath = '$apiPathPrefix/auth/refresh';
+  static const String authRevokePath = '$apiPathPrefix/auth/revoke';
+  static const String logoutPath = '$apiPathPrefix/auth/logout';
+  static const String adminTotpSetupPath =
+      '$apiPathPrefix/auth/admin/mfa/totp/setup';
+  static const String adminTotpActivatePath =
+      '$apiPathPrefix/auth/admin/mfa/totp/activate';
 
   /// Doctor endpoints.
   static const String doctorPatientsPath = '$apiPathPrefix/doctors/patients';
@@ -65,6 +78,8 @@ class AppStrings {
 
   /// Secure storage keys.
   static const String tokenKey = 'auth_token';
+  static const String refreshTokenKey = 'auth_refresh_token';
+  static const String authSessionKey = 'auth_session';
   static const String userKey = 'auth_user';
   static const String onboardingCompletedKey = 'onboarding_completed';
 }

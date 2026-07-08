@@ -145,12 +145,17 @@ Key fields:
 | `locked_until` | date | No | Temporary lockout marker |
 | `last_login_at` | date | No | Operational telemetry |
 | `last_failed_login_at` | date | No | Operational telemetry |
+| `admin_mfa.totp.status` | enum | No | Admin-only authenticator state: `DISABLED`, `PENDING`, `ENABLED` |
+| `admin_mfa.totp.secret_ciphertext` | string | No | Encrypted active TOTP secret for enabled admins |
+| `admin_mfa.totp.pending_secret_ciphertext` | string | No | Encrypted pending TOTP setup secret before activation |
+| `admin_mfa.totp.last_verified_time_step` | number | No | Replay guard for admin login TOTP verification |
 
 Security notes:
 
 - Passwords are never returned by `toJSON()`.
 - `profile_id` is a one-to-one link to the owning role profile.
 - `user_type_model` is computed from `user_type` and is used by Mongoose `refPath`.
+- Admin TOTP secrets are stored encrypted with AES-GCM using `ADMIN_TOTP_ENCRYPTION_KEY` when configured.
 
 ### `adminprofiles`
 
@@ -165,6 +170,22 @@ Key fields:
 | `admin_role` | enum | No | `app_admin`, `hospital_admin`, `auditor` |
 | `hospital_id` | ObjectId | No | Optional tenant scope for hospital admins |
 
+### `adminmfachallenges`
+
+Short-lived admin authenticator-app login challenge.
+
+Key fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `user_id` | ObjectId | Yes | References an admin `users` record |
+| `user_type` | enum | Yes | Always `ADMIN` |
+| `status` | enum | No | `PENDING`, `VERIFIED`, `EXPIRED`, `LOCKED`, `CANCELLED` |
+| `expires_at` | date | Yes | TTL indexed challenge expiration |
+| `attempt_count` | number | No | Failed verification attempts |
+| `max_attempts` | number | Yes | Defaults from `ADMIN_TOTP_MAX_ATTEMPTS` |
+| `verified_at` | date | No | Set after successful TOTP verification |
+
 ### `doctorprofiles`
 
 Clinical provider profile linked one-to-one with a `users` record.
@@ -175,7 +196,9 @@ Key fields:
 |---|---|---:|---|
 | `name` | string | Yes | Doctor display name |
 | `department` | string | No | Defaults to `Cardiology` |
-| `contact_number` | string | No | Stored as free-form string |
+| `contact_number` | string | No | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | No | `PENDING` or `VERIFIED`; defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | No | Set when phone verification succeeds |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 
@@ -207,7 +230,9 @@ Embedded structures:
 | `name` | string | Required |
 | `age` | number | Optional |
 | `gender` | enum | `Male`, `Female`, `Other` |
-| `phone` | string | Optional |
+| `phone` | string | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | Defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | Set when phone verification succeeds |
 | `next_of_kin.name` | string | Optional |
 | `next_of_kin.relation` | string | Optional |
 | `next_of_kin.phone` | string | Optional |

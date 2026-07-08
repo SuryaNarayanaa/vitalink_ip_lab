@@ -18,7 +18,8 @@ import mongoose from 'mongoose'
 import { getDownloadUrl, uploadFile } from '@alias/utils/fileUpload'
 import logger from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
-import { extractTokenFromHeader, verifyToken } from '@alias/utils/jwt.utils'
+import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
+import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import * as notificationService from '@alias/services/notification.service'
 import {
@@ -110,16 +111,7 @@ const resolveDoctorStreamUserOrThrow = async (req: Request) => {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
   }
 
-  const payload = verifyToken(token)
-  if (!payload || payload.user_type !== UserType.DOCTOR) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-  }
-
-  const user = await User.findById(payload.user_id).select('_id user_type is_active')
-  if (!user || user.user_type !== UserType.DOCTOR || !user.is_active) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-  }
-
+  const { user } = await validateAuthToken(token, UserType.DOCTOR)
   return user
 }
 
@@ -475,13 +467,23 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileInput["body"]>, res: Response) => {
   const { name, contact_number, department } = req.body
   const { user_id } = req.user
-  const doctorUser = await User.findById(user_id)
+  const doctorUser = await User.findById(user_id).populate('profile_id')
   if (!doctorUser) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
   }
+  const currentProfile = doctorUser.profile_id as any
+  const profileUpdate: any = {}
+  if (name !== undefined) profileUpdate.name = name
+  if (department !== undefined) profileUpdate.department = department
+  if (contact_number !== undefined) {
+    profileUpdate.contact_number = contact_number
+    if (contact_number !== currentProfile?.contact_number) {
+      profileUpdate.phone_verification = { status: 'PENDING' }
+    }
+  }
   const updatedProfile = await DoctorProfile.findByIdAndUpdate(
-    doctorUser.profile_id,
-    { name, contact_number, department },
+    currentProfile?._id ?? doctorUser.profile_id,
+    profileUpdate,
     { new: true }
   )
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile updated successfully'))

@@ -436,7 +436,7 @@ class _PatientPageState extends State<PatientPage> {
                     child: _buildSummaryTable([
                       {
                         'label': 'Patient Phone',
-                        'value': profile['phone'] ?? '+917448757584'
+                        'value': profile['phone'] ?? 'N/A'
                       },
                       {
                         'label': 'Emergency Kin',

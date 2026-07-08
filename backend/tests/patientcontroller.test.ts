@@ -532,6 +532,13 @@ describe('Patient Routes', () => {
         });
 
         test('should update patient phone', async () => {
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, {
+                'demographics.phone_verification': {
+                    status: 'VERIFIED',
+                    verified_at: new Date()
+                }
+            });
+
             const response = await api.put('/api/patient/profile', {
                 demographics: {
                     phone: '5555555555'
@@ -543,6 +550,21 @@ describe('Patient Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.profile.demographics.phone).toBe('5555555555');
+            expect(response.data.data.profile.demographics.phone_verification.status).toBe('PENDING');
+            expect(response.data.data.profile.demographics.phone_verification.verified_at).toBeUndefined();
+        });
+
+        test('should fail when updating patient phone to a non-numeric value', async () => {
+            const response = await api.put('/api/patient/profile', {
+                demographics: {
+                    phone: '55555abcde'
+                }
+            }, {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.success).toBe(false);
         });
 
         test('should update next of kin information', async () => {
@@ -997,6 +1019,42 @@ describe('Patient Routes', () => {
 
             const fresh = await Notification.findById(created._id);
             expect(fresh?.is_read).toBe(true);
+        });
+
+        test('should reject notification stream with a revoked session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'patient001',
+                password: 'patient123'
+            });
+            const token = loginResponse.data.data.token;
+
+            await api.post('/api/auth/logout', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const response = await api.get(`/api/patient/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should reject notification stream with a rotated session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'patient001',
+                password: 'patient123'
+            });
+            const token = loginResponse.data.data.token;
+            const refreshToken = loginResponse.data.data.refresh_token;
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: refreshToken,
+            });
+            expect(refreshResponse.status).toBe(200);
+
+            const response = await api.get(`/api/patient/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
         });
     });
 

@@ -232,6 +232,7 @@ describe('Doctor Routes', () => {
             expect(response.data.success).toBe(true);
             expect(response.data.data.patient).toBeDefined();
             expect(response.data.data.patient.demographics.name).toBe('New Patient');
+            expect(response.data.data.patient.demographics.phone_verification.status).toBe('PENDING');
         });
 
         test('should create patient with minimum required fields', async () => {
@@ -325,6 +326,23 @@ describe('Doctor Routes', () => {
                 op_num: 'PAT006',
                 gender: 'Male',
                 contact_no: '123',
+                kin_contact_number: '2222222222'
+            };
+
+            const response = await api.post('/api/doctors/patients', invalidPatient, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should fail with non-numeric contact_no', async () => {
+            const invalidPatient = {
+                name: 'Invalid Contact Patient',
+                op_num: 'PAT006A',
+                gender: 'Male',
+                contact_no: '12345abcde',
                 kin_contact_number: '2222222222'
             };
 
@@ -703,6 +721,13 @@ describe('Doctor Routes', () => {
         });
 
         test('should update doctor contact number', async () => {
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, {
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date()
+                }
+            });
+
             const response = await api.put('/api/doctors/profile', {
                 contact_number: '9999999999'
             }, {
@@ -714,6 +739,8 @@ describe('Doctor Routes', () => {
 
             const updated = await DoctorProfile.findById(doctorProfile._id);
             expect(updated.contact_number).toBe('9999999999');
+            expect(updated.phone_verification.status).toBe('PENDING');
+            expect(updated.phone_verification.verified_at).toBeUndefined();
         });
 
         test('should update multiple fields at once', async () => {
@@ -836,6 +863,42 @@ describe('Doctor Routes', () => {
 
             const fresh = await Notification.findById(created._id);
             expect(fresh?.is_read).toBe(true);
+        });
+
+        test('should reject notification stream with a revoked session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'doctor001',
+                password: 'doctor123'
+            });
+            const token = loginResponse.data.data.token;
+
+            await api.post('/api/auth/logout', {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const response = await api.get(`/api/doctors/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should reject notification stream with a rotated session token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'doctor001',
+                password: 'doctor123'
+            });
+            const token = loginResponse.data.data.token;
+            const refreshToken = loginResponse.data.data.refresh_token;
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: refreshToken,
+            });
+            expect(refreshResponse.status).toBe(200);
+
+            const response = await api.get(`/api/doctors/notifications/stream?token=${encodeURIComponent(token)}`);
+
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
         });
     });
 
