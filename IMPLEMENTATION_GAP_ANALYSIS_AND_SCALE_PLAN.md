@@ -1,6 +1,12 @@
 # VitaLink Admin Module Gap Analysis and 500-Patient Scale Plan
 
-Date: 2026-07-05
+Date: 2026-07-06
+
+Status legend used below:
+
+- `[x]` Completed in the current codebase
+- `[~]` Partially implemented; further work still needed
+- `[ ]` Not yet implemented
 
 ## Scope
 
@@ -88,77 +94,100 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 ### Critical Before Development
 
 1. API contracts and versioning
-   - Missing formal OpenAPI/Swagger spec.
-   - No `/api/v1` versioning boundary yet.
-   - No published mobile integration contract for auth, files, notifications, errors, pagination, and date formats.
+   - `[x]` Formal OpenAPI/Swagger spec now exists at `backend/docs/api/openapi.yaml`.
+   - `[x]` `/api/v1` versioning boundary now exists while legacy `/api` remains backward-compatible.
+   - `[x]` Published human-readable integration contract now exists at `backend/docs/api-reference.md`.
+   - `[~]` Further implementation needed:
+     - Keep `openapi.yaml` synchronized with route/controller changes.
+     - Add automated spec validation in CI.
+     - Consider exposing versioned raw spec endpoints under `/api/v1/docs` as well if external integrators should stay fully under `/api`.
 
 2. Mobile push notification contract
-   - In-app/SSE notifications exist.
-   - Missing Firebase Cloud Messaging integration, device token model, push delivery worker, retries, and delivery status.
+   - `[~]` In-app/SSE notifications exist.
+   - `[ ]` Missing Firebase Cloud Messaging integration, device token model, push delivery worker, retries, and delivery status.
 
 3. MFA and login hardening
-   - Missing MFA for privileged users.
-   - Missing failed-login counters, account lockout, login throttling by user/IP, password expiry/history, and refresh-token/session invalidation.
-   - Rate limiter exists in code and Nginx but Express app does not appear to apply the imported backend limiter globally.
+   - `[ ]` Missing MFA for privileged users.
+   - `[~]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
+   - `[~]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
+   - `[ ]` Still missing password expiry/history and refresh-token/session invalidation.
+   - `[~]` Further implementation needed:
+     - Add MFA enrollment and challenge flow for admins.
+     - Add refresh token/session store with rotation and revocation.
+     - Add explicit admin/session invalidation after password reset.
+     - Consider adding login-attempt telemetry keyed by both IP and normalized login ID for better forensic visibility.
 
 4. Secrets management
-   - `.env.example` exists, but no cloud secret manager integration.
-   - Need AWS Secrets Manager/SSM Parameter Store or equivalent, key rotation policy, and deployment-time injection.
+   - `[~]` `.env.example` now documents more runtime controls, including API docs settings.
+   - `[ ]` Still need AWS Secrets Manager/SSM Parameter Store or equivalent, key rotation policy, and deployment-time injection.
 
 5. Data model documentation
-   - Models exist, but no schema document/ERD, index strategy document, unique key inventory, or migration policy.
+   - `[x]` Data model documentation now exists at `backend/docs/data-model.md`.
+   - `[x]` The document includes schema/collection descriptions, ERD, index strategy, unique key inventory, sensitive-field notes, and migration policy.
+   - `[~]` Further implementation needed:
+     - Add a retention-and-purge policy document.
+     - Add a file asset model proposal or implementation document once file metadata is normalized.
+     - Keep the document updated as collections evolve.
 
 6. Backup, restore, DR, retention, archival, purge
-   - Missing documented backup schedules, restore runbook, RPO/RTO, retention policy, patient discharge/archive policy, and purge workflow.
-   - Atlas backups may be configured outside code, but this repo does not define the operational runbook.
+   - `[ ]` Missing documented backup schedules, restore runbook, RPO/RTO, retention policy, patient discharge/archive policy, and purge workflow.
+   - `[ ]` Atlas backups may be configured outside code, but this repo still does not define the operational runbook.
 
 ### Operationally Important
 
 1. Architecture diagram
-   - Missing a checked-in architecture diagram covering Flutter app, backend, MongoDB Atlas, S3/Filebase, Firebase, Nginx, EC2, and monitoring.
+   - `[ ]` Missing a checked-in architecture diagram covering Flutter app, backend, MongoDB Atlas, S3/Filebase, Firebase, Nginx, EC2, and monitoring.
 
 2. Environment strategy
-   - Some deployment files exist, but Dev/UAT/Prod environment matrix is not formalized.
-   - No separate test/staging app build config and backend base URL contract.
+   - `[ ]` Some deployment files exist, but Dev/UAT/Prod environment matrix is not formalized.
+   - `[ ]` No separate test/staging app build config and backend base URL contract.
 
 3. Infrastructure sizing and upgrade strategy
-   - Missing concrete M10/M20 triggers, EC2 scaling thresholds, storage thresholds, and alert thresholds.
+   - `[~]` The plan below now contains concrete initial sizing guidance and scale-up triggers.
+   - `[ ]` Still missing checked-in operational dashboards/alerts that enforce those thresholds.
 
 4. Monitoring and alerting
-   - Health and logs exist.
-   - Missing uptime monitoring, metrics, alerts, dashboards, API latency/error-rate SLOs, DB monitoring playbook, and incident notification channel.
+   - `[~]` Health and logs exist.
+   - `[ ]` Missing uptime monitoring, metrics, alerts, dashboards, API latency/error-rate SLOs, DB monitoring playbook, and incident notification channel.
 
 5. Testing strategy
-   - Tests exist, but require Docker/Testcontainers.
-   - Missing documented CI prerequisites, frontend test gate, e2e tests, security tests, load tests, and file-upload integration tests against staging storage.
+   - `[~]` Tests exist, but require Docker/Testcontainers.
+   - `[ ]` Missing documented CI prerequisites, frontend test gate, e2e tests, security tests, load tests, and file-upload integration tests against staging storage.
+   - `[~]` Further implementation needed:
+     - Add CI workflow that provisions Docker/Testcontainers correctly.
+     - Add local fallback test profile or document container runtime requirement clearly.
+     - Add spec validation for `backend/docs/api/openapi.yaml`.
 
 6. Multi-tenancy completeness
-   - Hospital tenant fields and admin service checks exist.
-   - Need policy middleware/centralized authorization for every resource access, especially doctor/patient routes and file access metadata.
-   - Need tenant-scoped audit and export controls.
+   - `[~]` Hospital tenant fields and admin service checks exist.
+   - `[ ]` Need policy middleware/centralized authorization for every resource access, especially doctor/patient routes and file access metadata.
+   - `[ ]` Need tenant-scoped audit and export controls.
 
 7. Scalability roadmap
-   - No formal roadmap for payments, EMR integration, AI services, queues, background jobs, or event-driven notification delivery.
+   - `[~]` This document now includes a clearer phased roadmap for queues, notification delivery, compliance, monitoring, and staging.
+   - `[ ]` Still no implemented roadmap artifacts for payments, EMR integration, AI services, or event-driven architecture decisions beyond planning text.
 
 ### Recommended Missing Requirements
 
 1. Configuration management
-   - SystemConfig exists.
-   - Need config ownership, validation, audit detail, runtime reload behavior, feature flag strategy, and environment-variable inventory.
+   - `[~]` SystemConfig exists.
+   - `[~]` Environment variable inventory is partially improved through `.env.example`.
+   - `[ ]` Need config ownership, validation, audit detail, runtime reload behavior, and fuller feature flag strategy.
 
 2. Data ownership and compliance
-   - Missing consent model, data export workflow, deletion request workflow, PHI/PII classification, DPDP/HIPAA-style governance, and admin access justification.
+   - `[~]` PHI/PII-style field classification now exists in `backend/docs/data-model.md`.
+   - `[ ]` Missing consent model, data export workflow, deletion request workflow, governance policy, and admin access justification.
 
 3. Notification reliability
-   - Missing scheduled medication reminders, retry policy, dead-letter queue, delivery success/failure tracking, and escalation.
+   - `[ ]` Missing scheduled medication reminders, retry policy, dead-letter queue, delivery success/failure tracking, and escalation.
 
 4. Audit log requirements
-   - Audit logs exist.
-   - Need retention period, tamper resistance/append-only storage, export, search UX depth, log integrity checks, and audit of doctor/patient sensitive actions.
+   - `[~]` Audit logs exist.
+   - `[ ]` Need retention period, tamper resistance/append-only storage, export, search UX depth, log integrity checks, and audit of doctor/patient sensitive actions.
 
 5. Business continuity during internet failure
-   - Flutter has secure storage and some retry behavior.
-   - Missing offline-first patient workflow, local queued dose/report submissions, sync conflict handling, and clear out-of-scope documentation.
+   - `[~]` Flutter has secure storage and some retry behavior.
+   - `[ ]` Missing offline-first patient workflow, local queued dose/report submissions, sync conflict handling, and clear out-of-scope documentation.
 
 ## Implementation Plan
 
@@ -166,27 +195,30 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 Deliverables:
 
-- Create `docs/api/openapi.yaml` from existing routes.
-- Add `/api/v1` alias while keeping `/api` backward-compatible.
-- Create `docs/architecture.md` with architecture diagram and data-flow diagram.
-- Create `docs/data-model.md` covering collections, references, indexes, unique keys, retention-sensitive fields, and PHI fields.
-- Create `docs/environments.md` for Dev/UAT/Prod and test/staging app configuration.
-- Make CI capable of running Testcontainers, or add an alternate `mongodb-memory-server` test profile for local development.
+- `[x]` Create `docs/api/openapi.yaml` from existing routes.
+- `[x]` Add `/api/v1` alias while keeping `/api` backward-compatible.
+- `[x]` Create `docs/data-model.md` covering collections, references, indexes, unique keys, retention-sensitive fields, and PHI fields.
+- `[x]` Add a professional API reference document at `backend/docs/api-reference.md`.
+- `[x]` Add a Swagger UI docs route with environment controls and optional basic auth in `backend/src/routes/docs.routes.ts`.
+- `[ ]` Create `docs/architecture.md` with architecture diagram and data-flow diagram.
+- `[ ]` Create `docs/environments.md` for Dev/UAT/Prod and test/staging app configuration.
+- `[ ]` Make CI capable of running Testcontainers, or add an alternate `mongodb-memory-server` test profile for local development.
+- `[ ]` Add OpenAPI validation/linting to CI so the spec remains trustworthy.
 
 Acceptance:
 
-- Backend build passes.
-- Existing Jest suite runs in CI.
-- Frontend `flutter test` and analyzer are added to CI.
-- OpenAPI covers all implemented routes.
+- `[x]` Backend build passes.
+- `[ ]` Existing Jest suite runs in CI.
+- `[ ]` Frontend `flutter test` and analyzer are added to CI.
+- `[~]` OpenAPI now covers the implemented route surface at a useful level, but should still be tightened continuously as controllers evolve.
 
 ### Phase 1: Security Baseline
 
 Deliverables:
 
-- Apply Express rate limiter globally and stricter auth limiter on `/api/auth/login`.
-- Add failed login tracking to User or a separate LoginAttempt collection.
-- Lock account or require admin reset after configurable failed attempts.
+- `[x]` Apply Express rate limiter globally and stricter auth limiter on `/api/auth/login`.
+- `[x]` Add failed login tracking to `User`.
+- `[x]` Lock account after configurable failed attempts.
 - Add MFA for privileged users:
   - TOTP secret enrollment for admins.
   - Recovery codes.
@@ -197,15 +229,17 @@ Deliverables:
   - Refresh token rotation.
   - Logout invalidates refresh token.
   - Admin password reset invalidates sessions.
-- Move production secrets to AWS SSM/Secrets Manager or equivalent.
-- Expand audit logging to auth success/failure, doctor changes, patient report upload, file access, data export, and password changes.
+- `[ ]` Move production secrets to AWS SSM/Secrets Manager or equivalent.
+- `[~]` Expand audit logging to auth success/failure, doctor changes, patient report upload, file access, data export, and password changes.
+  - Auth success/failure is now audited.
+  - Further sensitive action coverage still needs to be added consistently.
 
 Acceptance:
 
-- Admin login requires MFA.
-- Lockout and throttling tested.
-- Sensitive body fields redacted in all logs/audit entries.
-- Session invalidation verified.
+- `[ ]` Admin login requires MFA.
+- `[~]` Lockout and throttling are implemented; automated verification coverage should be strengthened.
+- `[ ]` Sensitive body fields redacted in all logs/audit entries.
+- `[ ]` Session invalidation verified.
 
 ### Phase 2: File Upload Hardening
 
@@ -448,15 +482,15 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 
 ### Must Do Before Clinical Production
 
-1. API contract and `/api/v1` versioning.
-2. MFA for admins and lockout policy.
-3. Tenant authorization audit across all routes.
-4. File metadata model and tenant-scoped file access.
-5. Backup/restore/DR runbook and first restore drill.
-6. Monitoring/alerting dashboard.
-7. Notification reliability design for reminders.
-8. Retention, consent, export, and purge policy.
-9. CI test environment that actually runs the existing Jest suite.
+1. MFA for admins plus refresh-token/session invalidation.
+2. Tenant authorization audit across all routes.
+3. File metadata model and tenant-scoped file access.
+4. Backup/restore/DR runbook and first restore drill.
+5. Monitoring/alerting dashboard.
+6. Notification reliability design for reminders.
+7. Retention, consent, export, and purge policy.
+8. CI test environment that actually runs the existing Jest suite.
+9. OpenAPI/spec validation in CI and operational ownership for keeping docs current.
 
 ### Should Do Before 500 Patients
 
@@ -481,10 +515,22 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Read current backend, frontend, and deployment source.
 - Ran `npm run build` in `backend`: passed.
 - Ran `npm test -- --runInBand` in `backend`: failed because Testcontainers could not find a working container runtime strategy on this machine.
+- Verified formal API documentation artifacts now exist:
+  - `backend/docs/api/openapi.yaml`
+  - `backend/docs/api-reference.md`
+  - `backend/docs/data-model.md`
+- Verified Swagger UI integration exists and is wired through:
+  - `backend/src/routes/docs.routes.ts`
+  - `backend/src/app.ts`
+  - `backend/.env.example`
 
 ## Key Code References
 
 - Backend health readiness: `backend/src/app.ts`
+- Swagger/OpenAPI docs route: `backend/src/routes/docs.routes.ts`
+- OpenAPI contract: `backend/docs/api/openapi.yaml`
+- Human-readable API contract: `backend/docs/api-reference.md`
+- Data model documentation: `backend/docs/data-model.md`
 - Patient report routes and upload limits: `backend/src/routes/patient.routes.ts`
 - Patient upload/download controller logic: `backend/src/controllers/patient.controller.ts`
 - S3-compatible upload utilities: `backend/src/utils/fileUpload.ts`

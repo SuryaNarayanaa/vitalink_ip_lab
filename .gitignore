@@ -11,3 +11,5 @@ Thumbs.db
 deploy/vitalink-pem-key-pair.pem
 .vercel
 .env*
+/deliverables
+/tmp_documents
