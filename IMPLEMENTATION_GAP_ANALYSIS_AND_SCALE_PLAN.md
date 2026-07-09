@@ -102,7 +102,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[x]` Published human-readable integration contract now exists at `backend/docs/api-reference.md`.
    - `[~]` Further implementation needed:
      - Keep `openapi.yaml` synchronized with route/controller changes.
-     - Add automated spec validation in CI.
+     - Continue tightening lint hygiene such as operation IDs and unused components.
      - Consider exposing versioned raw spec endpoints under `/api/v1/docs` as well if external integrators should stay fully under `/api`.
 
 2. Mobile push notification contract
@@ -159,7 +159,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[~]` Further implementation needed:
      - Add CI workflow that provisions Docker/Testcontainers correctly.
      - Add local fallback test profile or document container runtime requirement clearly.
-     - Add spec validation for `backend/docs/api/openapi.yaml`.
+     - Continue tightening OpenAPI lint warnings beyond the structural validation gate.
 
 6. Multi-tenancy completeness
    - `[~]` Hospital tenant fields and admin service checks exist.
@@ -206,7 +206,7 @@ Deliverables:
 - `[ ]` Create `docs/architecture.md` with architecture diagram and data-flow diagram.
 - `[ ]` Create `docs/environments.md` for Dev/UAT/Prod and test/staging app configuration.
 - `[ ]` Make CI capable of running Testcontainers, or add an alternate `mongodb-memory-server` test profile for local development.
-- `[ ]` Add OpenAPI validation/linting to CI so the spec remains trustworthy.
+- `[x]` Add OpenAPI validation/linting to CI so invalid spec changes are caught automatically.
 
 Acceptance:
 
@@ -214,6 +214,7 @@ Acceptance:
 - `[ ]` Existing Jest suite runs in CI.
 - `[ ]` Frontend `flutter test` and analyzer are added to CI.
 - `[~]` OpenAPI now covers the implemented route surface at a useful level, but should still be tightened continuously as controllers evolve.
+- `[x]` Backend CI validates `backend/docs/api/openapi.yaml` with Redocly before build/tests.
 
 ### Phase 1: Security Baseline
 
@@ -494,7 +495,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 6. Notification reliability design for reminders.
 7. Retention, consent, export, and purge policy.
 8. CI test environment that actually runs the existing Jest suite.
-9. OpenAPI/spec validation in CI and operational ownership for keeping docs current.
+9. OpenAPI operational ownership for keeping docs current and resolving remaining lint warnings.
 
 ### Should Do Before 500 Patients
 
@@ -519,6 +520,8 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Read current backend, frontend, and deployment source.
 - Ran `npm run build` in `backend`: passed.
 - Ran `npm test -- --runInBand` in `backend`: failed because Testcontainers could not find a working container runtime strategy on this machine.
+- Latest local Jest attempt also surfaced an existing `twilioconfig.test.ts` expectation mismatch: staging config now fails first on missing `ADMIN_TOTP_ENCRYPTION_KEY` before the Twilio Verify variables asserted by that test.
+- Added Redocly OpenAPI validation to backend CI and verified `npm run lint:openapi` passes for `backend/docs/api/openapi.yaml` with existing style warnings.
 - Verified first-login phone OTP and Twilio Verify integration on deployed doctor flow, including successful OTP completion and subsequent normal login.
 - Verified deployed session hardening behavior: `/me` succeeds with a valid token, refresh rotates tokens, old access tokens are rejected after refresh, logout revokes the session, and refresh tokens are rejected after logout.
 - Verified Twilio Verify template TTL support locally and against Twilio; direct Verify start with template SID plus `ttl` substitution returned pending.

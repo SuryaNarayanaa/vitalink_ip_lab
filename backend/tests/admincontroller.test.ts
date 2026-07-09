@@ -48,7 +48,11 @@ describe('Admin Routes', () => {
         const doctorProfile = await DoctorProfile.create({
             name: 'Dr. Primary',
             department: 'Cardiology',
-            contact_number: '9000000001'
+            contact_number: '9000000001',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         primaryDoctorUser = await User.create({
@@ -62,7 +66,11 @@ describe('Admin Routes', () => {
         const secondDoctorProfile = await DoctorProfile.create({
             name: 'Dr. Secondary',
             department: 'Neurology',
-            contact_number: '9000000002'
+            contact_number: '9000000002',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         secondaryDoctorUser = await User.create({
@@ -319,7 +327,7 @@ describe('Admin Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.profile_id.demographics.name).toBe('Renamed Admin Patient');
-            expect(response.data.data.profile_id.demographics.phone).toBe('9222222222');
+            expect(response.data.data.profile_id.demographics.phone).toBe('+919222222222');
             expect(response.data.data.profile_id.demographics.phone_verification.status).toBe('VERIFIED');
             expect(response.data.data.profile_id.demographics.phone_verification.verified_at).toBeDefined();
         });

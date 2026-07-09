@@ -38,7 +38,11 @@ describe('Doctor Routes', () => {
         doctorProfile = await DoctorProfile.create({
             name: 'Dr. John Doe',
             department: 'Cardiology',
-            contact_number: '1234567890'
+            contact_number: '1234567890',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         doctorUser = await User.create({
@@ -52,7 +56,11 @@ describe('Doctor Routes', () => {
         const secondDoctorProfile = await DoctorProfile.create({
             name: 'Dr. Jane Smith',
             department: 'Neurology',
-            contact_number: '0987654321'
+            contact_number: '0987654321',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         secondDoctorUser = await User.create({
@@ -738,9 +746,18 @@ describe('Doctor Routes', () => {
             expect(response.data.success).toBe(true);
 
             const updated = await DoctorProfile.findById(doctorProfile._id);
-            expect(updated.contact_number).toBe('9999999999');
+            expect(updated.contact_number).toBe('+919999999999');
             expect(updated.phone_verification.status).toBe('PENDING');
             expect(updated.phone_verification.verified_at).toBeUndefined();
+
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, {
+                $set: {
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
+                }
+            });
         });
 
         test('should update multiple fields at once', async () => {

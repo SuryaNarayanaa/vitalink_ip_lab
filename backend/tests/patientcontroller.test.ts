@@ -32,7 +32,11 @@ describe('Patient Routes', () => {
         doctorProfile = await DoctorProfile.create({
             name: 'Dr. Test Doctor',
             department: 'Cardiology',
-            contact_number: '1234567890'
+            contact_number: '1234567890',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         const therapyStartDate = new Date('2024-01-01');
@@ -43,6 +47,10 @@ describe('Patient Routes', () => {
                 age: 45,
                 gender: 'Male',
                 phone: '9876543210',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date()
+                },
                 next_of_kin: {
                     name: 'Emergency Contact',
                     relation: 'Spouse',
@@ -336,7 +344,11 @@ describe('Patient Routes', () => {
                     name: 'Patient Without Therapy',
                     age: 50,
                     gender: 'Female',
-                    phone: '8888888888'
+                    phone: '8888888888',
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
                 },
                 medical_config: {
                     target_inr: { min: 2.0, max: 3.0 }
@@ -373,7 +385,11 @@ describe('Patient Routes', () => {
                     name: 'Patient No Dosage',
                     age: 55,
                     gender: 'Male',
-                    phone: '7777777777'
+                    phone: '7777777777',
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
                 },
                 medical_config: {
                     therapy_start_date: new Date('2024-01-01'),
@@ -549,9 +565,18 @@ describe('Patient Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
-            expect(response.data.data.profile.demographics.phone).toBe('5555555555');
+            expect(response.data.data.profile.demographics.phone).toBe('+915555555555');
             expect(response.data.data.profile.demographics.phone_verification.status).toBe('PENDING');
             expect(response.data.data.profile.demographics.phone_verification.verified_at).toBeUndefined();
+
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, {
+                $set: {
+                    'demographics.phone_verification': {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
+                }
+            });
         });
 
         test('should fail when updating patient phone to a non-numeric value', async () => {
@@ -601,7 +626,16 @@ describe('Patient Routes', () => {
             expect(response.data.success).toBe(true);
             expect(response.data.data.profile.demographics.name).toBe('Multi Update Patient');
             expect(response.data.data.profile.demographics.age).toBe(60);
-            expect(response.data.data.profile.demographics.phone).toBe('3333333333');
+            expect(response.data.data.profile.demographics.phone).toBe('+913333333333');
+
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, {
+                $set: {
+                    'demographics.phone_verification': {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
+                }
+            });
         });
 
         test('should update medical history', async () => {
@@ -1167,7 +1201,11 @@ describe('Patient Routes', () => {
                     name: 'Incomplete Patient',
                     age: 40,
                     gender: 'Female',
-                    phone: '1111111111'
+                    phone: '1111111111',
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date()
+                    }
                 },
                 weekly_dosage: {
                     monday: 5,
