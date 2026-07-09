@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile, PatientProfile, Notification } from '@alias/models';
+import { User, DoctorProfile, PatientProfile, Notification, Hospital } from '@alias/models';
 import { NotificationType } from '@alias/models/notification.model';
 import { Server } from 'http';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
@@ -19,8 +19,11 @@ describe('Doctor Routes', () => {
     let doctorProfile: any;
     let secondDoctorToken: string;
     let secondDoctorUser: any;
+    let crossTenantDoctorUser: any;
     let patientUser: any;
     let patientProfile: any;
+    let primaryHospital: any;
+    let secondaryHospital: any;
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
@@ -35,10 +38,25 @@ describe('Doctor Routes', () => {
         baseURL = `http://localhost:${port}`;
         api = axios.create({ baseURL, validateStatus: () => true });
 
+        primaryHospital = await Hospital.create({
+            code: 'TENANT_A',
+            name: 'Tenant A Hospital',
+            location: 'Coimbatore',
+            admin_email: 'admin-a@example.com'
+        });
+
+        secondaryHospital = await Hospital.create({
+            code: 'TENANT_B',
+            name: 'Tenant B Hospital',
+            location: 'Chennai',
+            admin_email: 'admin-b@example.com'
+        });
+
         doctorProfile = await DoctorProfile.create({
             name: 'Dr. John Doe',
             department: 'Cardiology',
             contact_number: '1234567890',
+            hospital_id: primaryHospital._id,
             phone_verification: {
                 status: 'VERIFIED',
                 verified_at: new Date()
@@ -57,6 +75,7 @@ describe('Doctor Routes', () => {
             name: 'Dr. Jane Smith',
             department: 'Neurology',
             contact_number: '0987654321',
+            hospital_id: primaryHospital._id,
             phone_verification: {
                 status: 'VERIFIED',
                 verified_at: new Date()
@@ -71,8 +90,28 @@ describe('Doctor Routes', () => {
             is_active: true
         });
 
+        const crossTenantDoctorProfile = await DoctorProfile.create({
+            name: 'Dr. Other Tenant',
+            department: 'Cardiology',
+            contact_number: '0987654322',
+            hospital_id: secondaryHospital._id,
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
+        });
+
+        crossTenantDoctorUser = await User.create({
+            login_id: 'doctor003',
+            password: 'doctor789',
+            user_type: 'DOCTOR',
+            profile_id: crossTenantDoctorProfile._id,
+            is_active: true
+        });
+
         patientProfile = await PatientProfile.create({
             assigned_doctor_id: doctorProfile._id,
+            hospital_id: primaryHospital._id,
             demographics: {
                 name: 'Test Patient',
                 age: 45,
@@ -183,6 +222,20 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patient.demographics.name).toBe('Test Patient');
         });
 
+        test('should fail when assigned doctor and patient hospital differ', async () => {
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, { hospital_id: secondaryHospital._id });
+
+            const response = await api.get('/api/doctors/patients/PAT001', {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('Cross-tenant');
+
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, { hospital_id: primaryHospital._id });
+        });
+
         test('should fail with non-existent op_num', async () => {
             const response = await api.get('/api/doctors/patients/INVALID001', {
                 headers: { Authorization: `Bearer ${doctorToken}` }
@@ -241,6 +294,7 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patient).toBeDefined();
             expect(response.data.data.patient.demographics.name).toBe('New Patient');
             expect(response.data.data.patient.demographics.phone_verification.status).toBe('PENDING');
+            expect(response.data.data.patient.hospital_id).toBe(primaryHospital._id.toString());
         });
 
         test('should create patient with minimum required fields', async () => {
@@ -396,6 +450,18 @@ describe('Doctor Routes', () => {
             await PatientProfile.findByIdAndUpdate(patientProfile._id, {
                 assigned_doctor_id: doctorProfile._id
             });
+        });
+
+        test('should fail when reassigning patient to a doctor in another hospital', async () => {
+            const response = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                new_doctor_id: 'doctor003'
+            }, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('Cross-tenant');
         });
 
         test('should fail with non-existent patient', async () => {
@@ -816,6 +882,10 @@ describe('Doctor Routes', () => {
             expect(response.data.data.doctors).toBeDefined();
             expect(Array.isArray(response.data.data.doctors)).toBe(true);
             expect(response.data.data.doctors.length).toBeGreaterThanOrEqual(2);
+            const ids = response.data.data.doctors.map((doctor: any) => doctor._id);
+            expect(ids).toContain(doctorUser._id.toString());
+            expect(ids).toContain(secondDoctorUser._id.toString());
+            expect(ids).not.toContain(crossTenantDoctorUser._id.toString());
         });
 
         test('should not include password or salt in doctor data', async () => {
@@ -974,6 +1044,7 @@ describe('Doctor Routes', () => {
                 if (doctorProfile?.profile_picture_url) {
                     uploadedProfilePicKey = doctorProfile.profile_picture_url;
                 }
+                expect(uploadedProfilePicKey).toContain(`hospitals/${primaryHospital._id.toString()}/profiles/${doctorUser._id.toString()}/`);
             });
 
             test('should fail with invalid file type', async () => {

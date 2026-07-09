@@ -4,6 +4,7 @@ import { UserType } from '@alias/validators'
 import { ApiError } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
 import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
+import { getAdminContext, getTenantUserIdsForAdmin } from '@alias/services/admin.service'
 
 export type BroadcastTarget = 'ALL' | 'DOCTORS' | 'PATIENTS' | 'SPECIFIC'
 
@@ -12,29 +13,40 @@ export async function broadcastNotification(
   message: string,
   target: BroadcastTarget,
   specificUserIds?: string[],
-  priority: string = 'MEDIUM'
+  priority: string = 'MEDIUM',
+  actorUserId?: string
 ) {
   let userIds: string[] = []
+  const ctx = await getAdminContext(actorUserId)
+  const tenantUserIds = await getTenantUserIdsForAdmin(actorUserId)
+  const tenantUserIdSet = tenantUserIds ? new Set(tenantUserIds.map(String)) : undefined
+  const tenantFilter = (ids: string[]) => tenantUserIdSet ? ids.filter(id => tenantUserIdSet.has(id)) : ids
 
   switch (target) {
     case 'ALL':
       const allUsers = await User.find({ is_active: true }).select('_id')
-      userIds = allUsers.map(u => String(u._id))
+      userIds = tenantFilter(allUsers.map(u => String(u._id)))
       break
 
     case 'DOCTORS':
       const doctors = await User.find({ user_type: UserType.DOCTOR, is_active: true }).select('_id')
-      userIds = doctors.map(u => String(u._id))
+      userIds = tenantFilter(doctors.map(u => String(u._id)))
       break
 
     case 'PATIENTS':
       const patients = await User.find({ user_type: UserType.PATIENT, is_active: true }).select('_id')
-      userIds = patients.map(u => String(u._id))
+      userIds = tenantFilter(patients.map(u => String(u._id)))
       break
 
     case 'SPECIFIC':
       if (!specificUserIds || specificUserIds.length === 0) {
         throw new ApiError(StatusCodes.BAD_REQUEST, 'No user IDs provided for SPECIFIC target')
+      }
+      if (!ctx.isAppAdmin) {
+        const forbidden = specificUserIds.some(id => !tenantUserIdSet?.has(String(id)))
+        if (forbidden) {
+          throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant notification broadcast is not allowed')
+        }
       }
       userIds = specificUserIds
       break

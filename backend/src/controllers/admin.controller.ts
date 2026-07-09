@@ -4,9 +4,6 @@ import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import * as passwordService from '@alias/services/password.service'
-import { User, DoctorProfile, PatientProfile } from '@alias/models'
-import { UserType } from '@alias/validators'
 
 // ─── Doctor Management ───
 
@@ -88,7 +85,7 @@ export const getAuditLogs = asyncHandler(async (req: Request, res: Response) => 
   if (end_date) filters.end_date = end_date
   if (success !== undefined) filters.success = success === 'true'
 
-  const result = await adminService.getAuditLogs(filters, { page: Number(page), limit: Number(limit) })
+  const result = await adminService.getAuditLogs(filters, { page: Number(page), limit: Number(limit) }, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Audit logs retrieved successfully', result))
 })
 
@@ -108,7 +105,7 @@ export const updateSystemConfig = asyncHandler(async (req: Request, res: Respons
 
 export const broadcastNotification = asyncHandler(async (req: Request, res: Response) => {
   const { title, message, target, user_ids, priority } = req.body
-  const result = await notificationService.broadcastNotification(title, message, target, user_ids, priority)
+  const result = await notificationService.broadcastNotification(title, message, target, user_ids, priority, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification broadcast successful', result))
 })
 
@@ -116,7 +113,7 @@ export const broadcastNotification = asyncHandler(async (req: Request, res: Resp
 
 export const performBatchOperation = asyncHandler(async (req: Request, res: Response) => {
   const { operation, user_ids } = req.body
-  const result = await adminService.performBatchOperation(operation, user_ids)
+  const result = await adminService.performBatchOperation(operation, user_ids, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Batch operation completed', result))
 })
 
@@ -130,30 +127,20 @@ export const getSystemHealth = asyncHandler(async (req: Request, res: Response) 
 // ─── Legacy Endpoints ───
 
 export const listAllPatients = asyncHandler(async (req: Request, res: Response) => {
-  const patients = await User.find({ user_type: UserType.PATIENT })
-    .populate('profile_id')
-    .sort({ createdAt: -1 })
+  const { patients } = await adminService.listLegacyPatients(req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'All patients', { patients }))
 })
 
 export const getPatientById = asyncHandler(async (req: Request, res: Response) => {
   const { op_num } = req.params
-  const user = await User.findOne({ login_id: op_num, user_type: UserType.PATIENT }).populate('profile_id')
-  if (!user) {
-    res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Patient not found'))
-    return
-  }
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient found', { patient: user }))
+  const result = await adminService.getLegacyPatientByLoginId(op_num, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient found', result))
 })
 
 export const getDoctorById = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const user = await User.findById(id).populate('profile_id')
-  if (!user || user.user_type !== UserType.DOCTOR) {
-    res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Doctor not found'))
-    return
-  }
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor found', { doctor: user }))
+  const result = await adminService.getLegacyDoctorById(id, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor found', result))
 })
 
 // ─── Password Reset ───
@@ -161,7 +148,7 @@ export const getDoctorById = asyncHandler(async (req: Request, res: Response) =>
 export const resetUserPassword = asyncHandler(async (req: Request, res: Response) => {
   const { target_user_id, new_password } = req.body
   const adminUserId = req.user!.user_id
-  const result = await passwordService.adminResetPassword(adminUserId, target_user_id, new_password)
+  const result = await adminService.resetUserPassword(adminUserId, target_user_id, new_password)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Password reset successful', result))
 })
 
