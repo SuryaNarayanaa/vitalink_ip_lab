@@ -738,7 +738,7 @@ describe('Doctor Routes', () => {
             expect(response.data.success).toBe(true);
 
             const updated = await DoctorProfile.findById(doctorProfile._id);
-            expect(updated.contact_number).toBe('9999999999');
+            expect(updated.contact_number).toBe('+919999999999');
             expect(updated.phone_verification.status).toBe('PENDING');
             expect(updated.phone_verification.verified_at).toBeUndefined();
         });

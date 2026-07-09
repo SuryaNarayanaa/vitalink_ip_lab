@@ -319,7 +319,7 @@ describe('Admin Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.profile_id.demographics.name).toBe('Renamed Admin Patient');
-            expect(response.data.data.profile_id.demographics.phone).toBe('9222222222');
+            expect(response.data.data.profile_id.demographics.phone).toBe('+919222222222');
             expect(response.data.data.profile_id.demographics.phone_verification.status).toBe('VERIFIED');
             expect(response.data.data.profile_id.demographics.phone_verification.verified_at).toBeDefined();
         });

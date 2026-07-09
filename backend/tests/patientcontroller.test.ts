@@ -601,7 +601,7 @@ describe('Patient Routes', () => {
             expect(response.data.success).toBe(true);
             expect(response.data.data.profile.demographics.name).toBe('Multi Update Patient');
             expect(response.data.data.profile.demographics.age).toBe(60);
-            expect(response.data.data.profile.demographics.phone).toBe('3333333333');
+            expect(response.data.data.profile.demographics.phone).toBe('+913333333333');
         });
 
         test('should update medical history', async () => {

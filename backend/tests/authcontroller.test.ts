@@ -72,7 +72,7 @@ describe('Auth Routes', () => {
         const doctorProfile = await DoctorProfile.create({
             name: 'Test Doctor',
             department: 'General',
-            contact_number: 'doctor-channel-ending-2222',
+            contact_number: '+919000002222',
             phone_verification: {
                 status: 'VERIFIED',
                 verified_at: new Date(),
@@ -90,7 +90,7 @@ describe('Auth Routes', () => {
         unverifiedDoctorProfile = await DoctorProfile.create({
             name: 'Unverified Doctor',
             department: 'General',
-            contact_number: 'doctor-channel-ending-3333',
+            contact_number: '+919000003333',
             phone_verification: {
                 status: 'PENDING',
             },
@@ -107,7 +107,7 @@ describe('Auth Routes', () => {
         unverifiedPatientProfile = await PatientProfile.create({
             demographics: {
                 name: 'Unverified Patient',
-                phone: 'patient-channel-ending-4444',
+                phone: '+919000004444',
                 phone_verification: {
                     status: 'PENDING',
                 },
@@ -218,8 +218,8 @@ describe('Auth Routes', () => {
             expect(response.data.data.token).toBeUndefined();
             expect(response.data.data.challenge.challenge_id).toBeDefined();
             expect(response.data.data.challenge.phone.masked).toBe('********4444');
-            expect(response.data.data.challenge.phone.masked).not.toContain('patient-channel');
-            expect(mockStartVerification).toHaveBeenCalledWith('patient-channel-ending-4444', 'sms');
+            expect(response.data.data.challenge.phone.masked).not.toContain('9000004444');
+            expect(mockStartVerification).toHaveBeenCalledWith('+919000004444', 'sms');
 
             const savedChallenge = await OtpChallenge.findById(response.data.data.challenge.challenge_id);
             expect(savedChallenge?.user_id.toString()).toBe(unverifiedPatientUser._id.toString());
@@ -236,7 +236,7 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(202);
             expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
             expect(response.data.data.challenge.phone.masked).toBe('********3333');
-            expect(mockStartVerification).toHaveBeenCalledWith('doctor-channel-ending-3333', 'sms');
+            expect(mockStartVerification).toHaveBeenCalledWith('+919000003333', 'sms');
         });
 
         test('should login admin without phone OTP behavior', async () => {
@@ -401,7 +401,7 @@ describe('Auth Routes', () => {
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.refresh_token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('unverified-patient');
-            expect(mockCheckVerification).toHaveBeenCalledWith('patient-channel-ending-4444', 'candidate-code');
+            expect(mockCheckVerification).toHaveBeenCalledWith('+919000004444', 'candidate-code');
 
             const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
             expect(patientProfile?.demographics?.phone_verification?.status).toBe('VERIFIED');
@@ -475,13 +475,13 @@ describe('Auth Routes', () => {
                 code: 'candidate-code',
             });
             expect(lockedResponse.status).toBe(423);
-            expect(mockCheckVerification).not.toHaveBeenCalledWith('patient-channel-ending-4444', 'candidate-code');
+            expect(mockCheckVerification).not.toHaveBeenCalledWith('+919000004444', 'candidate-code');
         });
 
         test('should prevent cross-account login challenge replay after registered phone changes', async () => {
             await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
                 $set: {
-                    contact_number: 'doctor-channel-ending-3333',
+                    contact_number: '+919000003333',
                     'phone_verification.status': 'PENDING',
                 },
             });
@@ -492,7 +492,7 @@ describe('Auth Routes', () => {
             });
 
             await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
-                $set: { contact_number: 'doctor-channel-ending-7777' },
+                $set: { contact_number: '+919000007777' },
             });
 
             const response = await api.post('/api/auth/login/otp/verify', {
@@ -504,14 +504,14 @@ describe('Auth Routes', () => {
             expect(mockCheckVerification).not.toHaveBeenCalled();
 
             await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
-                $set: { contact_number: 'doctor-channel-ending-3333' },
+                $set: { contact_number: '+919000003333' },
             });
         });
 
         test('should not issue a token if the phone changes after Twilio approves but before profile verification update', async () => {
             await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
                 $set: {
-                    'demographics.phone': 'patient-channel-ending-4444',
+                    'demographics.phone': '+919000004444',
                     'demographics.phone_verification.status': 'PENDING',
                     'demographics.phone_verification.verified_at': undefined,
                 },
@@ -525,7 +525,7 @@ describe('Auth Routes', () => {
 
             mockCheckVerification.mockImplementationOnce(async () => {
                 await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
-                    $set: { 'demographics.phone': 'patient-channel-ending-8888' },
+                    $set: { 'demographics.phone': '+919000008888' },
                 });
                 return {
                     status: 'approved',
@@ -542,7 +542,7 @@ describe('Auth Routes', () => {
             expect(response.data.data?.token).toBeUndefined();
 
             const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
-            expect(patientProfile?.demographics?.phone).toBe('patient-channel-ending-8888');
+            expect(patientProfile?.demographics?.phone).toBe('+919000008888');
             expect(patientProfile?.demographics?.phone_verification?.status).toBe('PENDING');
             expect(patientProfile?.demographics?.phone_verification?.verified_at).toBeUndefined();
         });
@@ -564,7 +564,7 @@ describe('Auth Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
-            expect(mockStartVerification).toHaveBeenCalledWith('doctor-channel-ending-3333', 'sms');
+            expect(mockStartVerification).toHaveBeenCalledWith('+919000003333', 'sms');
         });
 
         test('should fail with invalid login_id', async () => {
@@ -793,7 +793,7 @@ describe('Auth Routes', () => {
             const profile = await DoctorProfile.create({
                 name: 'Expired Password Doctor',
                 department: 'General',
-                contact_number: 'doctor-channel-ending-5555',
+                contact_number: '+919000005555',
                 phone_verification: {
                     status: 'VERIFIED',
                     verified_at: new Date(),
@@ -833,7 +833,7 @@ describe('Auth Routes', () => {
             const profile = await DoctorProfile.create({
                 name: 'History Doctor',
                 department: 'General',
-                contact_number: 'doctor-channel-ending-6666',
+                contact_number: '+919000006666',
                 phone_verification: {
                     status: 'VERIFIED',
                     verified_at: new Date(),
