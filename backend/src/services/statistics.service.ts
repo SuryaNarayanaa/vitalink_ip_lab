@@ -1,13 +1,27 @@
 import { User, PatientProfile, DoctorProfile, AuditLog } from '@alias/models'
 import { UserType } from '@alias/validators'
+import { getAdminContext, getTenantUserIdsForAdmin } from '@alias/services/admin.service'
+import mongoose from 'mongoose'
 
-export async function getAdminDashboardStats() {
+async function getTenantScope(actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  if (ctx.isAppAdmin) return {}
+  const tenantUserIds = await getTenantUserIdsForAdmin(actorUserId)
+  return {
+    hospitalId: ctx.hospitalId,
+    userIdFilter: tenantUserIds ? { $in: tenantUserIds } : { $in: [] },
+  }
+}
+
+export async function getAdminDashboardStats(actorUserId?: string) {
+  const scope = await getTenantScope(actorUserId)
+  const userScope = scope.userIdFilter ? { _id: scope.userIdFilter } : {}
   const [totalDoctors, activeDoctors, totalPatients, activePatients, totalAuditLogs] = await Promise.all([
-    User.countDocuments({ user_type: UserType.DOCTOR }),
-    User.countDocuments({ user_type: UserType.DOCTOR, is_active: true }),
-    User.countDocuments({ user_type: UserType.PATIENT }),
-    User.countDocuments({ user_type: UserType.PATIENT, is_active: true }),
-    AuditLog.countDocuments(),
+    User.countDocuments({ user_type: UserType.DOCTOR, ...userScope }),
+    User.countDocuments({ user_type: UserType.DOCTOR, is_active: true, ...userScope }),
+    User.countDocuments({ user_type: UserType.PATIENT, ...userScope }),
+    User.countDocuments({ user_type: UserType.PATIENT, is_active: true, ...userScope }),
+    AuditLog.countDocuments(scope.userIdFilter ? { user_id: scope.userIdFilter } : {}),
   ])
 
   // Get recent registrations (last 30 days)
@@ -15,8 +29,8 @@ export async function getAdminDashboardStats() {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
   const [recentDoctors, recentPatients] = await Promise.all([
-    User.countDocuments({ user_type: UserType.DOCTOR, createdAt: { $gte: thirtyDaysAgo } }),
-    User.countDocuments({ user_type: UserType.PATIENT, createdAt: { $gte: thirtyDaysAgo } }),
+    User.countDocuments({ user_type: UserType.DOCTOR, createdAt: { $gte: thirtyDaysAgo }, ...userScope }),
+    User.countDocuments({ user_type: UserType.PATIENT, createdAt: { $gte: thirtyDaysAgo }, ...userScope }),
   ])
 
   return {
@@ -36,13 +50,15 @@ export async function getAdminDashboardStats() {
   }
 }
 
-export async function getRegistrationTrends(period: string = '30d') {
+export async function getRegistrationTrends(period: string = '30d', actorUserId?: string) {
+  const scope = await getTenantScope(actorUserId)
+  const userScope = scope.userIdFilter ? { _id: scope.userIdFilter } : {}
   const days = period === '7d' ? 7 : period === '90d' ? 90 : period === '1y' ? 365 : 30
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - days)
 
   const doctorTrends = await User.aggregate([
-    { $match: { user_type: UserType.DOCTOR, createdAt: { $gte: startDate } } },
+    { $match: { user_type: UserType.DOCTOR, createdAt: { $gte: startDate }, ...userScope } },
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
@@ -53,7 +69,7 @@ export async function getRegistrationTrends(period: string = '30d') {
   ])
 
   const patientTrends = await User.aggregate([
-    { $match: { user_type: UserType.PATIENT, createdAt: { $gte: startDate } } },
+    { $match: { user_type: UserType.PATIENT, createdAt: { $gte: startDate }, ...userScope } },
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
@@ -70,8 +86,9 @@ export async function getRegistrationTrends(period: string = '30d') {
   }
 }
 
-export async function getInrComplianceStats() {
-  const patients = await PatientProfile.find().select('inr_history medical_config demographics')
+export async function getInrComplianceStats(actorUserId?: string) {
+  const scope = await getTenantScope(actorUserId)
+  const patients = await PatientProfile.find(scope.hospitalId ? { hospital_id: scope.hospitalId } : {}).select('inr_history medical_config demographics')
 
   let inRange = 0
   let belowRange = 0
@@ -107,9 +124,12 @@ export async function getInrComplianceStats() {
   }
 }
 
-export async function getDoctorWorkloadStats() {
+export async function getDoctorWorkloadStats(actorUserId?: string) {
+  const scope = await getTenantScope(actorUserId)
+  const match: any = { account_status: { $ne: 'Discharged' } }
+  if (scope.hospitalId) match.hospital_id = new mongoose.Types.ObjectId(scope.hospitalId)
   const workload = await PatientProfile.aggregate([
-    { $match: { account_status: { $ne: 'Discharged' } } },
+    { $match: match },
     {
       $group: {
         _id: '$assigned_doctor_id',
@@ -150,8 +170,11 @@ export async function getDoctorWorkloadStats() {
 
 export async function getPeriodStatistics(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  actorUserId?: string
 ) {
+  const scope = await getTenantScope(actorUserId)
+  const userScope = scope.userIdFilter ? { _id: scope.userIdFilter } : {}
   const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const end = endDate ? new Date(endDate) : new Date()
   
@@ -162,13 +185,15 @@ export async function getPeriodStatistics(
     User.countDocuments({
       user_type: UserType.DOCTOR,
       createdAt: { $gte: start, $lte: end },
+      ...userScope,
     }),
     User.countDocuments({
       user_type: UserType.PATIENT,
       createdAt: { $gte: start, $lte: end },
+      ...userScope,
     }),
     AuditLog.aggregate([
-      { $match: { createdAt: { $gte: start, $lte: end } } },
+      { $match: { createdAt: { $gte: start, $lte: end }, ...(scope.userIdFilter ? { user_id: scope.userIdFilter } : {}) } },
       { $group: { _id: '$action', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),

@@ -190,6 +190,7 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput['body']>, res: Response) => {
 	const { user_id } = req.user
 	const patientUser = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
 
 	const { inr_value, test_date } = req.body
 	const parsed_inr_value = parseFloat(inr_value)
@@ -211,7 +212,8 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	let fileUrl = ''
 	if (file) {
 		try {
-			fileUrl = await uploadFile("uploads", file)
+			const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
+			fileUrl = await uploadFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file)
 		} catch (error) {
 			logger.error("Error While Uploading File to filebase", { error })
 			throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
@@ -490,16 +492,17 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PNG, JPEG, JPG, and WEBP images are allowed')
 	}
 	const { user_id } = req.user
+	const user = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(user.profile_id)
 
 	let fileUrl = ''
 	try {
-		fileUrl = await uploadFile("profiles", req.file)
+		const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
+		fileUrl = await uploadFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file)
 	} catch (error) {
 		logger.error("Error While Uploading profile to filebase", { error })
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
-
-	const user = await getPatientUserOrThrow(user_id)
 
 	await PatientProfile.findByIdAndUpdate(user.profile_id, { profile_picture_url: fileUrl }, { new: true })
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))

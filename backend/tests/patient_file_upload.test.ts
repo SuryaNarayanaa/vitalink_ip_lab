@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile, PatientProfile } from '@alias/models';
+import { User, DoctorProfile, PatientProfile, Hospital } from '@alias/models';
 import { Server } from 'http';
 import FormData from 'form-data';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3';
@@ -18,6 +18,7 @@ describe('Patient File Upload Routes', () => {
     let patientUser: any;
     let patientProfile: any;
     let doctorProfile: any;
+    let hospital: any;
     let uploadedReportKeys: string[] = [];
     let uploadedProfilePicKey: string;
 
@@ -47,14 +48,23 @@ describe('Patient File Upload Routes', () => {
         baseURL = `http://localhost:${port}`;
         api = axios.create({ baseURL, validateStatus: () => true });
 
+        hospital = await Hospital.create({
+            code: 'UPLOAD_TENANT',
+            name: 'Upload Tenant Hospital',
+            location: 'Coimbatore',
+            admin_email: 'uploads@example.com'
+        });
+
         doctorProfile = await DoctorProfile.create({
             name: 'Dr. Test Doctor',
             department: 'Cardiology',
-            contact_number: '1234567890'
+            contact_number: '1234567890',
+            hospital_id: hospital._id
         });
 
         patientProfile = await PatientProfile.create({
             assigned_doctor_id: doctorProfile._id,
+            hospital_id: hospital._id,
             demographics: {
                 name: 'Test Patient',
                 age: 45,
@@ -141,7 +151,7 @@ describe('Patient File Upload Routes', () => {
 
             // Verify file_url is stored
             expect(latestReport.file_url).toBeDefined();
-            expect(latestReport.file_url).toContain('uploads/');
+            expect(latestReport.file_url).toContain(`hospitals/${hospital._id.toString()}/patients/${patientUser._id.toString()}/reports/`);
             expect(latestReport.inr_value).toBe(2.5);
             expect(latestReport.is_critical).toBe(false);
         });
@@ -299,6 +309,7 @@ describe('Patient File Upload Routes', () => {
             if (patientProfileData?.profile_picture_url) {
                 uploadedProfilePicKey = patientProfileData.profile_picture_url;
             }
+            expect(uploadedProfilePicKey).toContain(`hospitals/${hospital._id.toString()}/profiles/${patientUser._id.toString()}/`);
         });
 
         test('should fail with invalid file type', async () => {
