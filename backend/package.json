@@ -9,6 +9,7 @@
     "vercel-build": "tsc && tsc-alias",
     "start": "node build/src/server.js",
     "test": "jest",
+    "lint:openapi": "redocly lint docs/api/openapi.yaml",
     "ci": "npm run build && npm test",
     "seed": "ts-node --require tsconfig-paths/register src/scripts/createAdminUser.ts",
     "seed:prod": "node build/src/scripts/createAdminUser.js",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.2.0",
+    "@redocly/cli": "^2.38.0",
     "@types/axios": "^0.14.4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
