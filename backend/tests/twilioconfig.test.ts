@@ -10,6 +10,8 @@ describe('Twilio Verify config validation', () => {
     process.env = {
       ...originalEnv,
       NODE_ENV: 'staging',
+      // Keep other staging-required secrets set so this test isolates Twilio vars.
+      ADMIN_TOTP_ENCRYPTION_KEY: 'test-only-admin-totp-encryption-key-32b',
       TWILIO_ACCOUNT_SID: '',
       TWILIO_AUTH_TOKEN: '',
       TWILIO_VERIFY_SERVICE_SID: '',
