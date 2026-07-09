@@ -156,6 +156,12 @@ async function ensureUserTenantAccess(ctx: Awaited<ReturnType<typeof getAdminCon
   return user
 }
 
+function isUserVisibleToAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>, user: any) {
+  if (ctx.isAppAdmin) return true
+  const hospitalId = getProfileHospitalId(user)
+  return Boolean(ctx.hospitalId && hospitalId === ctx.hospitalId)
+}
+
 export async function getTenantUserIdsForAdmin(actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
   if (ctx.isAppAdmin) return undefined
@@ -323,7 +329,9 @@ export async function listUsers(actorUserId?: string) {
     path: 'profile_id',
     populate: { path: 'hospital_id' },
   }).sort({ createdAt: -1 })
-  const formatted = users.map(formatUserForAdmin).filter(u => ctx.isAppAdmin || u.hospital === ctx.hospitalId || u.hospital === ctx.hospitalCode || u.hospital === 'ALL')
+  const formatted = users
+    .filter(user => isUserVisibleToAdmin(ctx, user))
+    .map(formatUserForAdmin)
   return { users: formatted }
 }
 
@@ -604,6 +612,10 @@ export async function onboardPatient(data: {
   const doctorProfile: any = await DoctorProfile.findById(doctorUser.profile_id)
   const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx) || (doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined)
   ensureTenantAccess(ctx, hospitalId)
+  const doctorHospitalId = doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined
+  if (!doctorHospitalId || (hospitalId && doctorHospitalId !== hospitalId)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Assigned doctor must belong to the same hospital as the patient')
+  }
 
   const nextOfKin = data.demographics.next_of_kin
     ? {
@@ -997,6 +1009,32 @@ export async function resetUserPassword(adminUserId: string, targetUserId: strin
   requireCanMutate(ctx)
   await ensureUserTenantAccess(ctx, targetUserId)
   return adminResetPassword(adminUserId, targetUserId, newPassword)
+}
+
+export async function listLegacyPatients(actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const patients = await User.find({ user_type: UserType.PATIENT })
+    .populate('profile_id')
+    .sort({ createdAt: -1 })
+  return { patients: patients.filter(patient => isUserVisibleToAdmin(ctx, patient)) }
+}
+
+export async function getLegacyPatientByLoginId(opNum: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const user = await User.findOne({ login_id: opNum, user_type: UserType.PATIENT }).populate('profile_id')
+  if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
+  ensureTenantAccess(ctx, getProfileHospitalId(user))
+  return { patient: user }
+}
+
+export async function getLegacyDoctorById(id: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  const user = await User.findById(id).populate('profile_id')
+  if (!user || user.user_type !== UserType.DOCTOR) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
+  }
+  ensureTenantAccess(ctx, getProfileHospitalId(user))
+  return { doctor: user }
 }
 
 // ─── System Health ───

@@ -18,6 +18,7 @@ describe('Admin Routes', () => {
     let adminUser: any;
     let primaryDoctorUser: any;
     let secondaryDoctorUser: any;
+    let crossTenantDoctorUser: any;
     let baselinePatientUser: any;
     let crossTenantPatientUser: any;
     let primaryHospital: any;
@@ -113,6 +114,25 @@ describe('Admin Routes', () => {
             password: 'Doctor@123',
             user_type: 'DOCTOR',
             profile_id: secondDoctorProfile._id,
+            is_active: true
+        });
+
+        const crossTenantDoctorProfile = await DoctorProfile.create({
+            name: 'Dr. Cross Tenant',
+            department: 'Cardiology',
+            contact_number: '9000000005',
+            hospital_id: secondaryHospital._id,
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
+        });
+
+        crossTenantDoctorUser = await User.create({
+            login_id: 'doctor_admin_cross',
+            password: 'Doctor@123',
+            user_type: 'DOCTOR',
+            profile_id: crossTenantDoctorProfile._id,
             is_active: true
         });
 
@@ -352,6 +372,26 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(false);
         });
 
+        test('should prevent hospital admin onboarding with a cross-tenant assigned doctor', async () => {
+            const response = await api.post('/api/admin/patients', {
+                login_id: 'PAT_ADMIN_CROSS_DOCTOR',
+                password: 'Patient@456',
+                assigned_doctor_id: crossTenantDoctorUser.login_id,
+                demographics: {
+                    name: 'Cross Doctor Patient',
+                    age: 39,
+                    gender: 'Female',
+                    phone: '9444444445'
+                }
+            }, {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('Assigned doctor must belong to the same hospital');
+        });
+
         test('should fail creating patient without demographics phone', async () => {
             const response = await api.post('/api/admin/patients', {
                 login_id: 'PAT_ADMIN_NO_PHONE',
@@ -530,6 +570,54 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(true);
             expect(Array.isArray(response.data.data.patients)).toBe(true);
             expect(response.data.data.patients.length).toBeGreaterThanOrEqual(1);
+        });
+
+        test('should not expose global admin metadata in hospital admin user listing', async () => {
+            const response = await api.get('/api/admin/users', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            const loginIds = response.data.data.users.map((user: any) => user.loginId);
+            expect(loginIds).toContain('hospital_admin_a');
+            expect(loginIds).toContain(primaryDoctorUser.login_id);
+            expect(loginIds).toContain(baselinePatientUser.login_id);
+            expect(loginIds).not.toContain(adminUser.login_id);
+            expect(loginIds).not.toContain(crossTenantDoctorUser.login_id);
+            expect(loginIds).not.toContain(crossTenantPatientUser.login_id);
+        });
+
+        test('should scope legacy patient listing to hospital admin tenant', async () => {
+            const response = await api.get('/api/admin/legacy/patients', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            const loginIds = response.data.data.patients.map((patient: any) => patient.login_id);
+            expect(loginIds).toContain(baselinePatientUser.login_id);
+            expect(loginIds).not.toContain(crossTenantPatientUser.login_id);
+        });
+
+        test('should deny hospital admin legacy patient detail across tenants', async () => {
+            const response = await api.get(`/api/admin/legacy/patient/${crossTenantPatientUser.login_id}`, {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('Cross-tenant');
+        });
+
+        test('should deny hospital admin legacy doctor detail across tenants', async () => {
+            const response = await api.get(`/api/admin/legacy/doctor/${crossTenantDoctorUser._id.toString()}`, {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('Cross-tenant');
         });
 
         test('should prevent hospital admin password reset across tenants', async () => {

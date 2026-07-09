@@ -4,8 +4,6 @@ import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import { User, DoctorProfile, PatientProfile } from '@alias/models'
-import { UserType } from '@alias/validators'
 
 // ─── Doctor Management ───
 
@@ -129,30 +127,20 @@ export const getSystemHealth = asyncHandler(async (req: Request, res: Response) 
 // ─── Legacy Endpoints ───
 
 export const listAllPatients = asyncHandler(async (req: Request, res: Response) => {
-  const patients = await User.find({ user_type: UserType.PATIENT })
-    .populate('profile_id')
-    .sort({ createdAt: -1 })
+  const { patients } = await adminService.listLegacyPatients(req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'All patients', { patients }))
 })
 
 export const getPatientById = asyncHandler(async (req: Request, res: Response) => {
   const { op_num } = req.params
-  const user = await User.findOne({ login_id: op_num, user_type: UserType.PATIENT }).populate('profile_id')
-  if (!user) {
-    res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Patient not found'))
-    return
-  }
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient found', { patient: user }))
+  const result = await adminService.getLegacyPatientByLoginId(op_num, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient found', result))
 })
 
 export const getDoctorById = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const user = await User.findById(id).populate('profile_id')
-  if (!user || user.user_type !== UserType.DOCTOR) {
-    res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Doctor not found'))
-    return
-  }
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor found', { doctor: user }))
+  const result = await adminService.getLegacyDoctorById(id, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor found', result))
 })
 
 // ─── Password Reset ───
