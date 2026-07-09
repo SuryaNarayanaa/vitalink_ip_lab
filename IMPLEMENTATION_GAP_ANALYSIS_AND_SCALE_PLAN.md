@@ -139,7 +139,8 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 ### Operationally Important
 
 1. Architecture diagram
-   - `[ ]` Missing a checked-in architecture diagram covering Flutter app, backend, MongoDB Atlas, S3/Filebase, Firebase, Nginx, EC2, and monitoring.
+   - `[x]` Checked-in current-state architecture and data-flow diagrams now exist at `backend/docs/architecture.md`.
+   - Firebase/FCM and monitoring are clearly marked as planned placeholders in that document until implementation lands.
 
 2. Environment strategy
    - `[ ]` Some deployment files exist, but Dev/UAT/Prod environment matrix is not formalized.
@@ -203,7 +204,7 @@ Deliverables:
 - `[x]` Create `docs/data-model.md` covering collections, references, indexes, unique keys, retention-sensitive fields, and PHI fields.
 - `[x]` Add a professional API reference document at `backend/docs/api-reference.md`.
 - `[x]` Add a Swagger UI docs route with environment controls and optional basic auth in `backend/src/routes/docs.routes.ts`.
-- `[ ]` Create `docs/architecture.md` with architecture diagram and data-flow diagram.
+- `[x]` Create `docs/architecture.md` with architecture diagram and data-flow diagram.
 - `[ ]` Create `docs/environments.md` for Dev/UAT/Prod and test/staging app configuration.
 - `[ ]` Make CI capable of running Testcontainers, or add an alternate `mongodb-memory-server` test profile for local development.
 - `[x]` Add OpenAPI validation/linting to CI so invalid spec changes are caught automatically.
@@ -543,6 +544,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - OpenAPI contract: `backend/docs/api/openapi.yaml`
 - Human-readable API contract: `backend/docs/api-reference.md`
 - Data model documentation: `backend/docs/data-model.md`
+- Architecture documentation: `backend/docs/architecture.md`
 - Patient report routes and upload limits: `backend/src/routes/patient.routes.ts`
 - Patient upload/download controller logic: `backend/src/controllers/patient.controller.ts`
 - S3-compatible upload utilities: `backend/src/utils/fileUpload.ts`
