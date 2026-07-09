@@ -182,6 +182,18 @@ export async function getTenantUserIdsForAdmin(actorUserId?: string) {
   return users.map(user => user._id)
 }
 
+async function revokeSessionsIfAccountDisabled(user: any, wasActive: boolean) {
+  if (wasActive && user.is_active === false) {
+    const result = await revokeActiveAuthSessionsForUser(
+      user._id.toString(),
+      AuthSessionRevocationReason.ACCOUNT_DISABLED
+    )
+    return result.modifiedCount || 0
+  }
+
+  return 0
+}
+
 export async function getRoles() {
   return { roles: ROLE_DEFINITIONS }
 }
@@ -379,10 +391,15 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
   if (Object.keys(updates).length && user.user_type === UserType.ADMIN) {
     await AdminProfile.findByIdAndUpdate(profile._id, updates)
   }
+  const wasActive = user.is_active
   if (typeof data.is_active === 'boolean') user.is_active = data.is_active
   if (data.status) user.is_active = data.status === 'active'
   await user.save()
-  return { user: formatUserForAdmin(await User.findById(user._id).populate({ path: 'profile_id', populate: { path: 'hospital_id' } })) }
+  const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+  return {
+    user: formatUserForAdmin(await User.findById(user._id).populate({ path: 'profile_id', populate: { path: 'hospital_id' } })),
+    invalidated_sessions: invalidatedSessions,
+  }
 }
 
 // ─── Doctor Management ───
@@ -534,6 +551,7 @@ export async function updateDoctor(
   }
 
   // Update user-level fields
+  const wasActive = user.is_active
   if (typeof data.is_active === 'boolean') {
     user.is_active = data.is_active
   }
@@ -546,6 +564,7 @@ export async function updateDoctor(
   } else {
     await user.save()
   }
+  await revokeSessionsIfAccountDisabled(user, wasActive)
 
   return await User.findById(user._id).populate('profile_id')
 }
@@ -568,8 +587,9 @@ export async function deactivateDoctor(userId: string, actorUserId?: string) {
 
   user.is_active = false
   await user.save()
+  const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, true)
 
-  return { message: 'Doctor deactivated successfully' }
+  return { message: 'Doctor deactivated successfully', invalidated_sessions: invalidatedSessions }
 }
 
 // ─── Patient Management ───
@@ -801,6 +821,7 @@ export async function updatePatient(
     await PatientProfile.findByIdAndUpdate(user.profile_id, profileUpdate)
   }
 
+  const wasActive = user.is_active
   if (typeof data.is_active === 'boolean') {
     user.is_active = data.is_active
   }
@@ -813,6 +834,7 @@ export async function updatePatient(
   } else {
     await user.save()
   }
+  await revokeSessionsIfAccountDisabled(user, wasActive)
 
   return await User.findById(user._id).populate('profile_id')
 }
@@ -835,11 +857,12 @@ export async function deactivatePatient(userId: string, actorUserId?: string) {
 
   user.is_active = false
   await user.save()
+  const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, true)
 
   // Also update account_status
   await PatientProfile.findByIdAndUpdate(user.profile_id, { account_status: 'Discharged' })
 
-  return { message: 'Patient deactivated successfully' }
+  return { message: 'Patient deactivated successfully', invalidated_sessions: invalidatedSessions }
 }
 
 export async function reassignPatient(patientLoginId: string, newDoctorId: string, actorUserId?: string) {
@@ -964,9 +987,16 @@ export async function performBatchOperation(
           break
 
         case 'deactivate':
+          const wasActive = user.is_active
           user.is_active = false
           await user.save()
-          results.push({ userId, success: true, message: 'User deactivated' })
+          const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+          results.push({
+            userId,
+            success: true,
+            message: 'User deactivated',
+            invalidated_sessions: invalidatedSessions,
+          })
           break
 
         case 'reset_password': {

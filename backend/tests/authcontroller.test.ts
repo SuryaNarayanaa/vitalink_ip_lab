@@ -870,14 +870,78 @@ describe('Auth Routes', () => {
             expect(storedUser?.password_history?.[0].password).not.toBe('History@123');
             expect(storedUser?.password_history?.[0].salt).toBeDefined();
 
+            const reloginResponse = await api.post('/api/auth/login', {
+                login_id: 'history-user',
+                password: 'History@456',
+            });
+            expect(reloginResponse.status).toBe(200);
+
             const reuseResponse = await api.post('/api/auth/change-password', {
                 current_password: 'History@456',
                 new_password: 'History@123',
             }, {
-                headers: { Authorization: `Bearer ${token}` },
+                headers: { Authorization: `Bearer ${reloginResponse.data.data.token}` },
             });
             expect(reuseResponse.status).toBe(400);
             expect(reuseResponse.data.message).toBe('New password cannot match a recently used password');
+        });
+
+        test('should revoke all active sessions after password change', async () => {
+            const profile = await DoctorProfile.create({
+                name: 'Session Revoked Password Doctor',
+                department: 'General',
+                contact_number: 'doctor-channel-ending-6767',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date(),
+                },
+            });
+            await User.create({
+                login_id: 'password-session-user',
+                password: 'Session@123',
+                user_type: 'DOCTOR',
+                profile_id: profile._id,
+                is_active: true,
+            });
+
+            const firstLogin = await api.post('/api/auth/login', {
+                login_id: 'password-session-user',
+                password: 'Session@123',
+            });
+            const secondLogin = await api.post('/api/auth/login', {
+                login_id: 'password-session-user',
+                password: 'Session@123',
+            });
+            expect(firstLogin.status).toBe(200);
+            expect(secondLogin.status).toBe(200);
+
+            const changeResponse = await api.post('/api/auth/change-password', {
+                current_password: 'Session@123',
+                new_password: 'Session@456',
+            }, {
+                headers: { Authorization: `Bearer ${firstLogin.data.data.token}` },
+            });
+            expect(changeResponse.status).toBe(200);
+            expect(changeResponse.data.data.invalidated_sessions).toBeGreaterThanOrEqual(2);
+
+            const oldAccessResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${firstLogin.data.data.token}` },
+            });
+            expect(oldAccessResponse.status).toBe(401);
+
+            const otherAccessResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${secondLogin.data.data.token}` },
+            });
+            expect(otherAccessResponse.status).toBe(401);
+
+            const oldRefreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: secondLogin.data.data.refresh_token,
+            });
+            expect(oldRefreshResponse.status).toBe(401);
+
+            const revokedSession = await AuthSession.findById(firstLogin.data.data.session.session_id).lean();
+            expect(revokedSession?.revoked_at).toBeDefined();
+            expect(revokedSession?.revoked_reason).toBe('PASSWORD_CHANGED');
         });
     });
 });

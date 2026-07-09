@@ -167,6 +167,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Change current user password
+      description: Changes the authenticated user's password and revokes all active sessions for that user, including the session used for the request.
       requestBody:
         required: true
         content:
@@ -2248,6 +2249,10 @@ components:
                 password_expires_at:
                   type: [string, "null"]
                   format: date-time
+                invalidated_sessions:
+                  type: integer
+                  minimum: 0
+                  description: Number of active sessions revoked by the password change.
 
     DosageSchedule:
       type: object
@@ -3325,6 +3330,10 @@ components:
         temporary_password:
           type: string
           description: Returned for successful reset_password operations.
+        invalidated_sessions:
+          type: integer
+          minimum: 0
+          description: Returned for successful deactivate or reset_password operations.
 
     BatchOperationResponse:
       allOf:

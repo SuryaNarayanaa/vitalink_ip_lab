@@ -33,6 +33,7 @@ import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
 import {
   createAuthSession,
   refreshAuthSession,
+  revokeActiveAuthSessionsForUser,
   revokeAuthSessionById,
   revokeAuthSessionByRefreshToken,
 } from '@alias/services/auth-session.service'
@@ -604,6 +605,10 @@ export const changePasswordController = asyncHandler(
     }
 
     await setUserPasswordWithPolicy(user, new_password, { mustChangePassword: false })
+    const invalidatedSessionResult = await revokeActiveAuthSessionsForUser(
+      user._id.toString(),
+      AuthSessionRevocationReason.PASSWORD_CHANGED
+    )
 
     res.status(StatusCodes.OK).json(
       new ApiResponse(StatusCodes.OK, 'Password changed successfully', {
@@ -611,6 +616,7 @@ export const changePasswordController = asyncHandler(
         password_expired: false,
         password_changed_at: user.password_changed_at,
         password_expires_at: getPasswordPolicyState(user).password_expires_at,
+        invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
       })
     )
   }

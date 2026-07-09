@@ -537,6 +537,54 @@ describe('Admin Routes', () => {
             expect(session?.revoked_reason).toBe('PASSWORD_RESET');
         });
 
+        test('should invalidate active sessions after doctor deactivation', async () => {
+            const profile = await DoctorProfile.create({
+                name: 'Deactivate Session Doctor',
+                department: 'Cardiology',
+                contact_number: '9000000091',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date(),
+                },
+            });
+            const target = await User.create({
+                login_id: 'doctor_disable_session',
+                password: 'Doctor@789',
+                user_type: 'DOCTOR',
+                profile_id: profile._id,
+                is_active: true,
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'doctor_disable_session',
+                password: 'Doctor@789',
+            });
+            expect(loginResponse.status).toBe(200);
+            const token = loginResponse.data.data.token;
+            const refreshToken = loginResponse.data.data.refresh_token;
+            const sessionId = loginResponse.data.data.session.session_id;
+
+            const deactivateResponse = await api.delete(`/api/admin/doctors/${target._id.toString()}`, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(deactivateResponse.status).toBe(200);
+            expect(deactivateResponse.data.data.invalidated_sessions).toBeGreaterThanOrEqual(1);
+
+            const meResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            expect(meResponse.status).toBe(401);
+
+            const refreshResponse = await api.post('/api/auth/refresh', {
+                refresh_token: refreshToken,
+            });
+            expect(refreshResponse.status).toBe(401);
+
+            const session = await AuthSession.findById(sessionId).lean();
+            expect(session?.revoked_at).toBeDefined();
+            expect(session?.revoked_reason).toBe('ACCOUNT_DISABLED');
+        });
+
         test('should fail resetting password for unknown user', async () => {
             const response = await api.post('/api/admin/users/reset-password', {
                 target_user_id: new mongoose.Types.ObjectId().toString(),

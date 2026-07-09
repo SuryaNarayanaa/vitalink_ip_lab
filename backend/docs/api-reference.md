@@ -421,7 +421,7 @@ Rules:
 - new password must differ from current password
 - new password cannot match the current password or the configured recent password history
 
-Successful changes clear `must_change_password` and return the updated password expiry state.
+Successful changes clear `must_change_password`, revoke all active sessions for the user, and return the updated password expiry state plus `invalidated_sessions`. Existing access tokens and refresh tokens for that user, including the token used for the change request, are rejected after the success response; clients must discard local tokens and require a fresh login.
 
 ## Patient API
 
@@ -798,6 +798,8 @@ The admin router also applies audit middleware to all routes under `/api/v1/admi
 - `POST /api/v1/admin/users/batch`
 
 Password resets mark the target user `must_change_password=true`, enforce password history, revoke the target user's active sessions, and return `invalidated_sessions`. Existing target-user access tokens and refresh tokens are rejected after a successful reset. The reset audit entry includes session-invalidation metadata.
+
+Account-disable operations revoke the disabled user's active sessions. This includes admin user status changes, doctor/patient deactivation endpoints, and batch `deactivate`; action responses that already carry operation metadata include `invalidated_sessions`.
 
 ### Doctor administration
 
