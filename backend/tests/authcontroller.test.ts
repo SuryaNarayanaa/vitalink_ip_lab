@@ -513,7 +513,9 @@ describe('Auth Routes', () => {
                 $set: {
                     'demographics.phone': '+919000004444',
                     'demographics.phone_verification.status': 'PENDING',
-                    'demographics.phone_verification.verified_at': undefined,
+                },
+                $unset: {
+                    'demographics.phone_verification.verified_at': '',
                 },
             });
 

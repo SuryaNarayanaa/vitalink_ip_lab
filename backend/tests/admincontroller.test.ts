@@ -48,7 +48,11 @@ describe('Admin Routes', () => {
         const doctorProfile = await DoctorProfile.create({
             name: 'Dr. Primary',
             department: 'Cardiology',
-            contact_number: '9000000001'
+            contact_number: '9000000001',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         primaryDoctorUser = await User.create({
@@ -62,7 +66,11 @@ describe('Admin Routes', () => {
         const secondDoctorProfile = await DoctorProfile.create({
             name: 'Dr. Secondary',
             department: 'Neurology',
-            contact_number: '9000000002'
+            contact_number: '9000000002',
+            phone_verification: {
+                status: 'VERIFIED',
+                verified_at: new Date()
+            }
         });
 
         secondaryDoctorUser = await User.create({
