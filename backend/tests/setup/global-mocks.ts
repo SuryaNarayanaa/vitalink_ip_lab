@@ -1,4 +1,6 @@
 import path from 'path';
+import axios from 'axios';
+import type { AxiosInstance } from 'axios';
 
 const TEST_BUCKET = 'mock-filebase-bucket';
 let keyCounter = 0;
@@ -74,4 +76,65 @@ jest.mock('@alias/utils/fileUpload', () => {
         getDownloadUrl,
         uploadFile,
     };
+});
+
+const mockTwilioVerifyPost = async (url: string) => {
+    if (url.includes('verify.twilio.com/v2') && url.includes('/Verifications')) {
+        return {
+            data: {
+                sid: 'test-verification-id',
+                status: 'pending',
+                channel: 'sms',
+                to: 'test-recipient',
+            },
+        };
+    }
+
+    if (url.includes('verify.twilio.com/v2') && url.includes('/VerificationCheck')) {
+        return {
+            data: {
+                sid: 'test-verification-id',
+                status: 'approved',
+                valid: true,
+                to: 'test-recipient',
+            },
+        };
+    }
+
+    throw new Error(`Unexpected axios.post call in tests: ${url}`);
+};
+
+const realAxiosCreate = axios.create.bind(axios);
+jest.spyOn(axios, 'create').mockImplementation((...args: Parameters<typeof axios.create>): AxiosInstance => {
+    const instance = realAxiosCreate(...args);
+    const realInstancePost = instance.post.bind(instance);
+
+    jest.spyOn(instance, 'post').mockImplementation(async (url: string, ...postArgs: any[]) => {
+        if (url.includes('verify.twilio.com/v2')) {
+            return mockTwilioVerifyPost(url);
+        }
+
+        const response = await realInstancePost(url, ...postArgs);
+        const testPath = expect.getState().testPath || '';
+        const shouldCompleteLegacyRouteLogin = (
+            /controller\.test\.ts$/.test(testPath) ||
+            /patient_file_upload\.test\.ts$/.test(testPath)
+        ) && !/authcontroller\.test\.ts$/.test(testPath);
+
+        if (
+            shouldCompleteLegacyRouteLogin &&
+            url === '/api/auth/login' &&
+            response?.status === 202 &&
+            response?.data?.data?.auth_status === 'OTP_REQUIRED'
+        ) {
+            return realInstancePost('/api/auth/login/otp/verify', {
+                challenge_id: response.data.data.challenge.challenge_id,
+                code: '000000',
+            });
+        }
+
+        return response;
+    });
+
+    return instance;
 });
