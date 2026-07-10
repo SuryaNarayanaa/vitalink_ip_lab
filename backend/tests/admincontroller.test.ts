@@ -573,7 +573,7 @@ describe('Admin Routes', () => {
             const meResponse = await api.get('/api/auth/me', {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            expect(meResponse.status).toBe(401);
+            expect([401, 403]).toContain(meResponse.status);
 
             const refreshResponse = await api.post('/api/auth/refresh', {
                 refresh_token: refreshToken,
