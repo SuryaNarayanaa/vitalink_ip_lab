@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
 
 // ─── Param Schemas ───
 
@@ -22,7 +23,7 @@ export const createDoctorSchema = z.object({
       .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
     name: z.string().min(1, 'Name is required'),
     department: z.string().optional(),
-    contact_number: z.string().optional(),
+    contact_number: primaryPhoneNumberSchema,
     profile_picture_url: z.string().url().optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
@@ -36,7 +37,7 @@ export const updateDoctorSchema = z.object({
   body: z.object({
     name: z.string().min(1).optional(),
     department: z.string().optional(),
-    contact_number: z.string().optional(),
+    contact_number: optionalPrimaryPhoneNumberSchema,
     profile_picture_url: z.string().url().optional().nullable(),
     is_active: z.boolean().optional(),
     password: z.string().min(8).optional(),
@@ -73,13 +74,13 @@ export const createPatientSchema = z.object({
       name: z.string().min(1, 'Patient name is required'),
       age: z.number().int().positive().optional(),
       gender: z.enum(['Male', 'Female', 'Other']).optional(),
-      phone: z.string().optional(),
+      phone: primaryPhoneNumberSchema,
       next_of_kin: z
         .object({
           name: z.string().optional(),
           relation: z.string().optional(),
           relationship: z.string().optional(),
-          phone: z.string().optional(),
+          phone: optionalPrimaryPhoneNumberSchema,
         })
         .optional(),
     }),
@@ -111,13 +112,13 @@ export const updatePatientSchema = z.object({
         name: z.string().optional(),
         age: z.number().int().positive().optional(),
         gender: z.string().optional(),
-        phone: z.string().optional(),
+        phone: optionalPrimaryPhoneNumberSchema,
         next_of_kin: z
           .object({
             name: z.string().optional(),
             relation: z.string().optional(),
             relationship: z.string().optional(),
-            phone: z.string().optional(),
+            phone: optionalPrimaryPhoneNumberSchema,
           })
           .optional(),
       })

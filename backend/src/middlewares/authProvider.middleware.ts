@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express'
 import { StatusCodes } from 'http-status-codes'
+import mongoose from 'mongoose'
 import { verifyToken, extractTokenFromHeader } from '@alias/utils/jwt.utils'
 import { JWTPayload, UserType } from '@alias/validators'
 import { User } from '@alias/models'
+import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
+import { ApiError } from '@alias/utils'
 
 /**
  * Extend Express Request to include user data
@@ -13,6 +16,40 @@ declare global {
       user?: JWTPayload
     }
   }
+}
+
+export const validateAuthToken = async (token: string, expectedUserType?: UserType) => {
+  const payload = verifyToken(token)
+
+  if (
+    !payload ||
+    !mongoose.Types.ObjectId.isValid(payload.user_id) ||
+    (expectedUserType && payload.user_type !== expectedUserType)
+  ) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token.')
+  }
+
+  const user = await User.findById(payload.user_id).select('is_active user_type').lean()
+  if (!user || !user.is_active || user.user_type !== payload.user_type) {
+    throw new ApiError(
+      !user || user.user_type !== payload.user_type ? StatusCodes.UNAUTHORIZED : StatusCodes.FORBIDDEN,
+      !user || user.user_type !== payload.user_type
+        ? 'Invalid or expired authentication token.'
+        : 'Account is inactive. Please contact support.'
+    )
+  }
+
+  const session = await findActiveSessionForAccessToken({
+    sessionId: payload.session_id,
+    tokenId: payload.token_id,
+    userId: payload.user_id,
+    userType: payload.user_type,
+  })
+  if (!session) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token.')
+  }
+
+  return { payload, user }
 }
 
 /**
@@ -32,42 +69,18 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return
     }
 
-    const payload = verifyToken(token)
-
-    if (!payload) {
-      res.status(StatusCodes.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid or expired authentication token.',
-      })
-      return
-    }
-
-    // Attach user data to request
+    const { payload } = await validateAuthToken(token)
     req.user = payload
-    const user = await User.findById(payload.user_id).select('is_active user_type').lean()
-    if (!user) {
-      res.status(StatusCodes.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid or expired authentication token.',
-      })
-      return
-    }
-    if (!user.is_active) {
-      res.status(StatusCodes.FORBIDDEN).json({
-        success: false,
-        message: 'Account is inactive. Please contact support.',
-      })
-      return
-    }
-    if (user.user_type !== payload.user_type) {
-      res.status(StatusCodes.UNAUTHORIZED).json({
-        success: false,
-        message: 'Invalid or expired authentication token.',
-      })
-      return
-    }
     next()
   } catch (error) {
+    if (error instanceof ApiError) {
+      res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      })
+      return
+    }
+
     res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: 'Error during authentication.',

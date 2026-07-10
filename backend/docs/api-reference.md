@@ -299,7 +299,7 @@ Readiness probe. Returns `503` if the MongoDB connection is not ready.
 
 ### `POST /api/v1/auth/login`
 
-Authenticate a user and create a bearer token.
+Authenticate a user and create a revocable session with a bearer access token and refresh token.
 
 Request body:
 
@@ -318,6 +318,11 @@ Success response:
   "message": "User logged in successfully",
   "data": {
     "token": "<jwt>",
+    "refresh_token": "<opaque-refresh-token>",
+    "session": {
+      "session_id": "6890...",
+      "refresh_expires_at": "2026-08-06T12:00:00.000Z"
+    },
     "user": {
       "_id": "6870...",
       "login_id": "patient001",
@@ -334,19 +339,67 @@ Security notes:
 - login ID is trimmed before lookup
 - duplicate accounts for the same login ID are treated as a conflict
 - locked accounts return `423 Locked`
+- patients and doctors with unverified registered phones receive a first-login SMS OTP challenge instead of a token
+- admins never use SMS/email OTP; when authenticator-app MFA is enabled, password login returns `202 Accepted` with `auth_status: "TOTP_REQUIRED"` and no token
+- in development/test, an un-enrolled admin may log in to bootstrap enrollment; in staging/production, un-enrolled admin login fails closed unless MFA has been provisioned
+- refresh tokens are stored only as hashes server-side
 
-### `POST /api/v1/auth/logout`
+### `POST /api/v1/auth/login/totp/verify`
 
-Authenticated logout acknowledgment.
+Verify an admin authenticator-app login challenge and issue the normal session payload.
+
+Request body:
+
+```json
+{
+  "challenge_id": "6890...",
+  "code": "<6-digit-code>"
+}
+```
 
 Notes:
 
-- The current implementation does not revoke JWTs server-side
-- Client applications must discard the token
+- only admin authenticator-app challenges are accepted
+- TOTP codes are rate-limited by challenge attempts and the challenge expires quickly
+- a verified challenge cannot be replayed
+
+### `POST /api/v1/auth/refresh`
+
+Rotate a valid refresh token and issue a new access token. The previous access token and refresh token for that session are no longer accepted after a successful refresh.
+
+### `POST /api/v1/auth/revoke`
+
+Revoke the session associated with a refresh token. The endpoint is idempotent and does not disclose whether the refresh token matched a live session.
+
+### `POST /api/v1/auth/admin/mfa/totp/setup`
+
+Authenticated admin endpoint that starts authenticator-app enrollment. The response contains the one-time setup secret and `otpauth_url` for QR-code generation by a future client UI. The stored pending secret is encrypted.
+
+### `POST /api/v1/auth/admin/mfa/totp/activate`
+
+Authenticated admin endpoint that verifies a setup TOTP code and enables authenticator-app MFA for future admin logins.
+
+### `POST /api/v1/auth/logout`
+
+Authenticated logout acknowledgment that revokes the current session.
+
+Notes:
+
+- The current access token is rejected after logout
+- Client applications must discard local access and refresh tokens
 
 ### `GET /api/v1/auth/me`
 
 Returns the authenticated user with populated profile data.
+
+The sanitized user payload includes password-policy state for clients:
+
+- `must_change_password`
+- `password_expired`
+- `password_changed_at`
+- `password_expires_at`
+- `password_policy.expiry_days`
+- `password_policy.history_count`
 
 ### `POST /api/v1/auth/change-password`
 
@@ -366,6 +419,9 @@ Rules:
 - minimum length 8
 - must contain uppercase, lowercase, digit, and special character
 - new password must differ from current password
+- new password cannot match the current password or the configured recent password history
+
+Successful changes clear `must_change_password`, revoke all active sessions for the user, and return the updated password expiry state plus `invalidated_sessions`. Existing access tokens and refresh tokens for that user, including the token used for the change request, are rejected after the success response; clients must discard local tokens and require a fresh login.
 
 ## Patient API
 
@@ -555,7 +611,7 @@ Updates:
 
 - `name`
 - `department`
-- `contact_number`
+- `contact_number` (10 digits; changing it resets phone verification to `PENDING`)
 
 ### `POST /api/v1/doctors/profile-pic`
 
@@ -604,6 +660,7 @@ Behavior:
 
 - creates `patientprofiles` document
 - creates linked `users` record
+- initializes patient phone verification as `PENDING`
 - currently uses `contact_no` as the initial temporary password
 
 #### `PATCH /api/v1/doctors/patients/:op_num/reassign`
@@ -740,6 +797,10 @@ The admin router also applies audit middleware to all routes under `/api/v1/admi
 - `POST /api/v1/admin/users/reset-password`
 - `POST /api/v1/admin/users/batch`
 
+Password resets mark the target user `must_change_password=true`, enforce password history, revoke the target user's active sessions, and return `invalidated_sessions`. Existing target-user access tokens and refresh tokens are rejected after a successful reset. The reset audit entry includes session-invalidation metadata.
+
+Account-disable operations revoke the disabled user's active sessions. This includes admin user status changes, doctor/patient deactivation endpoints, and batch `deactivate`; action responses that already carry operation metadata include `invalidated_sessions`.
+
 ### Doctor administration
 
 - `POST /api/v1/admin/doctors`
@@ -753,7 +814,7 @@ Create doctor request body:
 - `password`
 - `name`
 - optional `department`
-- optional `contact_number`
+- `contact_number` (required, 10 digits)
 - optional `profile_picture_url`
 - optional `hospital_id` or `hospital`
 
@@ -844,7 +905,6 @@ Supported query parameters:
 - Response schemas are consistent in spirit, but not fully normalized across logout and rate-limit handlers
 - Date input formats are mixed across endpoints
 - SSE authentication supports query-token fallback, which should be minimized over time
-- No refresh-token/session lifecycle contract exists yet
 - No file metadata resource exists yet; file state is embedded in clinical profile documents
 
 ## Recommended Next Steps

@@ -1,5 +1,6 @@
 import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/network/api_client.dart';
+import 'package:frontend/features/admin/models/admin_mfa_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
 class AdminRepository {
@@ -285,6 +286,24 @@ class AdminRepository {
   }
 
   // ─── System Health ───
+
+  Future<AdminTotpEnrollment> setupAdminTotp() async {
+    final response = await _apiClient.post(AppStrings.adminTotpSetupPath);
+    return AdminTotpEnrollment.fromJson(response);
+  }
+
+  Future<AdminTotpStatus> getAdminTotpStatus() async {
+    final response = await _apiClient.get(AppStrings.adminTotpStatusPath);
+    return AdminTotpStatus.fromJson(response);
+  }
+
+  Future<AdminTotpActivation> activateAdminTotp(String code) async {
+    final response = await _apiClient.post(
+      AppStrings.adminTotpActivatePath,
+      data: {'code': code},
+    );
+    return AdminTotpActivation.fromJson(response);
+  }
 
   Future<SystemHealthModel> getSystemHealth() async {
     final response = await _apiClient.get(AppStrings.adminHealthPath);

@@ -8,7 +8,25 @@ import logger from '@alias/utils/logger'
  */
 function sanitizeBody(body: any): any {
   if (!body || typeof body !== 'object') return body
-  const sensitiveFields = new Set(['password', 'new_password', 'current_password', 'token', 'secret'])
+  const sensitiveFields = new Set([
+    'password',
+    'new_password',
+    'current_password',
+    'token',
+    'access_token',
+    'refresh_token',
+    'authorization',
+    'code',
+    'otp',
+    'totp',
+    'secret',
+    'secret_ciphertext',
+    'secret_iv',
+    'secret_auth_tag',
+    'pending_secret_ciphertext',
+    'pending_secret_iv',
+    'pending_secret_auth_tag',
+  ])
 
   if (Array.isArray(body)) {
     return body.map((item) => sanitizeBody(item))

@@ -4,6 +4,14 @@ const DoctorProfileSchema = new mongoose.Schema({
   name: { type: String, required: [true, "Doctor Name is required"] },
   department: { type: String, default: 'Cardiology' },
   contact_number: { type: String },
+  phone_verification: {
+    status: {
+      type: String,
+      enum: ['PENDING', 'VERIFIED'],
+      default: 'PENDING',
+    },
+    verified_at: { type: Date },
+  },
   profile_picture_url: { type: String },
   hospital_id: {
     type: mongoose.Schema.Types.ObjectId,

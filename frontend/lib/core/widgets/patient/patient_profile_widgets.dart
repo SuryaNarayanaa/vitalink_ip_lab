@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
-import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/services/patient_service.dart';
 import 'package:frontend/core/widgets/index.dart';
@@ -406,13 +405,19 @@ class PatientProfileDetails extends StatelessWidget {
           PatientDetailRow(label: 'Phone', value: profile['phone'] ?? 'N/A'),
           const SizedBox(height: 12),
           PatientDetailRow(
-              label: 'Caregiver', value: profile['caregiver'] ?? 'N/A'),
+            label: 'Caregiver',
+            value: profile['caregiver'] ?? 'N/A',
+          ),
           const SizedBox(height: 12),
           PatientDetailRow(
-              label: 'Kin Name', value: profile['kinName'] ?? 'N/A'),
+            label: 'Kin Name',
+            value: profile['kinName'] ?? 'N/A',
+          ),
           const SizedBox(height: 12),
           PatientDetailRow(
-              label: 'Kin Phone', value: profile['kinPhone'] ?? 'N/A'),
+            label: 'Kin Phone',
+            value: profile['kinPhone'] ?? 'N/A',
+          ),
           const SizedBox(height: 16),
           const Text(
             'Therapy Details',
@@ -424,10 +429,14 @@ class PatientProfileDetails extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           PatientDetailRow(
-              label: 'Start Date', value: profile['therapyStartDate'] ?? 'N/A'),
+            label: 'Start Date',
+            value: profile['therapyStartDate'] ?? 'N/A',
+          ),
           const SizedBox(height: 12),
           PatientDetailRow(
-              label: 'Next Review', value: profile['nextReviewDate'] ?? 'N/A'),
+            label: 'Next Review',
+            value: profile['nextReviewDate'] ?? 'N/A',
+          ),
         ],
       ),
     );
@@ -561,21 +570,17 @@ class PatientActionButtons extends StatelessWidget {
   void _showLogoutConfirmation(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => LogoutDialog(
-        onLogout: () => _performLogout(context),
-      ),
+      builder: (ctx) => LogoutDialog(onLogout: () => _performLogout(context)),
     );
   }
 
   Future<void> _performLogout(BuildContext context) async {
-    final SecureStorage secureStorage = AppDependencies.secureStorage;
-    await secureStorage.clearAuthData();
+    await AppDependencies.authRepository.logout();
     await QueryCache.instance.clear();
     if (context.mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.login,
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
     }
   }
 }
@@ -643,24 +648,31 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.profile['name']);
-    _ageController =
-        TextEditingController(text: widget.profile['age']?.toString() ?? '');
-    _phoneController =
-        TextEditingController(text: widget.profile['phone'] ?? '');
-    _caregiverController =
-        TextEditingController(text: widget.profile['caregiver'] ?? '');
-    _kinNameController =
-        TextEditingController(text: widget.profile['kinName'] ?? '');
-    _kinPhoneController =
-        TextEditingController(text: widget.profile['kinPhone'] ?? '');
-    _therapyStartController =
-        TextEditingController(text: widget.profile['therapyStartDate'] ?? '');
+    _ageController = TextEditingController(
+      text: widget.profile['age']?.toString() ?? '',
+    );
+    _phoneController = TextEditingController(
+      text: widget.profile['phone'] ?? '',
+    );
+    _caregiverController = TextEditingController(
+      text: widget.profile['caregiver'] ?? '',
+    );
+    _kinNameController = TextEditingController(
+      text: widget.profile['kinName'] ?? '',
+    );
+    _kinPhoneController = TextEditingController(
+      text: widget.profile['kinPhone'] ?? '',
+    );
+    _therapyStartController = TextEditingController(
+      text: widget.profile['therapyStartDate'] ?? '',
+    );
     _selectedGender = widget.profile['gender'];
 
     if (widget.profile['therapyStartDate'] != null) {
       try {
-        _selectedTherapyDate =
-            DateFormat('dd-MM-yyyy').parse(widget.profile['therapyStartDate']);
+        _selectedTherapyDate = DateFormat(
+          'dd-MM-yyyy',
+        ).parse(widget.profile['therapyStartDate']);
       } catch (_) {
         _selectedTherapyDate = DateTime.now();
       }
@@ -793,10 +805,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                     const SizedBox(height: 8),
                     const Text(
                       'Keep your medical and contact information current',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF6B7280),
-                      ),
+                      style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
                     ),
                     const SizedBox(height: 24),
                     if (_error != null) ...[
@@ -810,7 +819,9 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                         child: Text(
                           _error!,
                           style: const TextStyle(
-                              color: Color(0xFFDC2626), fontSize: 13),
+                            color: Color(0xFFDC2626),
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -862,9 +873,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                       label: 'Gender',
                                       value: _selectedGender,
                                       items: ['Male', 'Female', 'Other'],
-                                      onChanged: (v) => setState(
-                                        () => _selectedGender = v,
-                                      ),
+                                      onChanged: (v) =>
+                                          setState(() => _selectedGender = v),
                                     ),
                                   ),
                                 ],
@@ -877,6 +887,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       label: 'Phone Number',
                       icon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
+                      helperText: '+91 is added automatically',
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Caregiver & Kin'),
@@ -897,6 +908,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       label: 'Kin Phone Number',
                       icon: Icons.contact_phone_outlined,
                       keyboardType: TextInputType.phone,
+                      helperText: 'Use a 10-digit Indian number',
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Therapy Configuration'),
@@ -906,8 +918,11 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       icon: Icons.date_range_outlined,
                       readOnly: true,
                       onTap: () => _selectDate(context),
-                      suffixIcon: const Icon(Icons.calendar_month,
-                          color: Color(0xFF9CA3AF), size: 20),
+                      suffixIcon: const Icon(
+                        Icons.calendar_month,
+                        color: Color(0xFF9CA3AF),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(height: 32),
                     LayoutBuilder(
@@ -924,7 +939,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                       backgroundColor: const Color(0xFF6366F1),
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 16),
+                                        vertical: 16,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -948,7 +964,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: const Color(0xFF6B7280),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 16),
+                                        vertical: 16,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -965,13 +982,16 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                           ? null
                                           : () => Navigator.of(context).pop(),
                                       style: OutlinedButton.styleFrom(
-                                        foregroundColor:
-                                            const Color(0xFF6B7280),
+                                        foregroundColor: const Color(
+                                          0xFF6B7280,
+                                        ),
                                         padding: const EdgeInsets.symmetric(
-                                            vertical: 16),
+                                          vertical: 16,
+                                        ),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
                                       ),
                                       child: const Text('Cancel'),
@@ -984,14 +1004,17 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                                       onPressed:
                                           _isLoading ? null : _saveProfile,
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            const Color(0xFF6366F1),
+                                        backgroundColor: const Color(
+                                          0xFF6366F1,
+                                        ),
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
-                                            vertical: 16),
+                                          vertical: 16,
+                                        ),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
                                       ),
                                       child: _isLoading
@@ -1044,6 +1067,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
     bool readOnly = false,
     VoidCallback? onTap,
     Widget? suffixIcon,
+    String? helperText,
   }) {
     return TextFormField(
       controller: controller,
@@ -1055,19 +1079,25 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
         labelText: label,
         prefixIcon: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
         suffixIcon: suffixIcon,
+        helperText: helperText,
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
         enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
         focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
       ),
     );
   }
@@ -1088,13 +1118,17 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
         enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE5E7EB))),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
       ),
     );
   }

@@ -6,7 +6,8 @@ import { NotificationType } from '@alias/models/notification.model'
 import { UserType } from '@alias/validators'
 import { getSystemConfig } from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import { extractTokenFromHeader, verifyToken } from '@alias/utils/jwt.utils'
+import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
+import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import type {
 	DoctorUpdatesQueryInput,
@@ -114,16 +115,7 @@ const resolvePatientStreamUserOrThrow = async (req: Request) => {
 		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
 	}
 
-	const payload = verifyToken(token)
-	if (!payload || payload.user_type !== UserType.PATIENT) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-	}
-
-	const user = await User.findById(payload.user_id).select('_id user_type is_active')
-	if (!user || user.user_type !== UserType.PATIENT || !user.is_active) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-	}
-
+	const { user } = await validateAuthToken(token, UserType.PATIENT)
 	return user
 }
 
@@ -198,6 +190,7 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput['body']>, res: Response) => {
 	const { user_id } = req.user
 	const patientUser = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
 
 	const { inr_value, test_date } = req.body
 	const parsed_inr_value = parseFloat(inr_value)
@@ -219,7 +212,8 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	let fileUrl = ''
 	if (file) {
 		try {
-			fileUrl = await uploadFile("uploads", file)
+			const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
+			fileUrl = await uploadFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file)
 		} catch (error) {
 			logger.error("Error While Uploading File to filebase", { error })
 			throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
@@ -417,13 +411,23 @@ export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
 	}
 
+	const currentProfile = await PatientProfile.findById(user.profile_id).select('demographics.phone')
+	if (!currentProfile) {
+		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+	}
+
 	const updateData: any = {}
 
 	if (demographics) {
 		if (demographics.name) updateData['demographics.name'] = demographics.name
 		if (demographics.age !== undefined) updateData['demographics.age'] = demographics.age
 		if (demographics.gender) updateData['demographics.gender'] = demographics.gender
-		if (demographics.phone) updateData['demographics.phone'] = demographics.phone
+		if (demographics.phone !== undefined) {
+			updateData['demographics.phone'] = demographics.phone
+			if (demographics.phone !== currentProfile.demographics?.phone) {
+				updateData['demographics.phone_verification'] = { status: 'PENDING' }
+			}
+		}
 		if (demographics.next_of_kin) {
 			if (demographics.next_of_kin.name) updateData['demographics.next_of_kin.name'] = demographics.next_of_kin.name
 			if (demographics.next_of_kin.relation) updateData['demographics.next_of_kin.relation'] = demographics.next_of_kin.relation
@@ -488,16 +492,17 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PNG, JPEG, JPG, and WEBP images are allowed')
 	}
 	const { user_id } = req.user
+	const user = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(user.profile_id)
 
 	let fileUrl = ''
 	try {
-		fileUrl = await uploadFile("profiles", req.file)
+		const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
+		fileUrl = await uploadFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file)
 	} catch (error) {
 		logger.error("Error While Uploading profile to filebase", { error })
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
-
-	const user = await getPatientUserOrThrow(user_id)
 
 	await PatientProfile.findByIdAndUpdate(user.profile_id, { profile_picture_url: fileUrl }, { new: true })
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))

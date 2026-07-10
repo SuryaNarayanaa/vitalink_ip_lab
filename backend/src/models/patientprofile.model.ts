@@ -20,6 +20,14 @@ const PatientProfileSchema = new mongoose.Schema({
       enum: ["Male", "Female", "Other"]
     },
     phone: { type: String },
+    phone_verification: {
+      status: {
+        type: String,
+        enum: ['PENDING', 'VERIFIED'],
+        default: 'PENDING',
+      },
+      verified_at: { type: Date },
+    },
     next_of_kin: {
       name: { type: String },
       relation: { type: String },

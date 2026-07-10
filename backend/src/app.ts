@@ -31,8 +31,22 @@ morgan.token('safe-url', (req: Request) => {
 
   const [path, queryString] = rawUrl.split('?')
   const params = new URLSearchParams(queryString || '')
-  if (params.has('token')) {
-    params.set('token', '[redacted]')
+  const sensitiveQueryParams = new Set([
+    'token',
+    'access_token',
+    'refresh_token',
+    'authorization',
+    'password',
+    'code',
+    'otp',
+    'totp',
+    'secret',
+  ])
+
+  for (const key of Array.from(params.keys())) {
+    if (sensitiveQueryParams.has(key.toLowerCase())) {
+      params.set(key, '[redacted]')
+    }
   }
   return `${path}?${params.toString()}`
 });

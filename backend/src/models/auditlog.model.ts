@@ -78,6 +78,11 @@ AuditLogSchema.index({ user_id: 1, createdAt: -1 })
 AuditLogSchema.index({ action: 1, createdAt: -1 })
 AuditLogSchema.index({ resource_type: 1, resource_id: 1 })
 AuditLogSchema.index({ success: 1, createdAt: -1 })
+AuditLogSchema.index({
+  'metadata.login_attempt.normalized_login_id': 1,
+  'metadata.login_attempt.ip_address': 1,
+  createdAt: -1,
+})
 
 export interface AuditLogDocument extends mongoose.InferSchemaType<typeof AuditLogSchema> {}
 

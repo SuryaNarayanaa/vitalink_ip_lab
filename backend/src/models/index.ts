@@ -41,12 +41,28 @@ import SystemConfig from './systemconfig.model'
 import Notification from './notification.model'
 import Hospital from './hospital.model'
 import Invoice from './invoice.model'
+import OtpChallenge from './otpchallenge.model'
+import AdminMfaChallenge from './adminmfachallenge.model'
+import AuthSession from './authsession.model'
 
 
 import DeviceToken from './DeviceToken.model'
 
-export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice, DeviceToken  }
-
+export {
+  User,
+  DoctorProfile,
+  PatientProfile,
+  AdminProfile,
+  AuditLog,
+  SystemConfig,
+  Notification,
+  Hospital,
+  Invoice,
+  OtpChallenge,
+  AdminMfaChallenge,
+  AuthSession,
+  DeviceToken,
+}
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile
 export const Patient = PatientProfile

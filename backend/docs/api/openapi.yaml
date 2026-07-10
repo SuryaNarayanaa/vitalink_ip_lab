@@ -9,8 +9,8 @@ info:
     Notes:
     - The canonical integration base path is `/api/v1`.
     - Legacy `/api/*` routes remain available for backward compatibility but are deprecated.
-    - Authentication uses bearer JWTs.
-    - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware responses and logout responses use the older `{ success, message }` envelope.
+    - Authentication uses revocable bearer JWT sessions with opaque refresh tokens.
+    - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware and rate-limit responses use the older `{ success, message }` envelope.
     - Versioned responses expose `X-API-Version` and `X-API-Supported-Versions`. Legacy `/api/*` responses also expose `Deprecation`, `Sunset`, and `Link` headers.
     - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients may pass the JWT as a `token` query parameter when they cannot set an Authorization header.
     - Multipart upload endpoints accept a single form field named `file`; validation failures such as unsupported MIME type or size limit return 400, while cloud storage failures return 507.
@@ -57,7 +57,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Authenticate user
-      description: Authenticates a user by login ID and password and returns a bearer token.
+      description: Authenticates a user by login ID and password and returns a revocable session payload.
       security: []
       requestBody:
         required: true
@@ -90,15 +90,62 @@ paths:
     post:
       tags: [Authentication]
       summary: Logout current user
+      description: Revokes the current authenticated session.
       responses:
         "200":
           description: Logout acknowledgement
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SimpleSuccessResponse"
+                $ref: "#/components/schemas/MessageOnlyResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh session
+      description: Rotates a valid refresh token and returns a new access token and refresh token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: Session refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/revoke:
+    post:
+      tags: [Authentication]
+      summary: Revoke session by refresh token
+      description: Revokes the session associated with the submitted refresh token, if one exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
 
   /auth/me:
     get:
@@ -120,6 +167,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Change current user password
+      description: Changes the authenticated user's password and revokes all active sessions for that user, including the session used for the request.
       requestBody:
         required: true
         content:
@@ -1190,6 +1238,7 @@ paths:
     post:
       tags: [Admin]
       summary: Reset user password
+      description: Resets the target user's password, marks it for change on next login, enforces password history, revokes active target-user sessions, and audits session-invalidation metadata.
       requestBody:
         required: true
         content:
@@ -2043,6 +2092,15 @@ components:
           minLength: 1
           format: password
 
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: Opaque refresh token returned by login or refresh.
+
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]
@@ -2093,6 +2151,24 @@ components:
           type: boolean
         must_change_password:
           type: boolean
+        password_expired:
+          type: boolean
+          description: True when the configured password expiry window has elapsed.
+        password_changed_at:
+          type: [string, "null"]
+          format: date-time
+        password_expires_at:
+          type: [string, "null"]
+          format: date-time
+        password_policy:
+          type: object
+          properties:
+            expiry_days:
+              type: integer
+              description: Configured password expiry interval. Zero disables expiry.
+            history_count:
+              type: integer
+              description: Number of previous passwords checked for reuse. Zero disables stored history checks.
         failed_login_attempts:
           type: integer
         locked_until:
@@ -2102,19 +2178,47 @@ components:
           type: [string, "null"]
           format: date-time
 
+    SessionPayload:
+      type: object
+      required: [token, refresh_token, session]
+      properties:
+        token:
+          type: string
+          description: Bearer access JWT.
+        refresh_token:
+          type: string
+          description: Opaque refresh token. Store securely on the client; only a hash is stored server-side.
+        session:
+          type: object
+          required: [session_id, refresh_expires_at]
+          properties:
+            session_id:
+              type: string
+            refresh_expires_at:
+              type: string
+              format: date-time
+
+    SessionResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SessionPayload"
+
     LoginResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponseBase"
         - type: object
           properties:
             data:
-              type: object
-              required: [token, user]
-              properties:
-                token:
-                  type: string
-                user:
-                  $ref: "#/components/schemas/User"
+              allOf:
+                - $ref: "#/components/schemas/SessionPayload"
+                - type: object
+                  required: [user]
+                  properties:
+                    user:
+                      $ref: "#/components/schemas/User"
 
     MeResponse:
       allOf:
@@ -2137,6 +2241,18 @@ components:
               properties:
                 must_change_password:
                   type: boolean
+                password_expired:
+                  type: boolean
+                password_changed_at:
+                  type: [string, "null"]
+                  format: date-time
+                password_expires_at:
+                  type: [string, "null"]
+                  format: date-time
+                invalidated_sessions:
+                  type: integer
+                  minimum: 0
+                  description: Number of active sessions revoked by the password change.
 
     DosageSchedule:
       type: object
@@ -2168,6 +2284,24 @@ components:
         max:
           type: number
 
+    PrimaryPhoneNumber:
+      type: string
+      pattern: "^[0-9]{10}$"
+      minLength: 10
+      maxLength: 10
+      description: Required primary SMS phone number for doctor and patient login verification.
+
+    PhoneVerificationState:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PENDING, VERIFIED]
+          default: PENDING
+        verified_at:
+          type: [string, "null"]
+          format: date-time
+
     NextOfKin:
       type: object
       properties:
@@ -2191,7 +2325,9 @@ components:
           type: string
           enum: [Male, Female, Other]
         phone:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
+        phone_verification:
+          $ref: "#/components/schemas/PhoneVerificationState"
         next_of_kin:
           $ref: "#/components/schemas/NextOfKin"
 
@@ -2305,7 +2441,9 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
+        phone_verification:
+          $ref: "#/components/schemas/PhoneVerificationState"
         profile_picture_url:
           type: [string, "null"]
         hospital_id:
@@ -2638,7 +2776,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
 
     DoctorListResponse:
       allOf:
@@ -2697,9 +2835,7 @@ components:
           type: string
           enum: [Male, Female, Other]
         contact_no:
-          type: string
-          minLength: 10
-          maxLength: 10
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         target_inr_min:
           type: number
         target_inr_max:
@@ -3176,6 +3312,10 @@ components:
                   description: Present when the service generated a password.
                 must_change_password:
                   type: boolean
+                invalidated_sessions:
+                  type: integer
+                  minimum: 0
+                  description: Number of active target-user sessions revoked by the reset.
               additionalProperties: true
 
     BatchOperationResult:
@@ -3190,6 +3330,10 @@ components:
         temporary_password:
           type: string
           description: Returned for successful reset_password operations.
+        invalidated_sessions:
+          type: integer
+          minimum: 0
+          description: Returned for successful deactivate or reset_password operations.
 
     BatchOperationResponse:
       allOf:
@@ -3543,7 +3687,7 @@ components:
 
     AdminCreateDoctorRequest:
       type: object
-      required: [login_id, password, name]
+      required: [login_id, password, name, contact_number]
       properties:
         login_id:
           type: string
@@ -3557,7 +3701,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         profile_picture_url:
           type: string
           format: uri
@@ -3574,7 +3718,7 @@ components:
         department:
           type: string
         contact_number:
-          type: string
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         profile_picture_url:
           type: [string, "null"]
           format: uri
@@ -3603,6 +3747,7 @@ components:
           type: string
         demographics:
           $ref: "#/components/schemas/PatientDemographics"
+          description: Must include `phone` when creating a patient account.
         medical_config:
           type: object
           properties:

@@ -40,6 +40,7 @@ erDiagram
         objectId profile_id UK
         boolean is_active
         boolean must_change_password
+        date password_changed_at
         int failed_login_attempts
         date locked_until
         date last_login_at
@@ -141,16 +142,25 @@ Key fields:
 | `user_type_model` | string | Yes | Derived discriminator-like ref target |
 | `is_active` | boolean | No | Default `true` |
 | `must_change_password` | boolean | No | Default `false` |
+| `password_changed_at` | date | No | Updated whenever the password hash changes |
+| `password_history` | array | No | Hidden salted/hash history entries used to block recent password reuse |
 | `failed_login_attempts` | number | No | Default `0` |
 | `locked_until` | date | No | Temporary lockout marker |
 | `last_login_at` | date | No | Operational telemetry |
 | `last_failed_login_at` | date | No | Operational telemetry |
+| `admin_mfa.totp.status` | enum | No | Admin-only authenticator state: `DISABLED`, `PENDING`, `ENABLED` |
+| `admin_mfa.totp.secret_ciphertext` | string | No | Encrypted active TOTP secret for enabled admins |
+| `admin_mfa.totp.pending_secret_ciphertext` | string | No | Encrypted pending TOTP setup secret before activation |
+| `admin_mfa.totp.last_verified_time_step` | number | No | Replay guard for admin login TOTP verification |
 
 Security notes:
 
 - Passwords are never returned by `toJSON()`.
+- Password history stores only previous salted password hashes plus salts and change timestamps; it is hidden from default queries and JSON serialization.
+- Password expiry defaults to `PASSWORD_EXPIRY_DAYS=90`; `PASSWORD_HISTORY_COUNT=5` controls how many previous passwords are retained and checked.
 - `profile_id` is a one-to-one link to the owning role profile.
 - `user_type_model` is computed from `user_type` and is used by Mongoose `refPath`.
+- Admin TOTP secrets are stored encrypted with AES-GCM using `ADMIN_TOTP_ENCRYPTION_KEY` when configured.
 
 ### `adminprofiles`
 
@@ -165,6 +175,22 @@ Key fields:
 | `admin_role` | enum | No | `app_admin`, `hospital_admin`, `auditor` |
 | `hospital_id` | ObjectId | No | Optional tenant scope for hospital admins |
 
+### `adminmfachallenges`
+
+Short-lived admin authenticator-app login challenge.
+
+Key fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `user_id` | ObjectId | Yes | References an admin `users` record |
+| `user_type` | enum | Yes | Always `ADMIN` |
+| `status` | enum | No | `PENDING`, `VERIFIED`, `EXPIRED`, `LOCKED`, `CANCELLED` |
+| `expires_at` | date | Yes | TTL indexed challenge expiration |
+| `attempt_count` | number | No | Failed verification attempts |
+| `max_attempts` | number | Yes | Defaults from `ADMIN_TOTP_MAX_ATTEMPTS` |
+| `verified_at` | date | No | Set after successful TOTP verification |
+
 ### `doctorprofiles`
 
 Clinical provider profile linked one-to-one with a `users` record.
@@ -175,7 +201,9 @@ Key fields:
 |---|---|---:|---|
 | `name` | string | Yes | Doctor display name |
 | `department` | string | No | Defaults to `Cardiology` |
-| `contact_number` | string | No | Stored as free-form string |
+| `contact_number` | string | No | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | No | `PENDING` or `VERIFIED`; defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | No | Set when phone verification succeeds |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 
@@ -207,7 +235,9 @@ Embedded structures:
 | `name` | string | Required |
 | `age` | number | Optional |
 | `gender` | enum | `Male`, `Female`, `Other` |
-| `phone` | string | Optional |
+| `phone` | string | Primary SMS phone number; API account creation/update paths require exactly 10 digits |
+| `phone_verification.status` | enum | Defaults to `PENDING` for OTP groundwork |
+| `phone_verification.verified_at` | date | Set when phone verification succeeds |
 | `next_of_kin.name` | string | Optional |
 | `next_of_kin.relation` | string | Optional |
 | `next_of_kin.phone` | string | Optional |
@@ -327,6 +357,8 @@ Key fields:
 | `error_message` | string | No | Failure detail |
 | `metadata` | mixed | No | Additional structured context |
 
+Password reset audit records include `metadata.invalidated_sessions` and `metadata.revocation_reason` when active target-user sessions are revoked. Login attempt audit records include `metadata.login_attempt.normalized_login_id`, `metadata.login_attempt.ip_address`, request ID, and outcome for forensic lookup.
+
 ### `systemconfigs`
 
 Operational runtime configuration collection.
@@ -420,6 +452,7 @@ These should be treated as PHI/PII or security-sensitive data:
 
 - `users.password`
 - `users.salt`
+- `users.password_history`
 - `users.login_id` when it represents a patient OP number or personal login
 - `doctorprofiles.contact_number`
 - `patientprofiles.demographics.*`
