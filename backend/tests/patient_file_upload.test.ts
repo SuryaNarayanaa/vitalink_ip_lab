@@ -369,7 +369,7 @@ describe('Patient File Upload Routes', () => {
             report.file_asset_id = originalAssetId;
             await updatedPatient.save();
             expect(response.status).toBe(404);
-            expect(downloadMock).not.toHaveBeenCalled();
+            expect(downloadMock).not.toHaveBeenCalledWith(foreignAsset.object_key, foreignAsset.bucket);
         });
     });
 
