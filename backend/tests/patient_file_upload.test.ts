@@ -2,12 +2,14 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile, PatientProfile, Hospital } from '@alias/models';
+import { User, DoctorProfile, PatientProfile, Hospital, FileAsset } from '@alias/models';
 import { Server } from 'http';
 import FormData from 'form-data';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import client from '@alias/config/s3-client';
 import { config } from '@alias/config';
+import { FileAssetStatus } from '@alias/models/fileasset.model';
+import { deleteFile, getDownloadUrl } from '@alias/utils/fileUpload';
 
 describe('Patient File Upload Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -152,6 +154,15 @@ describe('Patient File Upload Routes', () => {
             // Verify file_url is stored
             expect(latestReport.file_url).toBeDefined();
             expect(latestReport.file_url).toContain(`hospitals/${hospital._id.toString()}/patients/${patientUser._id.toString()}/reports/`);
+            expect(latestReport.file_url).toMatch(/[0-9a-f]{8}-[0-9a-f-]{27}\.pdf$|\/\d{5}\.pdf$/);
+            expect(latestReport.file_asset_id).toBeDefined();
+            const asset = await FileAsset.findById(latestReport.file_asset_id);
+            expect(asset).not.toBeNull();
+            expect(asset?.status).toBe(FileAssetStatus.ACTIVE);
+            expect(asset?.hospital_id.toString()).toBe(hospital._id.toString());
+            expect(asset?.owner_user_id.toString()).toBe(patientUser._id.toString());
+            expect(asset?.byte_size).toBe(pdfBuffer.length);
+            expect(asset?.sha256_checksum).toMatch(/^[a-f0-9]{64}$/);
             expect(latestReport.inr_value).toBe(2.5);
             expect(latestReport.is_critical).toBe(false);
         });
@@ -248,6 +259,47 @@ describe('Patient File Upload Routes', () => {
             expect(response.data.message).toContain('Invalid file type');
         });
 
+        test('should reject a spoofed PDF MIME type before persistence', async () => {
+            const pngBuffer = Buffer.from(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                'base64'
+            );
+            const form = new FormData();
+            form.append('file', pngBuffer, { filename: 'spoofed.pdf', contentType: 'application/pdf' });
+            form.append('inr_value', '2.5');
+            form.append('test_date', '18-02-2026');
+
+            const before = await FileAsset.countDocuments();
+            const response = await api.post('/api/patient/reports', form, {
+                headers: { Authorization: `Bearer ${patientToken}`, ...form.getHeaders() }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.message).toContain('does not match declared MIME type');
+            expect(await FileAsset.countDocuments()).toBe(before);
+        });
+
+        test('should compensate the object and asset when the report write fails', async () => {
+            const pdfBuffer = Buffer.from('%PDF-1.4 compensation test');
+            const form = new FormData();
+            form.append('file', pdfBuffer, { filename: 'compensate.pdf', contentType: 'application/pdf' });
+            form.append('inr_value', '2.5');
+            form.append('test_date', '18-02-2026');
+            const updateSpy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockRejectedValueOnce(new Error('forced write failure'));
+            const deleteMock = deleteFile as jest.Mock;
+
+            const response = await api.post('/api/patient/reports', form, {
+                headers: { Authorization: `Bearer ${patientToken}`, ...form.getHeaders() }
+            });
+            updateSpy.mockRestore();
+
+            expect(response.status).toBe(500);
+            expect(deleteMock).toHaveBeenCalled();
+            const compensated = await FileAsset.findOne({ original_filename: 'compensate.pdf' });
+            expect(compensated?.status).toBe(FileAssetStatus.DELETED);
+            expect(compensated?.deleted_at).toBeDefined();
+        });
+
         test('should fail without authentication', async () => {
             const response = await api.post('/api/patient/reports', {});
 
@@ -277,6 +329,47 @@ describe('Patient File Upload Routes', () => {
                     expect(report.file_url).not.toMatch(/^uploads\//);
                 }
             }
+        });
+
+        test('should deny a FileAsset whose tenant does not match the owning report', async () => {
+            const updatedPatient = await PatientProfile.findById(patientProfile._id);
+            const report = updatedPatient.inr_history.find((item: any) => item.file_asset_id);
+            expect(report).toBeDefined();
+            const originalAssetId = report.file_asset_id;
+            const foreignHospital = await Hospital.create({
+                code: `FOREIGN_${Date.now()}`,
+                name: 'Foreign Hospital',
+                location: 'Chennai',
+                admin_email: `foreign-${Date.now()}@example.com`,
+            });
+            const originalAsset = await FileAsset.findById(originalAssetId);
+            const foreignAsset = await FileAsset.create({
+                hospital_id: foreignHospital._id,
+                owner_user_id: patientUser._id,
+                patient_profile_id: patientProfile._id,
+                purpose: originalAsset.purpose,
+                storage_provider: originalAsset.storage_provider,
+                bucket: originalAsset.bucket,
+                object_key: `${originalAsset.object_key}.foreign`,
+                original_filename: 'foreign.pdf',
+                detected_mime: 'application/pdf',
+                byte_size: 1,
+                sha256_checksum: 'a'.repeat(64),
+                status: FileAssetStatus.ACTIVE,
+                created_by: patientUser._id,
+            });
+            report.file_asset_id = foreignAsset._id;
+            await updatedPatient.save();
+            const downloadMock = getDownloadUrl as jest.Mock;
+
+            const response = await api.get('/api/patient/reports', {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            report.file_asset_id = originalAssetId;
+            await updatedPatient.save();
+            expect(response.status).toBe(404);
+            expect(downloadMock).not.toHaveBeenCalled();
         });
     });
 
@@ -310,6 +403,7 @@ describe('Patient File Upload Routes', () => {
                 uploadedProfilePicKey = patientProfileData.profile_picture_url;
             }
             expect(uploadedProfilePicKey).toContain(`hospitals/${hospital._id.toString()}/profiles/${patientUser._id.toString()}/`);
+            expect(patientProfileData.profile_picture_file_asset_id).toBeDefined();
         });
 
         test('should fail with invalid file type', async () => {

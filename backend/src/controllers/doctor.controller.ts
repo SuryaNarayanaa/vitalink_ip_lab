@@ -15,7 +15,9 @@ import type {
   UpdateReportInput
 } from '@alias/validators/doctor.validator'
 import mongoose from 'mongoose'
-import { getDownloadUrl, uploadFile } from '@alias/utils/fileUpload'
+import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
+import { FileAssetPurpose } from '@alias/models/fileasset.model'
+import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
 import logger from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
@@ -48,6 +50,12 @@ const isDoctorOwnerOfPatient = (patient: { assigned_doctor_id?: unknown }, docto
 const getDoctorHospitalId = async (doctor: { profile_id?: unknown }) => {
   const profile = await DoctorProfile.findById(doctor.profile_id).select('hospital_id')
   return profile?.hospital_id ? String(profile.hospital_id) : undefined
+}
+
+const getRequiredDoctorHospitalId = async (doctor: { profile_id?: unknown }) => {
+  const hospitalId = await getDoctorHospitalId(doctor)
+  if (!hospitalId) throw new ApiError(StatusCodes.FORBIDDEN, 'Doctor must be assigned to a hospital to access files')
+  return hospitalId
 }
 
 const ensureSameHospital = async (
@@ -144,7 +152,10 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   const { user_id } = req.user
   const doctor = await getDoctorUserOrThrow(user_id)
   const doctorOwnershipIds = getDoctorOwnershipIds(doctor)
-  const patientProfiles = await PatientProfile.find({ assigned_doctor_id: { $in: doctorOwnershipIds } })
+  const hospitalId = await getRequiredDoctorHospitalId(doctor)
+  const patientQuery: Record<string, unknown> = { assigned_doctor_id: { $in: doctorOwnershipIds } }
+  if (hospitalId) patientQuery.hospital_id = hospitalId
+  const patientProfiles = await PatientProfile.find(patientQuery)
 
   // Get login_ids for each patient profile
   const patientUsers = await User.find({
@@ -153,15 +164,28 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   })
 
   // Create a map of profile_id to login_id
-  const profileToLoginId = new Map<string, string>()
+  const profileToUser = new Map<string, typeof patientUsers[number]>()
   patientUsers.forEach(u => {
-    profileToLoginId.set(u.profile_id?.toString() ?? '', u.login_id)
+    profileToUser.set(u.profile_id?.toString() ?? '', u)
   })
 
   // Add login_id to each patient profile
-  const patients = patientProfiles.map(p => ({
-    ...p.toObject(),
-    login_id: profileToLoginId.get(p._id.toString()) ?? null
+  const patients = await Promise.all(patientProfiles.map(async (p) => {
+    const patientData = p.toObject() as any
+    const patientUser = profileToUser.get(p._id.toString())
+    if (patientData.profile_picture_url && patientUser) {
+      patientData.profile_picture_url = await resolveAssetDownloadUrl({
+        fileAssetId: patientData.profile_picture_file_asset_id,
+        legacyObjectKey: patientData.profile_picture_url,
+        hospitalId: p.hospital_id,
+        requesterHospitalId: hospitalId,
+        ownerUserId: patientUser._id,
+        patientProfileId: p._id,
+        purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+        legacyEligible: isLegacyFileReferenceEligible(patientData.createdAt),
+      })
+    }
+    return { ...patientData, login_id: patientUser?.login_id ?? null }
   }))
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Patients fetched successfully", { patients }))
@@ -177,8 +201,23 @@ export const viewPatient = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Unauthorized Patient Access')
   }
   await ensureSameHospital(doctor, patient)
+  const requesterHospitalId = await getRequiredDoctorHospitalId(doctor)
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient fetched successfully', { patient }))
+  const patientData = patient.toObject() as any
+  if (patientData.profile_picture_url) {
+    patientData.profile_picture_url = await resolveAssetDownloadUrl({
+      fileAssetId: patientData.profile_picture_file_asset_id,
+      legacyObjectKey: patientData.profile_picture_url,
+      hospitalId: patient.hospital_id,
+      requesterHospitalId,
+      ownerUserId: patientUser._id,
+      patientProfileId: patient._id,
+      purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+      legacyEligible: isLegacyFileReferenceEligible(patientData.createdAt),
+    })
+  }
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient fetched successfully', { patient: patientData }))
 })
 
 export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatientInput['body']>, res: Response) => {
@@ -327,18 +366,23 @@ export const getReports = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Unauthorized Doctor to View The Patient')
   }
   await ensureSameHospital(doctor, patient)
+  const requesterHospitalId = await getRequiredDoctorHospitalId(doctor)
 
   // Convert S3 keys to presigned URLs for each report
   const reportsWithUrls = await Promise.all(
     (patient?.inr_history || []).map(async (report) => {
       const reportObj = report.toObject()
       if (reportObj.file_url) {
-        try {
-          reportObj.file_url = await getDownloadUrl(reportObj.file_url)
-        } catch (error) {
-          logger.error('Error generating presigned URL for report', { error, file_url: reportObj.file_url })
-          // Keep the original key if presigned URL generation fails
-        }
+        reportObj.file_url = await resolveAssetDownloadUrl({
+          fileAssetId: reportObj.file_asset_id,
+          legacyObjectKey: reportObj.file_url,
+          hospitalId: patient.hospital_id,
+          requesterHospitalId,
+          ownerUserId: patientUser._id,
+          patientProfileId: patient._id,
+          purpose: FileAssetPurpose.INR_REPORT,
+          legacyEligible: isLegacyFileReferenceEligible(reportObj.uploaded_at),
+        })
       }
       return reportObj
     })
@@ -475,11 +519,15 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
   let profilePictureUrl = null
 
   if (doctorProfile?.profile_picture_url) {
-    try {
-      profilePictureUrl = await getDownloadUrl(doctorProfile.profile_picture_url)
-    } catch (error) {
-      logger.error('Error fetching profile picture URL', { error })
-    }
+    profilePictureUrl = await resolveAssetDownloadUrl({
+      fileAssetId: doctorProfile.profile_picture_file_asset_id,
+      legacyObjectKey: doctorProfile.profile_picture_url,
+      hospitalId: doctorProfile.hospital_id,
+      requesterHospitalId: doctorProfile.hospital_id,
+      ownerUserId: doctor._id,
+      purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
+      legacyEligible: isLegacyFileReferenceEligible(doctorProfile.createdAt),
+    })
   }
 
   const patientsCount = await PatientProfile.countDocuments({ assigned_doctor_id: { $in: getDoctorOwnershipIds(doctor) } })
@@ -549,12 +597,22 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Unauthorized Doctor to View The Patient')
   }
   await ensureSameHospital(doctor, patientProfile)
+  const requesterHospitalId = await getRequiredDoctorHospitalId(doctor)
 
   const report = patientProfile.inr_history.id(report_id)
   if (!report) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Report not found')
   }
-  const downloadUrl = await getDownloadUrl(report.file_url)
+  const downloadUrl = await resolveAssetDownloadUrl({
+    fileAssetId: report.file_asset_id,
+    legacyObjectKey: report.file_url,
+    hospitalId: patientProfile.hospital_id,
+    requesterHospitalId,
+    ownerUserId: patientUser._id,
+    patientProfileId: patientProfile._id,
+    purpose: FileAssetPurpose.INR_REPORT,
+    legacyEligible: isLegacyFileReferenceEligible(report.uploaded_at),
+  })
   const reportResponse = { ...report.toObject(), file_url: downloadUrl }
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report fetched successfully', { report: reportResponse }))
 })
@@ -570,16 +628,48 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
   const { user_id } = req.user
   const user = await getDoctorUserOrThrow(user_id)
   const hospitalId = await getDoctorHospitalId(user)
+  if (!hospitalId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to a hospital before uploading files')
+  }
 
-  let fileUrl = ''
+  let uploadedFile: Awaited<ReturnType<typeof uploadFile>>
+  let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>>
+  const doctorProfile = await DoctorProfile.findById(user.profile_id)
+  if (!doctorProfile) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
   try {
-    fileUrl = await uploadFile(`hospitals/${hospitalId || 'unassigned'}/profiles/${user._id}`, req.file)
+    uploadedFile = await uploadFile(`hospitals/${hospitalId}/profiles/${user._id}`, req.file)
+    fileAsset = await createTrackedFileAsset(uploadedFile, {
+      hospitalId,
+      ownerUserId: user._id,
+      purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
+      createdBy: user._id,
+    })
   } catch (error) {
     logger.error("Error While Uploading profile to filebase", { error })
+    if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
     throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
   }
 
-  await DoctorProfile.findByIdAndUpdate(user.profile_id, { profile_picture_url: fileUrl }, { new: true })
+  try {
+    const previousAssetId = doctorProfile.profile_picture_file_asset_id
+    const referenceFilter = previousAssetId
+      ? { profile_picture_file_asset_id: previousAssetId }
+      : { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
+    const updated = await DoctorProfile.findOneAndUpdate({ _id: user.profile_id, ...referenceFilter }, {
+      profile_picture_url: uploadedFile.key,
+      profile_picture_file_asset_id: fileAsset._id,
+    }, { new: true })
+    if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+    await retireReplacedFileAsset({
+      fileAssetId: previousAssetId,
+      hospitalId,
+      ownerUserId: user._id,
+      purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
+    })
+  } catch (error) {
+    await compensateFileAsset(fileAsset, error)
+    throw error
+  }
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })
 

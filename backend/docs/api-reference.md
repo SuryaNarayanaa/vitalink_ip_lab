@@ -220,7 +220,7 @@ Query conventions:
 - Content type: `multipart/form-data`
 - Form field for binary file: `file`
 - Max size: 10 MB
-- Allowed MIME types: `application/pdf`, `image/png`, `image/jpeg`, `image/jpg`
+- Allowed MIME types: `application/pdf`, `image/png`, `image/jpeg`
 
 Additional body fields:
 
@@ -229,9 +229,13 @@ Additional body fields:
 
 Behavior:
 
-- File is stored in S3-compatible storage
-- Persisted document stores the storage key in `inr_history.file_url`
-- Read APIs replace that key with a presigned download URL when possible
+- The server verifies PDF, PNG, or JPEG magic bytes and rejects a declared MIME/content mismatch before storage upload
+- The server computes SHA-256 and uses a UUID object-key filename with the detected safe extension
+- File metadata and tenant/owner scope are persisted in `fileassets`; `inr_history.file_asset_id` references that record
+- `inr_history.file_url` temporarily retains the object key for rolling migration compatibility
+- Read APIs authorize new files through the active tenant-scoped asset record, then replace the stored key with a presigned download URL
+- Records without `file_asset_id` use an isolated legacy fallback after the owning report/profile has already been authorized
+- That fallback is allowed only for references created before the immutable `FILE_ASSET_LEGACY_CUTOFF_AT` deployment boundary
 
 ### Patient profile picture upload
 
@@ -249,7 +253,22 @@ Security notes:
 
 - Presigned URLs are generated at read time
 - Clients should not persist presigned URLs as durable identifiers
-- The current implementation validates MIME type and size, but not yet file magic bytes
+- File size, route MIME allowlists, byte signatures, and MIME/content agreement are enforced
+- Object keys supplied by clients are never used as authorization to generate a signed URL
+- Admin create/update APIs do not accept profile-picture object keys; authenticated multipart upload endpoints are the only current write path
+- A failed owning-document write triggers object deletion and marks the metadata record deleted; cleanup failures are retained with `FAILED` status
+
+### FileAsset rollout order
+
+`FILE_ASSET_LEGACY_CUTOFF_AT` is mandatory in staging and production and must be a finite ISO timestamp with a timezone. It is not a retention date; it is the coordinated instant after which no key-only application instance may accept an upload.
+
+1. Choose a cutover instant late enough to deploy the FileAsset-capable version and drain every older instance.
+2. Configure the same `FILE_ASSET_LEGACY_CUTOFF_AT` value on every new instance before startup.
+3. Run `npm run migrate:file-assets` and resolve every dry-run storage/signature/ownership failure.
+4. Deploy the new instances, then stop routing traffic to key-only instances before the configured instant.
+5. Run `npm run migrate:file-assets -- --execute`, verify created/attached/failure counts, and rerun until no eligible references remain unattached.
+
+If the rollout cannot guarantee that older writers are drained before the planned instant, move the configured cutoff forward consistently before starting the new deployment. Never reuse the example or development default as a production value.
 
 ## Server-Sent Events
 
@@ -901,15 +920,14 @@ Supported query parameters:
 
 ## Known Contract Gaps
 
-- No checked-in OpenAPI document yet
 - Response schemas are consistent in spirit, but not fully normalized across logout and rate-limit handlers
 - Date input formats are mixed across endpoints
 - SSE authentication supports query-token fallback, which should be minimized over time
-- No file metadata resource exists yet; file state is embedded in clinical profile documents
+- FileAsset metadata is internal; no standalone client-facing file-management resource exists yet
 
 ## Recommended Next Steps
 
-- generate `openapi.yaml` from the route and validator surface
+- keep `openapi.yaml` synchronized with route and validator changes
 - normalize all responses to the standard envelope
 - standardize date input on ISO 8601 or a single explicit business format
 - add machine-readable auth, pagination, and SSE sections to a published API contract

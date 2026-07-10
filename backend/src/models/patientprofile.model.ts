@@ -60,6 +60,7 @@ const PatientProfileSchema = new mongoose.Schema({
     default: 'Active'
   },
   profile_picture_url: { type: String },
+  profile_picture_file_asset_id: { type: mongoose.Schema.Types.ObjectId, ref: 'FileAsset' },
 }, { timestamps: true });
 
 export interface PatientProfileDocument extends mongoose.Document, mongoose.InferSchemaType<typeof PatientProfileSchema> { }

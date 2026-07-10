@@ -24,10 +24,9 @@ export const createDoctorSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     department: z.string().optional(),
     contact_number: primaryPhoneNumberSchema,
-    profile_picture_url: z.string().url().optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const updateDoctorSchema = z.object({
@@ -38,12 +37,11 @@ export const updateDoctorSchema = z.object({
     name: z.string().min(1).optional(),
     department: z.string().optional(),
     contact_number: optionalPrimaryPhoneNumberSchema,
-    profile_picture_url: z.string().url().optional().nullable(),
     is_active: z.boolean().optional(),
     password: z.string().min(8).optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const getDoctorsSchema = z.object({

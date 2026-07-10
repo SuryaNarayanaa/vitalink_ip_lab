@@ -2373,6 +2373,11 @@ components:
           type: boolean
         file_url:
           type: [string, "null"]
+          description: Short-lived presigned URL on reads; retained object key in storage for migration compatibility.
+        file_asset_id:
+          type: [string, "null"]
+          readOnly: true
+          description: Tenant-scoped FileAsset identifier for new and backfilled uploads.
         notes:
           type: [string, "null"]
 
@@ -2428,6 +2433,9 @@ components:
           enum: [Active, Discharged, Deceased]
         profile_picture_url:
           type: [string, "null"]
+        profile_picture_file_asset_id:
+          type: [string, "null"]
+          readOnly: true
         login_id:
           type: [string, "null"]
 
@@ -2446,6 +2454,9 @@ components:
           $ref: "#/components/schemas/PhoneVerificationState"
         profile_picture_url:
           type: [string, "null"]
+        profile_picture_file_asset_id:
+          type: [string, "null"]
+          readOnly: true
         hospital_id:
           oneOf:
             - type: string
@@ -3702,9 +3713,6 @@ components:
           type: string
         contact_number:
           $ref: "#/components/schemas/PrimaryPhoneNumber"
-        profile_picture_url:
-          type: string
-          format: uri
         hospital_id:
           type: string
         hospital:
@@ -3719,9 +3727,6 @@ components:
           type: string
         contact_number:
           $ref: "#/components/schemas/PrimaryPhoneNumber"
-        profile_picture_url:
-          type: [string, "null"]
-          format: uri
         is_active:
           type: boolean
         password:
