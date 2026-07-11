@@ -36,6 +36,21 @@ From `frontend/android`, print the local fingerprints with:
 The configuration file contains app identifiers rather than an Admin private
 key. This repository ignores it so each environment can supply its own copy.
 
+## iOS app registration
+
+The iOS bundle identifier is configured in the Xcode Runner target. Register
+that exact identifier in **Project settings > Your apps > iOS app**, download
+`GoogleService-Info.plist`, and place it at:
+
+`frontend/ios/Runner/GoogleService-Info.plist`
+
+Open `frontend/ios/Runner.xcworkspace` in Xcode and add the plist to the Runner
+target so it is copied into the application bundle. Firebase phone auth on iOS
+also requires APNs configuration (an APNs authentication key uploaded in the
+Firebase Console) and the Push Notifications capability. Configure custom URL
+schemes if Firebase's current iOS phone-auth setup instructions require them.
+The plist is ignored by this repository and must be supplied per environment.
+
 ## Backend environment
 
 Copy `backend/.env.example` to `backend/.env`, then set:

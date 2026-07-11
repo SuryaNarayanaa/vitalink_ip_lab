@@ -10,7 +10,7 @@ import cors from "cors";
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
 import { config, getMissingEnvironmentVariables } from "./config";
-import { getFirebaseMessagingHealth } from './config/firebase.config'
+import { getFirebaseAuthHealth, getFirebaseMessagingHealth } from './config/firebase.config'
 import { getNotificationDeliveryWorkerHealth } from './jobs/notification-delivery.worker'
 import { apiLimiter, authLimiter } from "./config/ratelimiter";
 import { apiVersionHeaders, legacyApiHeaders } from "./middlewares/apiVersion.middleware";
@@ -142,10 +142,11 @@ app.get('/health/ready', (req, res) => {
   const readyState = mongoose.connection.readyState;
   const databaseState = dbStates[readyState] || 'unknown';
   const firebase = getFirebaseMessagingHealth();
+  const firebaseAuth = getFirebaseAuthHealth();
   const notificationWorker = getNotificationDeliveryWorkerHealth();
   const missingEnvironmentVariables = getMissingEnvironmentVariables();
   const databaseReady = readyState === 1;
-  const firebaseReady = firebase.state !== 'failed';
+  const firebaseReady = firebase.state !== 'failed' && firebaseAuth.state !== 'failed';
   const workerReady = !notificationWorker.enabled || notificationWorker.state === 'started';
   const configurationReady = missingEnvironmentVariables.length === 0;
   const isReady = databaseReady && firebaseReady && workerReady && configurationReady;
@@ -158,6 +159,10 @@ app.get('/health/ready', (req, res) => {
     firebase: {
       ...firebase,
       initialization_success: firebase.state === 'initialized',
+    },
+    firebase_auth: {
+      ...firebaseAuth,
+      initialization_success: firebaseAuth.state === 'initialized',
     },
     notification_worker: {
       ...notificationWorker,

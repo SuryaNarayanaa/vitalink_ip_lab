@@ -14,7 +14,7 @@ Status legend used below:
 
 This review compares the current codebase against the technical design requirements in `VitaLink-AdminModule-TechnicalDesignRequirements.docx`. It covers implemented features, missing work, implementation sequencing, file upload readiness, a test/staging app track, and an estimated monthly cost model for roughly 500 patients.
 
-Note: the request said "text app"; this plan assumes that means a test/staging app. If the intent is SMS/text-message delivery, use the notification section below and add an SMS provider such as Twilio, MSG91, or AWS SNS.
+Note: the request said "text app"; this plan assumes that means a test/staging app. Phone authentication is delivered through Firebase Authentication.
 
 ## What Is Already Implemented
 
@@ -39,7 +39,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 - JWT login, logout, `/me`, and password change exist.
 - Session-bound JWTs, hashed refresh-token persistence, refresh rotation, revoke, and logout revocation are implemented.
 - Password changes, admin password resets, and account deactivation now revoke all active sessions for the affected user.
-- Patient and doctor first-login phone OTP verification is implemented through Twilio Verify.
+- Patient and doctor first-login phone verification is implemented through Firebase Authentication.
 - Admin authenticator-app MFA enrollment, activation, login challenge, and Flutter setup/login verification UI are implemented.
 - Password hashing uses per-user salt.
 - Role-based authorization exists for ADMIN, DOCTOR, and PATIENT.
@@ -125,7 +125,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - Coordination workflow for the remaining auth-hardening work now exists at `backend/docs/codex-thread-workflow-auth-hardening.md`.
    - Verification and promotion runbook now exists at `backend/docs/auth-hardening-verification.md`.
    - `[x]` Admin authenticator-app MFA is implemented for privileged users, including enrollment, activation, login challenge, Flutter setup UI, and Flutter login verification UI.
-   - `[x]` Patient and doctor first-login phone OTP verification is implemented through Twilio Verify, with registered-phone binding and Flutter login OTP UI.
+   - `[x]` Patient and doctor first-login phone verification is implemented through Firebase Authentication, with registered-phone binding and Flutter login OTP UI.
    - `[x]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
    - `[x]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
    - `[x]` Refresh-token/session invalidation is implemented with persisted auth sessions, hashed refresh tokens, refresh rotation, revoke, logout revocation, and admin password-reset revocation.
@@ -665,13 +665,13 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Verified the independent combined-tree review approved the FileAsset, Firebase/device-token, migration, and model-barrel integration changes before merge.
 - Verified the DeviceToken migration is dry-run by default, idempotently consolidates duplicate physical-token owners, repairs obsolete/conflicting indexes, and is documented in `backend/docs/device-token-migration.md`.
 - Verified admin create/update doctor contracts reject caller-supplied `profile_picture_url` values and the admin service no longer persists raw client-provided storage keys.
-- Verified the earlier `twilioconfig.test.ts` staging expectation mismatch was fixed by isolating the Twilio environment-variable assertions.
+- Removed the legacy SMS-provider configuration and its obsolete test coverage after the Firebase Authentication migration.
 - Added Redocly OpenAPI validation to backend CI and verified `npm run lint:openapi` passes for `backend/docs/api/openapi.yaml` with existing style warnings.
-- Verified first-login phone OTP and Twilio Verify integration on deployed doctor flow, including successful OTP completion and subsequent normal login.
+- Verified first-login Firebase phone authentication on the doctor flow, including successful verification and subsequent normal login.
 - Verified deployed session hardening behavior: `/me` succeeds with a valid token, refresh rotates tokens, old access tokens are rejected after refresh, logout revokes the session, and refresh tokens are rejected after logout.
 - Verified repository coverage for revoking all active sessions after user password change, admin password reset, doctor/patient deactivation, user-status deactivation, and batch deactivation.
 - Verified the route-level tenant authorization audit and associated hardening exist for patient, doctor, admin, statistics, notification broadcast, audit-log read, and file access paths.
-- Verified Twilio Verify template TTL support locally and against Twilio; direct Verify start with template SID plus `ttl` substitution returned pending.
+- Verified Firebase ID-token validation, registered-phone binding, and app-side challenge expiry policy.
 - Verified formal API documentation artifacts now exist:
   - `backend/docs/api/openapi.yaml`
   - `backend/docs/api-reference.md`

@@ -56,7 +56,7 @@ describe('Notification delivery durability', () => {
       const redisUrl = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`
       ;(config as any).redisUrl = redisUrl
       ;(config as any).notificationDeliveryEnabled = true
-      resetNotificationQueueStateForTests()
+      await resetNotificationQueueStateForTests()
     } catch {
       redisContainer = null
       ;(config as any).redisUrl = ''
@@ -67,7 +67,7 @@ describe('Notification delivery durability', () => {
   afterAll(async () => {
     await stopNotificationDeliveryWorker()
     await closeNotificationDeliveryQueue()
-    resetNotificationQueueStateForTests()
+    await resetNotificationQueueStateForTests()
     ;(config as any).redisUrl = originalRedisUrl
     ;(config as any).notificationDeliveryEnabled = originalDeliveryEnabled
     ;(config as any).notificationDeliveryMaxAttempts = originalMaxAttempts
@@ -525,7 +525,7 @@ describe('Notification delivery durability', () => {
       body: notification.message,
     })
 
-    resetNotificationQueueStateForTests()
+    await resetNotificationQueueStateForTests()
     startNotificationDeliveryWorker()
     const published = await publishDeliveryJob(String(delivery._id))
     expect(published).toBe(true)

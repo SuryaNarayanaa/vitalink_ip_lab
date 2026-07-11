@@ -53,9 +53,6 @@ const OtpChallengeSchema = new mongoose.Schema({
     required: true,
     default: 'firebase_auth',
   },
-  provider_verification_sid: {
-    type: String,
-  },
   provider_status: {
     type: String,
   },

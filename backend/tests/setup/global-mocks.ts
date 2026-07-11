@@ -132,42 +132,12 @@ jest.mock('@alias/utils/fileUpload', () => {
     };
 });
 
-const mockTwilioVerifyPost = async (url: string) => {
-    if (url.includes('verify.twilio.com/v2') && url.includes('/Verifications')) {
-        return {
-            data: {
-                sid: 'test-verification-id',
-                status: 'pending',
-                channel: 'sms',
-                to: 'test-recipient',
-            },
-        };
-    }
-
-    if (url.includes('verify.twilio.com/v2') && url.includes('/VerificationCheck')) {
-        return {
-            data: {
-                sid: 'test-verification-id',
-                status: 'approved',
-                valid: true,
-                to: 'test-recipient',
-            },
-        };
-    }
-
-    throw new Error(`Unexpected axios.post call in tests: ${url}`);
-};
-
 const realAxiosCreate = axios.create.bind(axios);
 jest.spyOn(axios, 'create').mockImplementation((...args: Parameters<typeof axios.create>): AxiosInstance => {
     const instance = realAxiosCreate(...args);
     const realInstancePost = instance.post.bind(instance);
 
     jest.spyOn(instance, 'post').mockImplementation(async (url: string, ...postArgs: any[]) => {
-        if (url.includes('verify.twilio.com/v2')) {
-            return mockTwilioVerifyPost(url);
-        }
-
         const response = await realInstancePost(url, ...postArgs);
         const testPath = expect.getState().testPath || '';
         const shouldCompleteLegacyRouteLogin = (

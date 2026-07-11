@@ -124,9 +124,7 @@ export async function closeNotificationDeliveryQueue(): Promise<void> {
   queueInitFailed = false
 }
 
-/** Test helper to force re-init after env changes. */
-export function resetNotificationQueueStateForTests(): void {
-  queue = null
-  connectionOptions = null
-  queueInitFailed = false
+/** Test helper to force re-init after env changes without leaking Redis handles. */
+export async function resetNotificationQueueStateForTests(): Promise<void> {
+  await closeNotificationDeliveryQueue()
 }

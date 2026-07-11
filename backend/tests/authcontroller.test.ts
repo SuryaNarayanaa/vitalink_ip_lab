@@ -8,8 +8,6 @@ import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
 import { generateTotpCode } from '@alias/services/admin-totp.service';
 
-var mockStartVerification: jest.Mock;
-var mockCheckVerification: jest.Mock;
 var mockVerifyFirebasePhoneIdToken: jest.Mock;
 
 const expectNoMfaSecrets = (userPayload: any) => {
@@ -27,20 +25,6 @@ const expectNoMfaSecrets = (userPayload: any) => {
     expect(serialized).not.toContain('pending_secret_auth_tag');
     expect(serialized).not.toContain('last_verified_time_step');
 }
-
-jest.mock('@alias/services/twilio-verify.service', () => ({
-    __esModule: true,
-    maskPhoneNumber: (phoneNumber: string) => {
-        const digits = phoneNumber.replace(/\D/g, '');
-        if (digits.length <= 4) return '****';
-        return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
-    },
-    twilioVerifyService: {
-        startVerification: (mockStartVerification = jest.fn()),
-        checkVerification: (mockCheckVerification = jest.fn()),
-    },
-    TwilioVerifyService: jest.fn(),
-}));
 
 jest.mock('@alias/services/firebase-phone-auth.service', () => ({
     __esModule: true,
@@ -165,17 +149,7 @@ describe('Auth Routes', () => {
     });
 
     beforeEach(() => {
-        mockStartVerification.mockReset();
-        mockCheckVerification.mockReset();
         mockVerifyFirebasePhoneIdToken.mockReset();
-        mockStartVerification.mockResolvedValue({
-            sid: 'test-verification-id',
-            status: 'pending',
-        });
-        mockCheckVerification.mockResolvedValue({
-            status: 'approved',
-            valid: true,
-        });
         mockVerifyFirebasePhoneIdToken.mockImplementation(async (_token, phoneNumber) => ({
             uid: `firebase-${phoneNumber.replace(/\D/g, '')}`,
             phone_number: phoneNumber,
@@ -267,7 +241,6 @@ describe('Auth Routes', () => {
             expect(response.data.data.refresh_token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('admin-user');
             expectNoMfaSecrets(response.data.data.user);
-            expect(mockStartVerification).not.toHaveBeenCalled();
         });
 
         test('should setup and activate admin authenticator-app MFA without storing plaintext secret', async () => {
@@ -343,7 +316,6 @@ describe('Auth Routes', () => {
             expect(loginResponse.data.data.auth_status).toBe('TOTP_REQUIRED');
             expect(loginResponse.data.data.token).toBeUndefined();
             expect(loginResponse.data.data.challenge.factor_type).toBe('AUTHENTICATOR_APP');
-            expect(mockStartVerification).not.toHaveBeenCalled();
 
             const verifyResponse = await api.post('/api/auth/login/totp/verify', {
                 challenge_id: loginResponse.data.data.challenge.challenge_id,

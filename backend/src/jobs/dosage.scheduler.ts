@@ -45,6 +45,10 @@ export async function runDosageReminderPass(
 
   try {
     logger.info('[DosageScheduler] Running daily dosage reminder...')
+    // Concurrent scheduler instances must not race before Mongoose has finished
+    // creating the unique reminder_key index. `init()` is cached per model, so
+    // this is a one-time readiness barrier after each database connection.
+    await Notification.init()
     const { dayOfWeek, dueWindow } = reminderDateParts(now, config.dosageReminderTimezone)
     const patients = await PatientProfile.find({
       [`weekly_dosage.${dayOfWeek}`]: { $gt: 0 },

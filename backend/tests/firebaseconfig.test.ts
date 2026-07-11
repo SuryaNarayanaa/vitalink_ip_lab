@@ -33,4 +33,32 @@ describe('Firebase Auth config validation', () => {
 
     expect(() => require('@alias/config')).not.toThrow()
   })
+
+  test('reports Firebase Auth disabled without initializing credentials', () => {
+    process.env = {
+      ...originalEnv,
+      FIREBASE_AUTH_ENABLED: 'false',
+      FIREBASE_SERVICE_ACCOUNT: '',
+    }
+    jest.resetModules()
+
+    const { getFirebaseAuthHealth } = require('@alias/config/firebase.config')
+    expect(getFirebaseAuthHealth()).toEqual({ enabled: false, state: 'disabled' })
+  })
+
+  test('reports malformed Firebase Auth credentials as a readiness failure', () => {
+    process.env = {
+      ...originalEnv,
+      FIREBASE_AUTH_ENABLED: 'true',
+      FIREBASE_SERVICE_ACCOUNT: 'not-json',
+    }
+    jest.resetModules()
+
+    const { getFirebaseAuthHealth } = require('@alias/config/firebase.config')
+    expect(getFirebaseAuthHealth()).toEqual(expect.objectContaining({
+      enabled: true,
+      state: 'failed',
+      error: 'FIREBASE_SERVICE_ACCOUNT must be valid JSON',
+    }))
+  })
 })

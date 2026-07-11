@@ -25,12 +25,13 @@ import {
   completeFirebasePhoneVerificationChallenge,
   hashPhoneNumber,
   issueFirebasePhoneVerificationChallenge,
+  maskPhoneNumber,
   OtpResendBlockReason,
   OtpVerificationResult,
   resendFirebasePhoneVerificationChallenge,
 } from '@alias/services/otp.service'
-import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
 import { toFirebaseE164, verifyFirebasePhoneIdToken } from '@alias/services/firebase-phone-auth.service'
+import { isFirebaseAuthEnabled } from '@alias/config/firebase.config'
 import {
   createAuthSession,
   refreshAuthSession,
@@ -333,6 +334,13 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     }
 
     if (!isVerified) {
+      if (!isFirebaseAuthEnabled()) {
+        throw new ApiError(
+          StatusCodes.SERVICE_UNAVAILABLE,
+          'Phone verification is temporarily unavailable'
+        )
+      }
+
       await OtpChallenge.updateMany(
         {
           user_id: user._id,

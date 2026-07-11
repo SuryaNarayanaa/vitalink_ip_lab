@@ -47,10 +47,11 @@ export function getFirebaseAuth(): Auth {
     throw new Error('Firebase Authentication is disabled; set FIREBASE_AUTH_ENABLED=true')
   }
   if (authInstance) return authInstance
+  const app = initializeFirebaseApp()
   // Keep Auth lazy: firebase-admin/auth currently pulls an ESM-only JOSE
   // dependency that older Jest/CommonJS runners cannot parse at module load.
   const { getAuth } = require('firebase-admin/auth') as typeof import('firebase-admin/auth')
-  authInstance = getAuth(initializeFirebaseApp())
+  authInstance = getAuth(app)
   return authInstance
 }
 
@@ -86,6 +87,27 @@ export function getFirebaseMessagingHealth(): {
       enabled: true,
       state: 'failed',
       error: error instanceof Error ? error.message : 'Firebase initialization failed',
+    }
+  }
+}
+
+export function getFirebaseAuthHealth(): {
+  enabled: boolean
+  state: 'disabled' | 'initialized' | 'failed'
+  error?: string
+} {
+  if (!isFirebaseAuthEnabled()) {
+    return { enabled: false, state: 'disabled' }
+  }
+
+  try {
+    getFirebaseAuth()
+    return { enabled: true, state: 'initialized' }
+  } catch (error) {
+    return {
+      enabled: true,
+      state: 'failed',
+      error: error instanceof Error ? error.message : 'Firebase Auth initialization failed',
     }
   }
 }

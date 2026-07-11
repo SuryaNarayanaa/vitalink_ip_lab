@@ -39,12 +39,6 @@ interface Config {
   adminTotpChallengeExpiryMinutes: number
   adminTotpMaxAttempts: number
   refreshTokenExpiryDays: number
-  twilioAccountSid: string
-  twilioAuthToken: string
-  twilioVerifyServiceSid: string
-  twilioVerifyChannel: string
-  twilioVerifyTemplateSid: string
-  twilioVerifyTemplateTtlMinutes: number
   redisUrl: string
   notificationDeliveryEnabled: boolean
   notificationDeliveryMaxAttempts: number
@@ -253,12 +247,6 @@ export const config: Config = {
   adminTotpChallengeExpiryMinutes: getIntEnv('ADMIN_TOTP_CHALLENGE_EXPIRY_MINUTES', 5),
   adminTotpMaxAttempts: getIntEnv('ADMIN_TOTP_MAX_ATTEMPTS', 5),
   refreshTokenExpiryDays: getIntEnv('REFRESH_TOKEN_EXPIRY_DAYS', 30),
-  twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID'),
-  twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN'),
-  twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID'),
-  twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
-  twilioVerifyTemplateSid: getEnv('TWILIO_VERIFY_TEMPLATE_SID'),
-  twilioVerifyTemplateTtlMinutes: getIntEnv('TWILIO_VERIFY_TEMPLATE_TTL_MINUTES', getIntEnv('OTP_EXPIRY_MINUTES', 10)),
   redisUrl: getEnv('REDIS_URL', { defaultValue: isTest ? '' : '' }),
   notificationDeliveryEnabled: getBoolEnv('NOTIFICATION_DELIVERY_ENABLED', !isTest),
   notificationDeliveryMaxAttempts: getIntEnv('NOTIFICATION_DELIVERY_MAX_ATTEMPTS', 5),
