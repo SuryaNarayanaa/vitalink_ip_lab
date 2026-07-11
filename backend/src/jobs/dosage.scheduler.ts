@@ -1,10 +1,16 @@
 import cron from 'node-cron'
-import { Notification, PatientProfile, User } from '@alias/models'
+import Notification from '@alias/models/notification.model'
+import PatientProfile from '@alias/models/patientprofile.model'
+import User from '@alias/models/user.model'
 import { NotificationPriority, NotificationType } from '@alias/models/notification.model'
 import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
 import logger from '@alias/utils/logger'
 
 type PushEnqueuer = (input: Parameters<typeof enqueueNotificationPush>[0]) => Promise<boolean>
+
+function isTestRuntime(): boolean {
+  return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined || typeof (globalThis as { jest?: unknown }).jest !== 'undefined'
+}
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear()
@@ -54,10 +60,11 @@ export async function runDosageReminderPass(
         }
 
         let inserted = false
-        try {
-          const write = await Notification.updateOne(
-            { reminder_key: reminderKey },
-            { $setOnInsert: {
+        let notification = await Notification.findOne({ reminder_key: reminderKey }).lean()
+
+        if (!notification) {
+          try {
+            const created = await Notification.create({
               user_id: user._id,
               type: NotificationType.DOSAGE_REMINDER,
               priority: NotificationPriority.HIGH,
@@ -65,18 +72,18 @@ export async function runDosageReminderPass(
               message,
               data,
               reminder_key: reminderKey,
-            } },
-            { upsert: true }
-          )
-          inserted = write.upsertedCount === 1
-        } catch (error) {
-          // Concurrent upserts can race before the unique index resolves them.
-          const duplicate = typeof error === 'object' && error !== null &&
-            'code' in error && (error as { code?: number }).code === 11000
-          if (!duplicate) throw error
+            })
+            notification = created.toObject ? created.toObject() : created
+            inserted = true
+          } catch (error) {
+            const duplicate = typeof error === 'object' && error !== null &&
+              'code' in error && (error as { code?: number }).code === 11000
+            if (!duplicate) throw error
+
+            notification = await Notification.findOne({ reminder_key: reminderKey }).lean()
+          }
         }
 
-        const notification = await Notification.findOne({ reminder_key: reminderKey }).lean()
         if (!notification) throw new Error('Dosage notification could not be loaded')
 
         const persisted = await enqueuePush({
@@ -99,19 +106,25 @@ export async function runDosageReminderPass(
         }
       } catch (err) {
         failed += 1
-        logger.error(`[DosageScheduler] Failed for patient ${patient._id}`, { err })
+        logger.error(`[DosageScheduler] Failed for patient ${patient._id}`, {
+          err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+        })
       }
     }
   } catch (err) {
     failed += 1
-    logger.error('[DosageScheduler] Cron job failed', { err })
+    logger.error('[DosageScheduler] Cron job failed', {
+      err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+    })
   }
 
   return { created, skipped, failed }
 }
 
-cron.schedule('0 9 * * *', () => {
-  void runDosageReminderPass()
-})
+if (!isTestRuntime()) {
+  cron.schedule('0 9 * * *', () => {
+    void runDosageReminderPass()
+  })
 
-logger.info('[DosageScheduler] Dosage reminder cron registered - fires daily at 9:00 AM')
+  logger.info('[DosageScheduler] Dosage reminder cron registered - fires daily at 9:00 AM')
+}

@@ -91,6 +91,17 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
   const idempotencyKey = buildIdempotencyKey(input.notificationId)
   const maxAttempts = config.notificationDeliveryMaxAttempts
 
+  const existing = await NotificationDelivery.findOne({ idempotency_key: idempotencyKey }).lean()
+  if (existing) {
+    incrementDeliveryMetric('duplicate_suppressed')
+    logger.info('notification_delivery.duplicate_suppressed', {
+      deliveryId: String(existing._id),
+      notificationId: input.notificationId,
+      idempotencyKey,
+    })
+    return { delivery: existing, created: false as const }
+  }
+
   try {
     const created = await NotificationDelivery.create({
       notification_id: input.notificationId,
