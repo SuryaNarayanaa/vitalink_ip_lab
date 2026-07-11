@@ -2,6 +2,8 @@
 
 Date: 2026-07-06
 
+Last repository verification: 2026-07-10
+
 Status legend used below:
 
 - `[x]` Completed in the current codebase
@@ -36,6 +38,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 - JWT login, logout, `/me`, and password change exist.
 - Session-bound JWTs, hashed refresh-token persistence, refresh rotation, revoke, and logout revocation are implemented.
+- Password changes, admin password resets, and account deactivation now revoke all active sessions for the affected user.
 - Patient and doctor first-login phone OTP verification is implemented through Twilio Verify.
 - Admin authenticator-app MFA enrollment, activation, login challenge, and Flutter setup/login verification UI are implemented.
 - Password hashing uses per-user salt.
@@ -91,6 +94,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 - Tests use Testcontainers and MongoDB.
 - Current local verification: `npm run build` passes.
 - Current local test run could not execute because no working container runtime is available for Testcontainers.
+- GitHub Actions now runs the backend build and full Jest/Testcontainers suite; the workflow passed for repository HEAD `7aec2a0` on 2026-07-10.
 
 ## Missing or Incomplete Against the Requirements
 
@@ -117,6 +121,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[x]` Failed-login counters and temporary account lockout are now implemented in `User` plus auth controller logic.
    - `[x]` Login throttling is now applied in Express and Nginx; global API limiter and stricter auth limiter are active in `backend/src/app.ts`.
    - `[x]` Refresh-token/session invalidation is implemented with persisted auth sessions, hashed refresh tokens, refresh rotation, revoke, logout revocation, and admin password-reset revocation.
+   - `[x]` Password changes and account deactivation also revoke active sessions, including doctor/patient deactivation and admin batch deactivation.
    - `[x]` Password expiry/history is implemented with configurable defaults, salted/hashed password-history entries, login/`me` policy state, and enforcement on password change/reset.
    - `[x]` Login-attempt telemetry now records IP plus normalized login ID in auth audit metadata for matched users, with structured unmatched-user warnings for forensic correlation.
 
@@ -156,16 +161,17 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 5. Testing strategy
    - `[~]` Tests exist, but require Docker/Testcontainers.
-   - `[ ]` Missing documented CI prerequisites, frontend test gate, e2e tests, security tests, load tests, and file-upload integration tests against staging storage.
+   - `[x]` Backend GitHub Actions CI provisions a Docker-capable Ubuntu runner and runs the full Jest/Testcontainers suite; the latest repository HEAD passed.
+   - `[ ]` Missing frontend test gate, e2e tests, security tests, load tests, and file-upload integration tests against staging storage.
    - `[~]` Further implementation needed:
-     - Add CI workflow that provisions Docker/Testcontainers correctly.
      - Add local fallback test profile or document container runtime requirement clearly.
      - Continue tightening OpenAPI lint warnings beyond the structural validation gate.
 
 6. Multi-tenancy completeness
-   - `[~]` Hospital tenant fields and admin service checks exist.
-   - `[ ]` Need policy middleware/centralized authorization for every resource access, especially doctor/patient routes and file access metadata.
-   - `[ ]` Need tenant-scoped audit and export controls.
+   - `[x]` A route-by-route tenant authorization audit is checked in at `backend/docs/tenant-authorization-audit.md`.
+   - `[x]` Patient, doctor, admin, statistics, notification broadcast, audit-log read, and current file-access paths are tenant-scoped and covered by backend tests.
+   - `[~]` Authorization is enforced across controllers and services, but should be consolidated into reusable policy middleware as the route surface grows.
+   - `[ ]` Need tenant-scoped data export controls and normalized tenant metadata on file assets.
 
 7. Scalability roadmap
    - `[~]` This document now includes a clearer phased roadmap for queues, notification delivery, compliance, monitoring, and staging.
@@ -206,13 +212,13 @@ Deliverables:
 - `[x]` Add a Swagger UI docs route with environment controls and optional basic auth in `backend/src/routes/docs.routes.ts`.
 - `[x]` Create `docs/architecture.md` with architecture diagram and data-flow diagram.
 - `[ ]` Create `docs/environments.md` for Dev/UAT/Prod and test/staging app configuration.
-- `[ ]` Make CI capable of running Testcontainers, or add an alternate `mongodb-memory-server` test profile for local development.
+- `[x]` Make CI capable of running Testcontainers; backend CI now runs the full Jest suite on a Docker-capable Ubuntu runner.
 - `[x]` Add OpenAPI validation/linting to CI so invalid spec changes are caught automatically.
 
 Acceptance:
 
 - `[x]` Backend build passes.
-- `[ ]` Existing Jest suite runs in CI.
+- `[x]` Existing Jest suite runs successfully in CI at repository HEAD `7aec2a0`.
 - `[ ]` Frontend `flutter test` and analyzer are added to CI.
 - `[~]` OpenAPI now covers the implemented route surface at a useful level, but should still be tightened continuously as controllers evolve.
 - `[x]` Backend CI validates `backend/docs/api/openapi.yaml` with Redocly before build/tests.
@@ -234,6 +240,7 @@ Deliverables:
   - `[x]` Refresh token rotation.
   - `[x]` Logout invalidates the active session and refresh token.
   - `[x]` Admin password reset invalidates active target-user sessions and records the invalidation count in audit metadata.
+  - `[x]` User password change and account deactivation invalidate all active sessions for the affected user.
 - `[ ]` Move production secrets to AWS SSM/Secrets Manager or equivalent.
 - `[~]` Expand audit logging to auth success/failure, doctor changes, patient report upload, file access, data export, and password changes.
   - Auth success/failure is now audited.
@@ -245,41 +252,41 @@ Acceptance:
 - `[~]` Lockout and throttling are implemented; automated verification coverage should be strengthened.
 - `[~]` Sensitive body/query fields are redacted in request URL logs and admin audit bodies; keep extending this as new logging surfaces are added.
 - `[x]` Session invalidation verified for refresh rotation and logout.
-- `[~]` Auth hardening verification runbook exists at `backend/docs/auth-hardening-verification.md`; local integration execution still requires Docker/Testcontainers.
+- `[x]` Auth hardening verification runbook exists at `backend/docs/auth-hardening-verification.md`, and the backend integration suite passes in GitHub Actions; local integration execution still requires Docker/Testcontainers.
 
 ### Phase 2: File Upload Hardening
 
 Existing upload is a good start. Harden it before scaling:
 
-- Add a FileAsset model:
+- `[ ]` Add a FileAsset model:
   - tenant/hospital ID
   - owner user ID
   - patient profile ID
   - purpose: INR_REPORT, PROFILE_PICTURE, etc.
   - storage provider, bucket, key, MIME, size, checksum, upload status
   - created_by, deleted_at, retention/delete eligibility
-- Change upload keys to include tenant and patient IDs:
-  - `hospitals/{hospitalId}/patients/{patientId}/reports/{uuid}.pdf`
-  - `hospitals/{hospitalId}/profiles/{userId}/{uuid}.webp`
-- Use UUID/crypto-random keys instead of `Math.random`.
-- Verify file magic bytes, not just client MIME type.
-- Add optional virus/malware scan hook for production uploads.
-- Keep file upload size limits:
+- `[~]` Upload keys now include hospital and patient/user ownership, but records without hospital metadata still use an `unassigned` segment:
+  - `hospitals/{hospitalId}/patients/{patientId}/reports/{generatedFileName}`
+  - `hospitals/{hospitalId}/profiles/{userId}/{generatedFileName}`
+- `[ ]` Use UUID/crypto-random keys instead of `Math.random`.
+- `[ ]` Verify file magic bytes, not just client MIME type.
+- `[ ]` Add optional virus/malware scan hook for production uploads.
+- `[x]` Keep file upload size limits:
   - INR report: 10 MB
   - profile image: 5 MB
   - revisit only after real usage data.
-- Add object lifecycle:
+- `[ ]` Add object lifecycle:
   - active reports in S3 Standard
   - older reports to Standard-IA or Glacier after policy-approved window
   - hard deletion only after retention rules allow it.
-- Add file deletion/purge workflow when patient data is purged.
+- `[ ]` Add file deletion/purge workflow when patient data is purged.
 
 Acceptance:
 
-- Uploads are tenant-scoped.
-- Doctor/admin cannot access another tenant's files.
-- File metadata survives even if object key changes.
-- Presigned URLs expire quickly and are never stored in DB.
+- `[~]` Uploads use hospital and owner segments in object keys; the FileAsset migration must eliminate the `unassigned` fallback for new uploads.
+- `[x]` Current patient/doctor file reads enforce ownership and hospital scope.
+- `[ ]` File metadata survives even if object key changes.
+- `[~]` Presigned GET URLs expire after one hour and are generated on demand; database fields retain object keys, not signed URLs. The final expiry policy still needs to be documented.
 
 ### Phase 3: Notification and Reminder Reliability
 
@@ -400,6 +407,62 @@ Acceptance:
 - Staging uses no production patient data.
 - Release checklist requires staging smoke pass.
 
+## Next Workable Unit: FileAsset Foundation and Safe Upload Metadata
+
+This is the next bounded unit after tenant authorization hardening. It normalizes file ownership and storage metadata without changing the Flutter upload contract or requiring the later retention, malware-scanning, and purge-policy decisions.
+
+### Goal
+
+Every new INR report and profile image has a tenant-scoped `FileAsset` record, a cryptographically random object key, a server-computed checksum, and content validation based on file bytes. Existing records that contain only an object key continue to download during migration.
+
+### Implementation Steps
+
+1. `[ ]` Define `FileAsset` and storage enums.
+   - Add `backend/src/models/fileasset.model.ts` and export it from `backend/src/models/index.ts`.
+   - Store `hospital_id`, `owner_user_id`, optional `patient_profile_id`, purpose, provider, bucket, object key, original filename, detected MIME, byte size, SHA-256 checksum, status, creator, timestamps, and soft-delete/retention fields.
+   - Add indexes for tenant/purpose/date, owner/date, patient/date, unique bucket/object key, and status.
+
+2. `[ ]` Harden the shared upload utility.
+   - Replace `Math.random` naming with `crypto.randomUUID()` while preserving a safe detected extension.
+   - Detect PDF/PNG/JPEG/WEBP from magic bytes and reject MIME/content mismatches before requesting an upload URL.
+   - Compute SHA-256 from the server-side buffer.
+   - Return structured upload metadata instead of only the object key.
+   - Add object deletion support so a successful object upload can be compensated if the database write fails.
+
+3. `[ ]` Integrate metadata writes without breaking existing API responses.
+   - Create a `FileAsset` after storage upload and before committing the owning profile/report update.
+   - Add `file_asset_id` references to INR history entries and patient/doctor profile images while temporarily retaining the existing `file_url` object-key fields.
+   - On persistence failure, delete the newly uploaded object or mark the asset `FAILED` if cleanup fails.
+   - Continue generating presigned GET URLs at response time so Flutter clients require no immediate changes.
+
+4. `[ ]` Enforce asset ownership on download resolution.
+   - Resolve new downloads through `FileAsset` using hospital, owner/patient, purpose, and active-status filters.
+   - Preserve a clearly isolated legacy fallback for records without `file_asset_id`.
+   - Never accept an arbitrary object key from a request as authorization to sign a download.
+
+5. `[ ]` Add backfill and tests.
+   - Add an idempotent dry-run-first migration script that creates asset records for existing INR and profile object keys and then attaches `file_asset_id` references.
+   - Unit-test UUID keys, extension sanitization, byte-signature detection, checksum output, mismatch rejection, and cleanup behavior.
+   - Extend patient/doctor integration tests for metadata creation, same-tenant download, cross-tenant denial, failed database writes, and legacy fallback.
+   - Update OpenAPI, `backend/docs/api-reference.md`, and `backend/docs/data-model.md` in the same change.
+
+### Acceptance Gate
+
+- `[ ]` `npm run lint:openapi`, `npm run build`, and the full backend Jest suite pass in CI.
+- `[ ]` New uploads contain no `Math.random`-derived key segments and reject spoofed MIME types.
+- `[ ]` Each successful new upload has exactly one active `FileAsset` with matching size and SHA-256 checksum.
+- `[ ]` Cross-tenant asset lookup returns `403` or `404` and never creates a presigned URL.
+- `[ ]` A database failure after object upload does not leave an untracked active object.
+- `[ ]` Existing legacy report and profile-image records remain readable during the migration window.
+
+### Explicitly Deferred From This Unit
+
+- Malware scanning worker/provider integration.
+- S3 lifecycle and archival rules.
+- Patient purge/deletion orchestration.
+- Admin file-management UI.
+- Direct-to-S3 client uploads.
+
 ## 500-Patient Capacity Plan
 
 ### Assumptions
@@ -489,13 +552,13 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 ### Must Do Before Clinical Production
 
 1. `[x]` MFA for admins plus refresh-token/session invalidation.
-2. Tenant authorization audit across all routes.
+2. `[x]` Tenant authorization audit and hardening across the current route surface.
 3. File metadata model and tenant-scoped file access.
 4. Backup/restore/DR runbook and first restore drill.
 5. Monitoring/alerting dashboard.
 6. Notification reliability design for reminders.
 7. Retention, consent, export, and purge policy.
-8. CI test environment that actually runs the existing Jest suite.
+8. `[x]` CI test environment that runs the existing Jest/Testcontainers suite.
 9. OpenAPI operational ownership for keeping docs current and resolving remaining lint warnings.
 
 ### Should Do Before 500 Patients
@@ -521,10 +584,13 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Read current backend, frontend, and deployment source.
 - Ran `npm run build` in `backend`: passed.
 - Ran `npm test -- --runInBand` in `backend`: failed because Testcontainers could not find a working container runtime strategy on this machine.
-- Latest local Jest attempt also surfaced an existing `twilioconfig.test.ts` expectation mismatch: staging config now fails first on missing `ADMIN_TOTP_ENCRYPTION_KEY` before the Twilio Verify variables asserted by that test.
+- Verified GitHub Actions backend CI passed at repository HEAD `7aec2a0` on 2026-07-10, including OpenAPI lint, TypeScript build, and the Jest/Testcontainers suite.
+- Verified the earlier `twilioconfig.test.ts` staging expectation mismatch was fixed by isolating the Twilio environment-variable assertions.
 - Added Redocly OpenAPI validation to backend CI and verified `npm run lint:openapi` passes for `backend/docs/api/openapi.yaml` with existing style warnings.
 - Verified first-login phone OTP and Twilio Verify integration on deployed doctor flow, including successful OTP completion and subsequent normal login.
 - Verified deployed session hardening behavior: `/me` succeeds with a valid token, refresh rotates tokens, old access tokens are rejected after refresh, logout revokes the session, and refresh tokens are rejected after logout.
+- Verified repository coverage for revoking all active sessions after user password change, admin password reset, doctor/patient deactivation, user-status deactivation, and batch deactivation.
+- Verified the route-level tenant authorization audit and associated hardening exist for patient, doctor, admin, statistics, notification broadcast, audit-log read, and file access paths.
 - Verified Twilio Verify template TTL support locally and against Twilio; direct Verify start with template SID plus `ttl` substitution returned pending.
 - Verified formal API documentation artifacts now exist:
   - `backend/docs/api/openapi.yaml`
@@ -545,6 +611,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Human-readable API contract: `backend/docs/api-reference.md`
 - Data model documentation: `backend/docs/data-model.md`
 - Architecture documentation: `backend/docs/architecture.md`
+- Tenant authorization audit: `backend/docs/tenant-authorization-audit.md`
 - Patient report routes and upload limits: `backend/src/routes/patient.routes.ts`
 - Patient upload/download controller logic: `backend/src/controllers/patient.controller.ts`
 - S3-compatible upload utilities: `backend/src/utils/fileUpload.ts`
