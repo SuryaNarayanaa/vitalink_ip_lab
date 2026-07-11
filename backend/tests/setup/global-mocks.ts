@@ -3,9 +3,10 @@ import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { createHash } from 'crypto';
 
+process.env.FIREBASE_AUTH_ENABLED = 'true';
+
 const TEST_BUCKET = 'mock-filebase-bucket';
 let keyCounter = 0;
-
 const sanitizeBaseName = (filename: string): string => {
     const ext = path.extname(filename).toLowerCase();
     return path
