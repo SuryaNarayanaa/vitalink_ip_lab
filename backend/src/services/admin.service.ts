@@ -410,6 +410,7 @@ export async function registerDoctor(data: {
   name: string
   department?: string
   contact_number: string
+  profile_picture_url?: string
   hospital_id?: string
   hospital?: string
 }, actorUserId?: string) {
@@ -537,6 +538,7 @@ export async function updateDoctor(
       profileUpdate.phone_verification = { status: 'PENDING' }
     }
   }
+  if (data.profile_picture_url !== undefined) profileUpdate.profile_picture_url = data.profile_picture_url
   if (data.hospital_id || data.hospital) {
     profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
     ensureTenantAccess(ctx, profileUpdate.hospital_id)
