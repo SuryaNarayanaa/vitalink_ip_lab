@@ -41,9 +41,13 @@ describe('Device token ownership', () => {
     }))
     jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast } as any)
 
-    await sendPushToUser('user-a', { title: 'Private update', body: 'A' })
-    await sendPushToUser('user-b', { title: 'Private update', body: 'B' })
+    const resultA = await sendPushToUser('user-a', { title: 'Private update', body: 'A' })
+    const resultB = await sendPushToUser('user-b', { title: 'Private update', body: 'B' })
 
+    expect(resultA.skipped).toBe(true)
+    expect(resultA.skipReason).toBe('no_tokens')
+    expect(resultB.success).toBe(true)
+    expect(resultB.skipped).toBe(false)
     expect(sendEachForMulticast).toHaveBeenCalledTimes(1)
     expect(sendEachForMulticast).toHaveBeenCalledWith(expect.objectContaining({ tokens: ['physical-token'] }))
   })
@@ -95,8 +99,10 @@ describe('Device token ownership', () => {
     }))
     jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast } as any)
 
-    await sendPushToUser('user-a', { title: 'Stale push', body: 'should not disable B' })
+    const result = await sendPushToUser('user-a', { title: 'Stale push', body: 'should not disable B' })
 
+    expect(result.success).toBe(true)
+    expect(result.permanentFailures).toBe(1)
     expect(records.get('physical-token').user_id).toBe('user-b')
     expect(records.get('physical-token').is_active).toBe(true)
     expect(DeviceToken.updateOne).toHaveBeenCalledWith(

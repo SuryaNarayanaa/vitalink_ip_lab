@@ -43,10 +43,15 @@ flowchart LR
     Twilio["Twilio Verify\nSMS OTP"]
   end
 
-  subgraph Planned["Planned / not implemented"]
+  subgraph Async["Async delivery"]
+    Redis["Redis + BullMQ\nnotification-delivery queue"]
+    Outbox["NotificationDelivery outbox\nMongoDB status + retries"]
     FCM["Firebase Cloud Messaging\nmobile push"]
+  end
+
+  subgraph Planned["Planned / not implemented"]
     Monitoring["Metrics, alerting,\ndashboards, SLOs"]
-    Queue["Async jobs / queue\nretries and fanout"]
+    ReminderQueue["Scheduled dosage / INR\nreminder jobs"]
   end
 
   FlutterMobile -->|HTTPS JSON, bearer JWT| Nginx
@@ -76,9 +81,12 @@ flowchart LR
   Patient -->|presigned PUT/GET helpers| Filebase
   Doctor -->|presigned GET helpers| Filebase
 
-  Patient -.future push delivery.-> FCM
-  Doctor -.future push delivery.-> FCM
-  Admin -.future async fanout.-> Queue
+  Patient --> Outbox
+  Doctor --> Outbox
+  Outbox --> Redis
+  Redis --> FCM
+  Outbox -.recovery poller when Redis down.-> FCM
+  Admin -.future async fanout.-> ReminderQueue
   Health -.future telemetry.-> Monitoring
 ```
 
@@ -188,21 +196,35 @@ sequenceDiagram
   participant API as Express API
   participant DB as MongoDB
   participant Stream as In-process SSE registry
+  participant Queue as BullMQ / Redis
+  participant Worker as Delivery worker
   participant Client as Flutter patient/doctor client
-  participant FCM as Firebase Cloud Messaging (planned)
+  participant FCM as Firebase Cloud Messaging
 
   Client->>API: GET notifications/stream
   API->>Stream: Register response by user id
   Stream-->>Client: connected event + heartbeat pings
 
   AdminDoctor->>API: Broadcast, reassignment, dosage, report, or review update
-  API->>DB: Insert notification or doctor update event
+  API->>DB: Insert in-app notification
   API->>Stream: Publish event to connected user streams
   Stream-->>Client: notification or doctor_update event
+  API->>DB: Insert NotificationDelivery outbox row (PENDING)
+  API->>Queue: Best-effort enqueue delivery job
+  Note over API,Queue: HTTP returns success even if queue or FCM is down
+  Queue->>Worker: deliver(job)
+  Worker->>DB: Claim delivery (PROCESSING)
+  Worker->>FCM: sendEachForMulticast
+  alt success
+    Worker->>DB: SUCCEEDED + provider_message_id
+  else transient failure
+    Worker->>DB: FAILED_RETRYABLE + next_attempt_at
+    Worker->>Queue: re-enqueue with exponential backoff
+  else exhausted retries
+    Worker->>DB: DEAD_LETTER + sanitized last_error
+  end
   Client->>API: GET notifications / mark read
   API->>DB: Query or update notification read state
-
-  API-.planned.->>FCM: Send mobile/background push with retries
 ```
 
 ## Operational Notes
@@ -216,5 +238,11 @@ sequenceDiagram
 - SSE streams are currently process-local. In a multi-container deployment,
   clients must stay connected to the active upstream process that owns their
   stream; cross-process fanout is a future queue/pub-sub concern.
-- Firebase Cloud Messaging, delivery retries, monitoring dashboards, alerting,
-  and SLO reporting are roadmap placeholders, not implemented backend services.
+- Firebase Cloud Messaging is integrated behind `FCM_ENABLED`. Doctor-update
+  pushes are written to a durable `NotificationDelivery` outbox and processed by
+  a BullMQ worker when `REDIS_URL` is set. Mongo owns attempts, backoff,
+  dead-letter state, and retention TTL. If Redis is unavailable the outbox row
+  remains queryable and a recovery poller drains due rows best-effort.
+- Monitoring dashboards, alerting, and SLO reporting remain roadmap items.
+  In-process delivery counters and structured logs (`notification_delivery.*`)
+  provide baseline operational visibility.

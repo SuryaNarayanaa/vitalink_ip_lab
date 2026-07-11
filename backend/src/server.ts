@@ -6,6 +6,9 @@ import { Server } from "http";
 import logger from './utils/logger'
 import '@alias/jobs/dosage.scheduler'  
 import { initializeFirebaseMessaging } from '@alias/config/firebase.config'
+import { startNotificationDeliveryWorker, stopNotificationDeliveryWorker } from '@alias/jobs/notification-delivery.worker'
+import { startNotificationDeliveryRecovery, stopNotificationDeliveryRecovery } from '@alias/jobs/notification-delivery.recovery'
+import { closeNotificationDeliveryQueue } from '@alias/jobs/notification-delivery.queue'
 
 let server: Server | null = null;
 let shuttingDown = false;
@@ -17,6 +20,10 @@ async function shutdown(signal: string) {
   logger.info(`${signal} received. Shutting down gracefully.`);
 
   try {
+    stopNotificationDeliveryRecovery()
+    await stopNotificationDeliveryWorker()
+    await closeNotificationDeliveryQueue()
+
     await new Promise<void>((resolve, reject) => {
       if (!server) {
         resolve();
@@ -50,6 +57,8 @@ async function startServer() {
   try {
     initializeFirebaseMessaging()
     await connectDB();
+    startNotificationDeliveryWorker()
+    startNotificationDeliveryRecovery()
     server = app.listen(PORT, () => {
       logger.info(`Server is running on port ${PORT}`);
     });

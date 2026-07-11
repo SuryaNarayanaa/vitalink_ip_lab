@@ -8,7 +8,7 @@ import { Server } from 'http';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import client from '@alias/config/s3-client'
 import { config } from '@alias/config'
-import * as fcmService from '@alias/services/fcm.service'
+import * as notificationDeliveryService from '@alias/services/notification-delivery.service'
 
 describe('Doctor Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -660,9 +660,9 @@ describe('Doctor Routes', () => {
         });
 
         test('should keep a persisted report update successful when FCM delivery fails', async () => {
-            const sendPushSpy = jest
-                .spyOn(fcmService, 'sendPushToUser')
-                .mockRejectedValueOnce(new Error('FCM unavailable'));
+            const enqueueSpy = jest
+                .spyOn(notificationDeliveryService, 'enqueueNotificationPush')
+                .mockRejectedValueOnce(new Error('queue unavailable'));
 
             try {
                 const response = await api.put(`/api/doctors/patients/PAT001/reports/${reportId}`, {
@@ -672,7 +672,7 @@ describe('Doctor Routes', () => {
                 });
 
                 expect(response.status).toBe(200);
-                expect(sendPushSpy).toHaveBeenCalled();
+                expect(enqueueSpy).toHaveBeenCalled();
                 const persistedPatient = await PatientProfile.findById(patientProfile._id);
                 expect(persistedPatient?.inr_history.id(reportId)?.notes).toBe('Persist despite push failure');
                 expect(await Notification.findOne({
@@ -681,7 +681,7 @@ describe('Doctor Routes', () => {
                     'data.change_type': 'REPORT_UPDATED',
                 })).not.toBeNull();
             } finally {
-                sendPushSpy.mockRestore();
+                enqueueSpy.mockRestore();
             }
         });
 

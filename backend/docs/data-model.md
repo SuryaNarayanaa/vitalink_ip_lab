@@ -384,6 +384,34 @@ Key fields:
 | `action_url` | string | No | Optional deep link |
 | `expires_at` | date | No | Used by TTL auto-expiry index |
 
+### `notificationdeliveries`
+
+Durable push-delivery outbox. One row per in-app notification + channel + provider.
+Clinical HTTP paths write this row after the in-app notification; a BullMQ worker
+(or recovery poller) performs FCM send, retries, and dead-letter transitions.
+
+Key fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `notification_id` | ObjectId | Yes | Parent in-app notification |
+| `user_id` | ObjectId | Yes | Push recipient |
+| `channel` | enum | Yes | Currently `FCM` |
+| `provider` | enum | Yes | Currently `FIREBASE` |
+| `status` | enum | Yes | `PENDING`, `QUEUED`, `PROCESSING`, `SUCCEEDED`, `FAILED_RETRYABLE`, `DEAD_LETTER`, `SKIPPED` |
+| `attempts` | number | No | Successful claim count |
+| `max_attempts` | number | No | Default 5; exhausted rows become `DEAD_LETTER` |
+| `next_attempt_at` | date | No | Due time for claim/retry |
+| `provider_message_id` | string | No | First FCM message id on success |
+| `last_error` | string | No | Sanitized, max 500 chars; no tokens/secrets |
+| `idempotency_key` | string | Yes | Unique `{notificationId}:FCM:FIREBASE` |
+| `title` / `body` | string | Yes | Push copy (length-capped) |
+| `data` | map of string | No | FCM data payload only |
+| `completed_at` | date | No | Set on terminal status |
+| `expires_at` | date | Yes | TTL retention (default 30 days) |
+
+Indexes: unique `idempotency_key`; `{ status, next_attempt_at }`; TTL on `expires_at`.
+
 ### `auditlogs`
 
 Security and operational audit trail for admin and authentication activity.
