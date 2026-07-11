@@ -4,6 +4,9 @@ import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
+import { Notification, NotificationDelivery } from '@alias/models'
+import { getTenantUserIdsForAdmin } from '@alias/services/admin.service'
+import { getDeliveryMetrics } from '@alias/services/notification-delivery.metrics'
 
 // ─── Doctor Management ───
 
@@ -122,6 +125,30 @@ export const performBatchOperation = asyncHandler(async (req: Request, res: Resp
 export const getSystemHealth = asyncHandler(async (req: Request, res: Response) => {
   const health = await adminService.getSystemHealth()
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'System health', health))
+})
+
+/** Reminder-only operational health, scoped to the requesting admin's tenant. */
+export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: Response) => {
+  const tenantUserIds = await getTenantUserIdsForAdmin(req.user?.user_id)
+  const reminderTypes = ['DOSAGE_REMINDER', 'INR_REMINDER', 'APPOINTMENT_REMINDER', 'CRITICAL_ALERT']
+  const notificationQuery: any = { type: { $in: reminderTypes } }
+  if (tenantUserIds) notificationQuery.user_id = { $in: tenantUserIds }
+  const notifications = await Notification.find(notificationQuery).select('_id type createdAt').lean()
+  const notificationIds = notifications.map((row) => row._id)
+  const deliveries = notificationIds.length
+    ? await NotificationDelivery.find({ notification_id: { $in: notificationIds } }).select('status notification_id next_attempt_at').lean()
+    : []
+  const byStatus: Record<string, number> = {}
+  for (const row of deliveries) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const overdue = deliveries.filter((row) => ['PENDING', 'QUEUED', 'FAILED_RETRYABLE'].includes(row.status) && row.next_attempt_at <= new Date()).length
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Reminder delivery health', {
+    remindersLast24Hours: notifications.filter((row) => row.createdAt >= twentyFourHoursAgo).length,
+    totalReminders: notifications.length,
+    deliveriesByStatus: byStatus,
+    overdueDeliveries: overdue,
+    processMetrics: getDeliveryMetrics(),
+  }))
 })
 
 // ─── Legacy Endpoints ───

@@ -76,7 +76,7 @@ class _DashboardTab extends StatelessWidget {
                       onRetry: () => query.refetch(),
                       title: 'Could not load dashboard',
                     )
-                  : _DashboardContent(stats: query.data),
+                  : _DashboardContent(stats: query.data, repo: repo),
         );
 
         if (AdminScaffold.showsSidebar(context)) {
@@ -119,7 +119,8 @@ class _ScrollableCentered extends StatelessWidget {
 
 class _DashboardContent extends StatelessWidget {
   final AdminStatsModel? stats;
-  const _DashboardContent({this.stats});
+  final AdminRepository repo;
+  const _DashboardContent({this.stats, required this.repo});
 
   @override
   Widget build(BuildContext context) {
@@ -220,6 +221,8 @@ class _DashboardContent extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 24),
+        _ReminderDeliveryHealthCard(repo: repo),
       ],
     );
   }
@@ -242,6 +245,98 @@ class _DashboardContent extends StatelessWidget {
     ];
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
+}
+
+class _ReminderDeliveryHealthCard extends StatelessWidget {
+  const _ReminderDeliveryHealthCard({required this.repo});
+  final AdminRepository repo;
+
+  @override
+  Widget build(BuildContext context) {
+    return UseQuery<Map<String, dynamic>>(
+      options: QueryOptions<Map<String, dynamic>>(
+        queryKey: const ['admin', 'reminder-delivery-health'],
+        queryFn: repo.getReminderDeliveryHealth,
+      ),
+      builder: (context, query) {
+        final data = query.data ?? const <String, dynamic>{};
+        final status =
+            data['deliveriesByStatus'] as Map<String, dynamic>? ?? const {};
+        final overdue = (data['overdueDeliveries'] as num?)?.toInt() ?? 0;
+        final recent = (data['remindersLast24Hours'] as num?)?.toInt() ?? 0;
+        final scheme = Theme.of(context).colorScheme;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Icon(Icons.notifications_active_outlined,
+                      color: overdue > 0 ? scheme.error : scheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text('Reminder delivery health',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700))),
+                  IconButton(
+                      onPressed: query.refetch,
+                      tooltip: 'Refresh reminder health',
+                      icon: const Icon(Icons.refresh)),
+                ]),
+                const SizedBox(height: 8),
+                if (query.isLoading)
+                  const LinearProgressIndicator()
+                else if (query.isError)
+                  Text('Unable to load delivery health. Refresh to try again.',
+                      style: TextStyle(color: scheme.error))
+                else
+                  Row(children: [
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Sent today',
+                            value: '$recent',
+                            color: scheme.primary)),
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Delivered',
+                            value: '${status['SUCCEEDED'] ?? 0}',
+                            color: Colors.green)),
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Needs attention',
+                            value: '$overdue',
+                            color: overdue > 0
+                                ? scheme.error
+                                : scheme.onSurfaceVariant)),
+                  ]),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ReminderMetric extends StatelessWidget {
+  const _ReminderMetric(
+      {required this.label, required this.value, required this.color});
+  final String label;
+  final String value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w800, color: color)),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ]);
 }
 
 class _StatsCard extends StatelessWidget {

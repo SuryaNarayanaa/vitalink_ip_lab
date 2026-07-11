@@ -197,7 +197,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing consent model, data export workflow, deletion request workflow, governance policy, and admin access justification.
 
 3. Notification reliability
-   - `[~]` FCM delivery, global device-token ownership, durable outbox/worker, retries, dead-letter tracking, and idempotent daily dosage reminders exist. INR-test reminders, next-review reminders, and missed-dose escalation remain missing.
+   - `[x]` FCM delivery, global device-token ownership, durable outbox/worker, retries, dead-letter tracking, and the daily clinical-reminder suite (dosage, INR, next-review, and missed-dose escalation) are implemented. A tenant-scoped admin delivery-health view exposes reminder delivery status and overdue work.
 
 4. Audit log requirements
    - `[~]` Audit logs exist.
@@ -313,18 +313,22 @@ Deliverables:
 - `[x]` Add a job queue:
   - BullMQ + Redis worker with Mongo-owned retries, recovery poller when Redis is down.
 - `[~]` Add scheduled jobs:
-  - `[x]` Daily dosage reminders, with an idempotent per-patient/per-day key and durable push outbox entry.
-  - `[ ]` INR test reminders.
-  - `[ ]` Next-review reminders.
-  - `[ ]` Missed-dose escalation.
+  - `[x]` Daily dosage reminders are complete end to end: an IANA-timezone-configured cron pass selects due active patients, creates one idempotent in-app notification per patient/day, publishes it to active SSE clients, persists a durable FCM outbox record, retries/dead-letters delivery, and opens the patient's dosage task when the Android notification is tapped.
 - `[x]` Add retry and dead-letter handling.
 - `[x]` Keep SSE/in-app notifications as immediate UI channel and use FCM for mobile/background delivery where enabled.
 
 Acceptance:
 
-- `[x]` A dosage reminder creates an in-app notification and a durable push-delivery record, with duplicate suppression and missing-outbox repair.
+- `[x]` A dosage reminder creates an in-app/SSE notification and a durable push-delivery record, with duplicate suppression, missing-outbox repair, and Android tap-through to the dosage task.
 - `[x]` Push-delivery failures retry and eventually land in dead-letter state.
 - `[~]` Delivery metrics and structured logs exist; an operations-facing dashboard or metrics endpoint is still needed.
+
+#### Completed follow-up
+
+- `[x]` INR reminders run when the latest INR result (or therapy start) is at least the configured interval old; default: 30 days.
+- `[x]` Next-review reminders run for reviews in the configured lead window; default: 7 days.
+- `[x]` Missed-dose escalation runs after the configured number of missed scheduled doses in the configured lookback window; default: 2 doses in 7 days, notifying both the patient and assigned doctor.
+- `[x]` Admin reminder-delivery health dashboard reports recent reminders, successful deliveries, and overdue delivery work within the admin's tenant.
 
 ### Phase 4: Compliance, Retention, and Data Governance
 
@@ -500,9 +504,9 @@ Persist each push attempt, deliver it asynchronously, retry transient provider f
 - `[x]` Exhausted deliveries enter a queryable dead-letter state with no sensitive provider payload leakage.
 - `[x]` Build, OpenAPI lint, unit tests, and Docker/Testcontainers integration tests pass in CI.
 
-## Completed Unit: Daily Dosage Reminders
+## Completed Unit: Daily Clinical Reminders
 
-The first scheduled clinical reminder is complete. The backend registers a daily 09:00 dosage job, selects active patients due for a dose, and uses the existing durable notification-delivery path rather than making Firebase delivery part of a clinical request.
+The scheduled clinical-reminder suite is complete. The backend registers a timezone-aware daily job and uses the existing durable notification-delivery path rather than making Firebase delivery part of a clinical request.
 
 ### Completed Evidence
 
@@ -510,12 +514,8 @@ The first scheduled clinical reminder is complete. The backend registers a daily
 2. `[x]` Each reminder is persisted in-app and enqueued through `NotificationDelivery`, so existing retry, recovery-poller, and dead-letter behavior applies.
 3. `[x]` Re-running the job is idempotent and repairs a missing outbox row without duplicating the in-app notification.
 4. `[x]` The scheduler is loaded by `backend/src/server.ts`; its focused integration coverage is in `backend/tests/notificationdelivery.test.ts`.
-
-### Still Deferred
-
-- `[ ]` INR-test and next-review reminder schedules.
-- `[ ]` Missed-dose escalation rules and recipient policy.
-- `[ ]` Operations dashboard for reminder-class delivery health.
+5. `[x]` `backend/src/jobs/clinical-reminder.scheduler.ts` delivers configurable INR due and next-review reminders, plus missed-dose escalation to both the patient and assigned doctor.
+6. `[x]` The admin dashboard includes tenant-scoped reminder delivery health (recent reminders, successful deliveries, and overdue work).
 
 ## Next Logical Task: Backup, Restore, and Disaster-Recovery Readiness
 
@@ -633,7 +633,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 3. `[x]` File metadata model and tenant-scoped file access.
 4. Backup/restore/DR runbook and first restore drill.
 5. Monitoring/alerting dashboard.
-6. `[~]` Notification reliability for reminders: durable delivery and daily dosage reminders are complete; INR/review reminders and missed-dose escalation remain.
+6. `[x]` Notification reliability for reminders: durable delivery, dosage/INR/review reminders, missed-dose escalation, and reminder delivery health are complete.
 7. Retention, consent, export, and purge policy.
 8. `[x]` CI test environment that runs the existing Jest/Testcontainers suite.
 9. OpenAPI operational ownership for keeping docs current and resolving remaining lint warnings.

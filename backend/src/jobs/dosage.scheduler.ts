@@ -4,25 +4,40 @@ import PatientProfile from '@alias/models/patientprofile.model'
 import User from '@alias/models/user.model'
 import { NotificationPriority, NotificationType } from '@alias/models/notification.model'
 import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
+import { config } from '@alias/config'
+import { runClinicalReminderPass } from '@alias/jobs/clinical-reminder.scheduler'
 import logger from '@alias/utils/logger'
 
 type PushEnqueuer = (input: Parameters<typeof enqueueNotificationPush>[0]) => Promise<boolean>
+type NotificationPublisher = typeof publishNotificationToUser
 
 function isTestRuntime(): boolean {
   return process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined || typeof (globalThis as { jest?: unknown }).jest !== 'undefined'
 }
 
-function localDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+function reminderDateParts(date: Date, timezone: string): { dayOfWeek: string; dueWindow: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'long',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? ''
+
+  return {
+    dayOfWeek: value('weekday').toLowerCase(),
+    dueWindow: `${value('year')}-${value('month')}-${value('day')}`,
+  }
 }
 
 /** Creates at most one dosage notification and push outbox row per patient/day. */
 export async function runDosageReminderPass(
   now = new Date(),
-  enqueuePush: PushEnqueuer = enqueueNotificationPush
+  enqueuePush: PushEnqueuer = enqueueNotificationPush,
+  publish: NotificationPublisher = publishNotificationToUser
 ): Promise<{ created: number; skipped: number; failed: number }> {
   let created = 0
   let skipped = 0
@@ -30,8 +45,7 @@ export async function runDosageReminderPass(
 
   try {
     logger.info('[DosageScheduler] Running daily dosage reminder...')
-    const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
-    const dueWindow = localDateKey(now)
+    const { dayOfWeek, dueWindow } = reminderDateParts(now, config.dosageReminderTimezone)
     const patients = await PatientProfile.find({
       [`weekly_dosage.${dayOfWeek}`]: { $gt: 0 },
       account_status: 'Active',
@@ -53,7 +67,7 @@ export async function runDosageReminderPass(
         const title = 'Time for your medication'
         const message = `Take your ${drugName} dose - ${dose}mg today.`
         const data = {
-          route: 'patient-details',
+          route: 'patient-take-dosage',
           patientId: String(patient._id),
           reminderType: 'dosage',
           dueWindow,
@@ -99,6 +113,16 @@ export async function runDosageReminderPass(
 
         if (inserted) {
           created += 1
+          publish(userId, 'notification', {
+            id: String(notification._id),
+            title,
+            message,
+            type: NotificationType.DOSAGE_REMINDER,
+            priority: NotificationPriority.HIGH,
+            is_read: false,
+            created_at: (notification as { createdAt?: Date }).createdAt?.toISOString() ?? new Date().toISOString(),
+            data,
+          })
           logger.info(`[DosageScheduler] Reminder created for patient ${user._id}`)
         } else {
           skipped += 1
@@ -122,9 +146,13 @@ export async function runDosageReminderPass(
 }
 
 if (!isTestRuntime()) {
-  cron.schedule('0 9 * * *', () => {
+  cron.schedule(config.dosageReminderCron, () => {
     void runDosageReminderPass()
-  })
+    void runClinicalReminderPass()
+  }, { timezone: config.dosageReminderTimezone })
 
-  logger.info('[DosageScheduler] Dosage reminder cron registered - fires daily at 9:00 AM')
+  logger.info('[DosageScheduler] Dosage reminder cron registered', {
+    cron: config.dosageReminderCron,
+    timezone: config.dosageReminderTimezone,
+  })
 }

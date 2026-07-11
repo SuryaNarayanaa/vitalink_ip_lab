@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/features/login/models/login_models.dart';
+import 'package:frontend/services/push_notification_service.dart';
 
 class AuthRepository {
   AuthRepository({
     required ApiClient apiClient,
     required SecureStorage secureStorage,
-  }) : _apiClient = apiClient,
-       _secureStorage = secureStorage;
+    PushNotificationService? pushNotifications,
+  })  : _apiClient = apiClient,
+        _secureStorage = secureStorage,
+        _pushNotifications = pushNotifications;
 
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
+  final PushNotificationService? _pushNotifications;
 
   String? _firstNonEmptyString(List<dynamic> values) {
     for (final value in values) {
@@ -175,8 +181,8 @@ class AuthRepository {
     final session = payload['session'] is Map<String, dynamic>
         ? payload['session'] as Map<String, dynamic>
         : body['session'] is Map<String, dynamic>
-        ? body['session'] as Map<String, dynamic>
-        : null;
+            ? body['session'] as Map<String, dynamic>
+            : null;
 
     if (token == null || refreshToken == null || userJson == null) {
       throw ApiException('Malformed login response');
@@ -190,6 +196,10 @@ class AuthRepository {
       await _secureStorage.clearAuthSession();
     }
     await _secureStorage.saveUser(userJson);
+    final pushNotifications = _pushNotifications;
+    if (pushNotifications != null) {
+      unawaited(pushNotifications.registerCurrentDevice());
+    }
 
     return LoginResponse(
       token: token,

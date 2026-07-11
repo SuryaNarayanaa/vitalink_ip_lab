@@ -310,6 +310,10 @@ class AdminRepository {
     return SystemHealthModel.fromJson(response);
   }
 
+  Future<Map<String, dynamic>> getReminderDeliveryHealth() async {
+    return _apiClient.get(AppStrings.adminReminderDeliveryHealthPath);
+  }
+
   // ─── Statistics ───
 
   Future<AdminStatsModel> getAdminStats() async {

@@ -7,6 +7,7 @@ import {
   createPatient, getAllPatients, updatePatient, deactivatePatient,
   reassignPatient, getAuditLogs, getSystemConfig, updateSystemConfig,
   broadcastNotification, performBatchOperation, getSystemHealth,
+  getReminderDeliveryHealth,
   listAllPatients, getPatientById, getDoctorById, resetUserPassword,
   getRoles, updateRole,
   listHospitals, createHospital, getHospital, updateHospital, updateHospitalStatus, deleteHospital,
@@ -79,6 +80,7 @@ router.post('/users/reset-password', validate(resetPasswordSchema), resetUserPas
 
 // ─── System Health ───
 router.get('/system/health', getSystemHealth)
+router.get('/system/reminder-delivery-health', getReminderDeliveryHealth)
 
 // ─── Legacy Endpoints ───
 router.get('/legacy/patients', listAllPatients)

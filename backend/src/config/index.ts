@@ -51,6 +51,12 @@ interface Config {
   notificationDeliveryRetentionDays: number
   notificationDeliveryRecoveryIntervalMs: number
   notificationDeliveryWorkerConcurrency: number
+  dosageReminderCron: string
+  dosageReminderTimezone: string
+  inrReminderIntervalDays: number
+  nextReviewReminderLeadDays: number
+  missedDoseEscalationWindowDays: number
+  missedDoseEscalationThreshold: number
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -261,5 +267,12 @@ export const config: Config = {
   notificationDeliveryRetentionDays: getIntEnv('NOTIFICATION_DELIVERY_RETENTION_DAYS', 30),
   notificationDeliveryRecoveryIntervalMs: getIntEnv('NOTIFICATION_DELIVERY_RECOVERY_INTERVAL_MS', 30_000),
   notificationDeliveryWorkerConcurrency: getIntEnv('NOTIFICATION_DELIVERY_WORKER_CONCURRENCY', 5),
+  // Keep the reminder window explicit and independent of the host/container timezone.
+  dosageReminderCron: getEnv('DOSAGE_REMINDER_CRON', { defaultValue: '0 9 * * *' }),
+  dosageReminderTimezone: getEnv('DOSAGE_REMINDER_TIMEZONE', { defaultValue: 'Asia/Kolkata' }),
+  inrReminderIntervalDays: getIntEnv('INR_REMINDER_INTERVAL_DAYS', 30),
+  nextReviewReminderLeadDays: getIntEnv('NEXT_REVIEW_REMINDER_LEAD_DAYS', 7),
+  missedDoseEscalationWindowDays: getIntEnv('MISSED_DOSE_ESCALATION_WINDOW_DAYS', 7),
+  missedDoseEscalationThreshold: getIntEnv('MISSED_DOSE_ESCALATION_THRESHOLD', 2),
 }
 
