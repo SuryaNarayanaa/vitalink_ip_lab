@@ -11,6 +11,7 @@ interface Config {
   accessKeyId: string
   secretAccessKey: string
   bucketName?: string
+  fileAssetLegacyCutoffAt: Date
   apiVersion: string
   legacyApiSunsetDate: string
   corsAllowedOrigins: string[]
@@ -99,6 +100,44 @@ function getBoolEnv(key: string, defaultValue: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value)
 }
 
+function getIsoDateEnv(
+  key: string,
+  options: { requiredInProduction?: boolean; requiredInStaging?: boolean; defaultValue?: string } = {}
+): Date {
+  const raw = getEnv(key, options)
+  const isoTimestamp = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/
+  const match = isoTimestamp.exec(raw)
+  if (!match) {
+    throw new Error(`Invalid ISO timestamp for environment variable ${key}: ${raw || '<empty>'}`)
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const offsetHour = match[8] === 'Z' ? 0 : Number(match[10])
+  const offsetMinute = match[8] === 'Z' ? 0 : Number(match[11])
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  const componentsAreValid = (
+    month >= 1 && month <= 12 &&
+    day >= 1 && day <= daysInMonth[month - 1] &&
+    hour >= 0 && hour <= 23 &&
+    minute >= 0 && minute <= 59 &&
+    second >= 0 && second <= 59 &&
+    offsetHour >= 0 && offsetHour <= 14 &&
+    offsetMinute >= 0 && offsetMinute <= 59 &&
+    (offsetHour < 14 || offsetMinute === 0)
+  )
+  const parsed = new Date(raw)
+  if (!componentsAreValid || Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid ISO timestamp for environment variable ${key}: ${raw || '<empty>'}`)
+  }
+  return parsed
+}
+
 function getCorsOrigins(): string[] {
   const raw = process.env.CORS_ALLOWED_ORIGINS?.trim()
   if (!raw) return []
@@ -137,6 +176,11 @@ export const config: Config = {
   accessKeyId: getEnv('ACCESS_KEY_ID', { requiredInProduction: true }),
   secretAccessKey: getEnv('SECRET_ACCESS_KEY', { requiredInProduction: true }),
   bucketName: getEnv('S3_BUCKET_NAME', { requiredInProduction: true }),
+  fileAssetLegacyCutoffAt: getIsoDateEnv('FILE_ASSET_LEGACY_CUTOFF_AT', {
+    requiredInProduction: true,
+    requiredInStaging: true,
+    defaultValue: isProduction || isStaging ? undefined : '2100-01-01T00:00:00.000Z',
+  }),
   apiVersion: getEnv('API_VERSION', { defaultValue: 'v1' }),
   legacyApiSunsetDate: getEnv('LEGACY_API_SUNSET_DATE', { defaultValue: '2026-10-01' }),
   corsAllowedOrigins: getCorsOrigins(),

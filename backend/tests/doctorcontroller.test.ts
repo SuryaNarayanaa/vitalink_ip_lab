@@ -8,6 +8,7 @@ import { Server } from 'http';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import client from '@alias/config/s3-client'
 import { config } from '@alias/config'
+import * as fcmService from '@alias/services/fcm.service'
 
 describe('Doctor Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -191,6 +192,17 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patients).toBeDefined();
             expect(Array.isArray(response.data.data.patients)).toBe(true);
             expect(response.data.data.patients.length).toBe(0);
+        });
+
+        test('should fail closed when the requesting doctor has no hospital', async () => {
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, { $unset: { hospital_id: 1 } });
+            const response = await api.get('/api/doctors/patients', {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, { hospital_id: primaryHospital._id });
+
+            expect(response.status).toBe(403);
+            expect(response.data.message).toContain('assigned to a hospital');
         });
 
         test('should fail without authentication token', async () => {
@@ -575,6 +587,7 @@ describe('Doctor Routes', () => {
                 test_date: new Date('2024-01-15'),
                 inr_value: 2.5,
                 is_critical: false,
+                uploaded_at: new Date('2024-01-15T00:00:00.000Z'),
                 file_url: 'uploads/test-report/12345.pdf',
                 notes: 'Test report'
             });
@@ -626,6 +639,7 @@ describe('Doctor Routes', () => {
                 test_date: new Date('2024-01-15'),
                 inr_value: 2.5,
                 is_critical: false,
+                uploaded_at: new Date('2024-01-15T00:00:00.000Z'),
                 file_url: 'test-file-url',
                 notes: 'Initial test'
             });
@@ -643,6 +657,32 @@ describe('Doctor Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.report.notes).toBe('Updated notes for the report');
+        });
+
+        test('should keep a persisted report update successful when FCM delivery fails', async () => {
+            const sendPushSpy = jest
+                .spyOn(fcmService, 'sendPushToUser')
+                .mockRejectedValueOnce(new Error('FCM unavailable'));
+
+            try {
+                const response = await api.put(`/api/doctors/patients/PAT001/reports/${reportId}`, {
+                    notes: 'Persist despite push failure'
+                }, {
+                    headers: { Authorization: `Bearer ${doctorToken}` }
+                });
+
+                expect(response.status).toBe(200);
+                expect(sendPushSpy).toHaveBeenCalled();
+                const persistedPatient = await PatientProfile.findById(patientProfile._id);
+                expect(persistedPatient?.inr_history.id(reportId)?.notes).toBe('Persist despite push failure');
+                expect(await Notification.findOne({
+                    user_id: patientUser._id,
+                    type: NotificationType.DOCTOR_UPDATE,
+                    'data.change_type': 'REPORT_UPDATED',
+                })).not.toBeNull();
+            } finally {
+                sendPushSpy.mockRestore();
+            }
         });
 
         test('should update report critical status', async () => {
@@ -1118,7 +1158,7 @@ describe('Doctor Routes', () => {
                     mimetype: 'application/pdf'
                 } as Express.Multer.File;
 
-                uploadedReportKey = await uploadFile('uploads', mockFile);
+                uploadedReportKey = (await uploadFile('uploads', mockFile)).key;
 
                 // Add report to patient profile
                 const patient = await PatientProfile.findById(patientProfile._id);
@@ -1126,6 +1166,7 @@ describe('Doctor Routes', () => {
                     test_date: new Date('2024-02-15'),
                     inr_value: 2.8,
                     is_critical: false,
+                    uploaded_at: new Date('2024-02-15T00:00:00.000Z'),
                     file_url: uploadedReportKey,
                     notes: 'Test report'
                 });

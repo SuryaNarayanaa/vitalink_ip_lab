@@ -20,7 +20,9 @@ import type {
 	UpdateProfileInput
 } from '@alias/validators/patient.validator'
 import logger from '@alias/utils/logger'
-import { uploadFile, getDownloadUrl } from '@alias/utils/fileUpload'
+import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
+import { FileAssetPurpose } from '@alias/models/fileasset.model'
+import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -146,8 +148,39 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 		})
 	])
 
+	const patientData = user.toObject() as any
+	const patientProfile = patientData.profile_id
+	if (patientProfile?.profile_picture_url) {
+		patientProfile.profile_picture_url = await resolveAssetDownloadUrl({
+			fileAssetId: patientProfile.profile_picture_file_asset_id,
+			legacyObjectKey: patientProfile.profile_picture_url,
+			hospitalId: patientProfile.hospital_id,
+			requesterHospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			patientProfileId: patientProfile._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+			legacyEligible: isLegacyFileReferenceEligible(patientProfile.createdAt),
+		})
+	}
+	const assignedDoctor = patientProfile?.assigned_doctor_id
+	const assignedDoctorProfile = assignedDoctor?.profile_id
+	if (assignedDoctorProfile?.profile_picture_url) {
+		if (!patientProfile.hospital_id || String(assignedDoctorProfile.hospital_id || '') !== String(patientProfile.hospital_id)) {
+			throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor file access is not allowed')
+		}
+		assignedDoctorProfile.profile_picture_url = await resolveAssetDownloadUrl({
+			fileAssetId: assignedDoctorProfile.profile_picture_file_asset_id,
+			legacyObjectKey: assignedDoctorProfile.profile_picture_url,
+			hospitalId: assignedDoctorProfile.hospital_id,
+			requesterHospitalId: patientProfile.hospital_id,
+			ownerUserId: assignedDoctor._id,
+			purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
+			legacyEligible: isLegacyFileReferenceEligible(assignedDoctorProfile.createdAt),
+		})
+	}
+
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile fetched successfully', {
-		patient: user,
+		patient: patientData,
 		doctor_updates: {
 			unread_count: unreadDoctorUpdates,
 			latest: latestDoctorNotification ? mapNotificationToDoctorUpdateEvent(latestDoctorNotification) : null,
@@ -161,7 +194,7 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 	}
 
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
-	const patient = await PatientProfile.findById(patientUser.profile_id).select('inr_history health_logs weekly_dosage medical_config')
+	const patient = await PatientProfile.findById(patientUser.profile_id).select('hospital_id inr_history health_logs weekly_dosage medical_config')
 	if (!patient) {
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
 	}
@@ -172,11 +205,16 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 		const reportsWithUrls = await Promise.all(
 			patientData.inr_history.map(async (report: any) => {
 				if (report.file_url) {
-					try {
-						report.file_url = await getDownloadUrl(report.file_url)
-					} catch (error) {
-						logger.error('Error generating presigned URL for report', { error })
-					}
+					report.file_url = await resolveAssetDownloadUrl({
+						fileAssetId: report.file_asset_id,
+						legacyObjectKey: report.file_url,
+						hospitalId: patient.hospital_id,
+						requesterHospitalId: patient.hospital_id,
+						ownerUserId: patientUser._id,
+						patientProfileId: patient._id,
+						purpose: FileAssetPurpose.INR_REPORT,
+						legacyEligible: isLegacyFileReferenceEligible(report.uploaded_at),
+					})
 				}
 				return report
 			})
@@ -209,13 +247,27 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 			throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PDF, PNG, JPEG allowed')
 		}
 	}
-	let fileUrl = ''
+	let uploadedFile: Awaited<ReturnType<typeof uploadFile>> | undefined
+	let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>> | undefined
 	if (file) {
+		if (!patientProfile.hospital_id) {
+			throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
+		}
 		try {
-			const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
-			fileUrl = await uploadFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file)
+			const hospitalSegment = String(patientProfile.hospital_id)
+			uploadedFile = await uploadFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file)
+			fileAsset = await createTrackedFileAsset(uploadedFile, {
+				hospitalId: patientProfile.hospital_id,
+				ownerUserId: patientUser._id,
+				patientProfileId: patientProfile._id,
+				purpose: FileAssetPurpose.INR_REPORT,
+				createdBy: patientUser._id,
+			})
 		} catch (error) {
 			logger.error("Error While Uploading File to filebase", { error })
+			if (error instanceof FileValidationError) {
+				throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
+			}
 			throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 		}
 	}
@@ -224,23 +276,28 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
 	const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
 
-	const patient = await PatientProfile.findByIdAndUpdate(
-		patientUser.profile_id,
-		{
-			$push: {
-				inr_history: {
-					test_date: parsedTestDate,
-					uploaded_at: new Date(),
-					inr_value: parsed_inr_value,
-					is_critical: isCritical,
-					file_url: fileUrl,
+	let patient
+	try {
+		patient = await PatientProfile.findByIdAndUpdate(
+			patientUser.profile_id,
+			{
+				$push: {
+					inr_history: {
+						test_date: parsedTestDate,
+						uploaded_at: new Date(),
+						inr_value: parsed_inr_value,
+						is_critical: isCritical,
+						file_url: uploadedFile?.key ?? '',
+						file_asset_id: fileAsset?._id,
+					},
 				},
 			},
-		},
-		{ new: true }
-	)
-	if (!patient) {
-		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+			{ new: true }
+		)
+		if (!patient) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+	} catch (error) {
+		if (fileAsset) await compensateFileAsset(fileAsset, error)
+		throw error
 	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
@@ -495,16 +552,47 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 	const user = await getPatientUserOrThrow(user_id)
 	const patientProfile = await getPatientProfileOrThrow(user.profile_id)
 
-	let fileUrl = ''
+	if (!patientProfile.hospital_id) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
+	}
+	let uploadedFile: Awaited<ReturnType<typeof uploadFile>>
+	let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>>
 	try {
-		const hospitalSegment = patientProfile.hospital_id ? String(patientProfile.hospital_id) : 'unassigned'
-		fileUrl = await uploadFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file)
+		const hospitalSegment = String(patientProfile.hospital_id)
+		uploadedFile = await uploadFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file)
+		fileAsset = await createTrackedFileAsset(uploadedFile, {
+			hospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			patientProfileId: patientProfile._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+			createdBy: user._id,
+		})
 	} catch (error) {
 		logger.error("Error While Uploading profile to filebase", { error })
+		if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
 
-	await PatientProfile.findByIdAndUpdate(user.profile_id, { profile_picture_url: fileUrl }, { new: true })
+	try {
+		const previousAssetId = patientProfile.profile_picture_file_asset_id
+		const referenceFilter = previousAssetId
+			? { profile_picture_file_asset_id: previousAssetId }
+			: { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
+		const updated = await PatientProfile.findOneAndUpdate({ _id: user.profile_id, ...referenceFilter }, {
+			profile_picture_url: uploadedFile.key,
+			profile_picture_file_asset_id: fileAsset._id,
+		}, { new: true })
+		if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+		await retireReplacedFileAsset({
+			fileAssetId: previousAssetId,
+			hospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+		})
+	} catch (error) {
+		await compensateFileAsset(fileAsset, error)
+		throw error
+	}
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })
 

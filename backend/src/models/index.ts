@@ -17,6 +17,7 @@ export const InrLogSchema = new Schema({
   inr_value: { type: Number, required: true },
   is_critical: { type: Boolean, default: false },
   file_url: { type: String },
+  file_asset_id: { type: Schema.Types.ObjectId, ref: 'FileAsset' },
   notes: { type: String }
 });
 
@@ -44,6 +45,7 @@ import Invoice from './invoice.model'
 import OtpChallenge from './otpchallenge.model'
 import AdminMfaChallenge from './adminmfachallenge.model'
 import AuthSession from './authsession.model'
+import FileAsset from './fileasset.model'
 
 
 import DeviceToken from './DeviceToken.model'
@@ -61,6 +63,7 @@ export {
   OtpChallenge,
   AdminMfaChallenge,
   AuthSession,
+  FileAsset,
   DeviceToken,
 }
 // Aliases for backward compatibility

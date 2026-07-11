@@ -42,7 +42,8 @@ const DeviceTokenSchema = new Schema<IDeviceToken>(
   }
 )
 
-DeviceTokenSchema.index({ user_id: 1, fcm_token: 1 }, { unique: true })
+// A physical FCM token has exactly one current owner. Re-registration transfers this document.
+DeviceTokenSchema.index({ fcm_token: 1 }, { unique: true })
 DeviceTokenSchema.index({ user_id: 1, is_active: 1 })
 
 const DeviceToken = mongoose.model<IDeviceToken>('DeviceToken', DeviceTokenSchema)

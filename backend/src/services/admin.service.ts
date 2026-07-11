@@ -427,7 +427,6 @@ export async function registerDoctor(data: {
     name: data.name,
     department: data.department || 'Cardiology',
     contact_number: data.contact_number,
-    profile_picture_url: data.profile_picture_url,
     hospital_id: hospitalId,
   })
 
@@ -506,7 +505,6 @@ export async function updateDoctor(
     name?: string
     department?: string
     contact_number?: string
-    profile_picture_url?: string
     is_active?: boolean
     password?: string
     hospital_id?: string

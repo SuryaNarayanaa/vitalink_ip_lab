@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile, PatientProfile, Notification } from '@alias/models';
+import { User, DoctorProfile, PatientProfile, Notification, Hospital } from '@alias/models';
 import { NotificationType } from '@alias/models/notification.model';
 import { Server } from 'http';
 
@@ -15,6 +15,7 @@ describe('Patient Routes', () => {
     let patientUser: any;
     let patientProfile: any;
     let doctorProfile: any;
+    let primaryHospital: any;
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
@@ -29,10 +30,18 @@ describe('Patient Routes', () => {
         baseURL = `http://localhost:${port}`;
         api = axios.create({ baseURL, validateStatus: () => true });
 
+        primaryHospital = await Hospital.create({
+            code: 'PATIENT_TEST_TENANT',
+            name: 'Patient Test Hospital',
+            location: 'Coimbatore',
+            admin_email: 'patient-tests@example.com'
+        });
+
         doctorProfile = await DoctorProfile.create({
             name: 'Dr. Test Doctor',
             department: 'Cardiology',
             contact_number: '1234567890',
+            hospital_id: primaryHospital._id,
             phone_verification: {
                 status: 'VERIFIED',
                 verified_at: new Date()
@@ -42,6 +51,7 @@ describe('Patient Routes', () => {
         const therapyStartDate = new Date('2024-01-01');
         patientProfile = await PatientProfile.create({
             assigned_doctor_id: doctorProfile._id,
+            hospital_id: primaryHospital._id,
             demographics: {
                 name: 'Test Patient',
                 age: 45,
@@ -123,6 +133,40 @@ describe('Patient Routes', () => {
             expect(response.data.data.patient.profile_id.assigned_doctor_id).toBeDefined();
         });
 
+        test('should deny a populated doctor profile picture from another hospital', async () => {
+            const patientHospital = await Hospital.create({
+                code: `PAT_${Date.now()}`, name: 'Patient Hospital', location: 'A', admin_email: `a-${Date.now()}@example.com`
+            });
+            const doctorHospital = await Hospital.create({
+                code: `DOC_${Date.now()}`, name: 'Doctor Hospital', location: 'B', admin_email: `b-${Date.now()}@example.com`
+            });
+            const foreignDoctorProfile = await DoctorProfile.create({
+                name: 'Foreign Doctor', hospital_id: doctorHospital._id, profile_picture_url: 'legacy/foreign-doctor.jpg'
+            });
+            const foreignDoctor = await User.create({
+                login_id: `foreign-doctor-${Date.now()}`,
+                password: 'Doctor123!',
+                user_type: 'DOCTOR',
+                profile_id: foreignDoctorProfile._id,
+                is_active: true,
+            });
+            const originalDoctorId = patientProfile.assigned_doctor_id;
+            const originalHospitalId = patientProfile.hospital_id;
+            patientProfile.assigned_doctor_id = foreignDoctor._id;
+            patientProfile.hospital_id = patientHospital._id;
+            await patientProfile.save();
+
+            const response = await api.get('/api/patient/profile', {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            patientProfile.assigned_doctor_id = originalDoctorId;
+            patientProfile.hospital_id = originalHospitalId;
+            await patientProfile.save();
+            expect(response.status).toBe(403);
+            expect(response.data.message).toContain('Cross-tenant doctor file access');
+        });
+
         test('should fail without authentication', async () => {
             const response = await api.get('/api/patient/profile');
 
@@ -139,6 +183,7 @@ describe('Patient Routes', () => {
                 test_date: new Date('2024-02-20'),
                 inr_value: 3.0,
                 is_critical: false,
+                uploaded_at: new Date('2024-02-20T00:00:00.000Z'),
                 file_url: 'uploads/test-patient-report/test123.pdf',
                 notes: 'Test report for presigned URL'
             });

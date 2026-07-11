@@ -27,7 +27,7 @@ export const createDoctorSchema = z.object({
     profile_picture_url: z.string().url().optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const updateDoctorSchema = z.object({
@@ -43,7 +43,7 @@ export const updateDoctorSchema = z.object({
     password: z.string().min(8).optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const getDoctorsSchema = z.object({

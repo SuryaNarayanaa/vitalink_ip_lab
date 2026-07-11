@@ -13,6 +13,7 @@ const DoctorProfileSchema = new mongoose.Schema({
     verified_at: { type: Date },
   },
   profile_picture_url: { type: String },
+  profile_picture_file_asset_id: { type: mongoose.Schema.Types.ObjectId, ref: 'FileAsset' },
   hospital_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Hospital',

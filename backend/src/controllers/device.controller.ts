@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 import DeviceToken from '@alias/models/DeviceToken.model'
+import { registerDeviceToken } from '@alias/services/device-token.service'
 
 export const registerDevice = asyncHandler(async (req: Request, res: Response) => {
   const { fcm_token, platform, app_version } = req.body
@@ -15,25 +16,12 @@ export const registerDevice = asyncHandler(async (req: Request, res: Response) =
     throw new ApiError(StatusCodes.BAD_REQUEST, 'platform must be android, ios, or web')
   }
 
-  await DeviceToken.updateMany(
-    { user_id: userId, platform, fcm_token: { $ne: fcm_token } },
-    { $set: { is_active: false } }
-  )
-
-  const token = await DeviceToken.findOneAndUpdate(
-    { user_id: userId, fcm_token },
-    {
-      $set: {
-        user_id:           userId,
-        fcm_token,
-        platform,
-        app_version:       app_version ?? null,
-        is_active:         true,
-        last_refreshed_at: new Date(),
-      },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  )
+  const token = await registerDeviceToken({
+    userId,
+    fcmToken: fcm_token,
+    platform,
+    appVersion: app_version,
+  })
 
   res.status(StatusCodes.CREATED)
     .json(new ApiResponse(StatusCodes.CREATED, 'Device registered successfully', {
