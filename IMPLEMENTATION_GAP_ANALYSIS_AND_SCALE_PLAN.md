@@ -197,7 +197,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing consent model, data export workflow, deletion request workflow, governance policy, and admin access justification.
 
 3. Notification reliability
-   - `[~]` FCM delivery, global device-token ownership, durable outbox/worker, retries, and dead-letter tracking exist; scheduled medication reminders and missed-dose escalation remain missing.
+   - `[~]` FCM delivery, global device-token ownership, durable outbox/worker, retries, dead-letter tracking, and idempotent daily dosage reminders exist. INR-test reminders, next-review reminders, and missed-dose escalation remain missing.
 
 4. Audit log requirements
    - `[~]` Audit logs exist.
@@ -312,19 +312,19 @@ Deliverables:
   - notification_id, user_id, channel, provider, status, attempts, next_attempt_at, provider_message_id, sanitized last_error, idempotency_key, retention TTL.
 - `[x]` Add a job queue:
   - BullMQ + Redis worker with Mongo-owned retries, recovery poller when Redis is down.
-- `[ ]` Add scheduled jobs:
-  - dosage reminders
-  - INR test reminders
-  - next review reminders
-  - missed dose escalation
+- `[~]` Add scheduled jobs:
+  - `[x]` Daily dosage reminders, with an idempotent per-patient/per-day key and durable push outbox entry.
+  - `[ ]` INR test reminders.
+  - `[ ]` Next-review reminders.
+  - `[ ]` Missed-dose escalation.
 - `[x]` Add retry and dead-letter handling.
 - `[x]` Keep SSE/in-app notifications as immediate UI channel and use FCM for mobile/background delivery where enabled.
 
 Acceptance:
 
-- A dosage reminder creates an in-app notification and a push attempt.
-- Failures retry and eventually land in dead-letter state.
-- Admin/ops can see delivery health.
+- `[x]` A dosage reminder creates an in-app notification and a durable push-delivery record, with duplicate suppression and missing-outbox repair.
+- `[x]` Push-delivery failures retry and eventually land in dead-letter state.
+- `[~]` Delivery metrics and structured logs exist; an operations-facing dashboard or metrics endpoint is still needed.
 
 ### Phase 4: Compliance, Retention, and Data Governance
 
@@ -500,27 +500,45 @@ Persist each push attempt, deliver it asynchronously, retry transient provider f
 - `[x]` Exhausted deliveries enter a queryable dead-letter state with no sensitive provider payload leakage.
 - `[x]` Build, OpenAPI lint, unit tests, and Docker/Testcontainers integration tests pass in CI.
 
-## Next Workable Unit: Scheduled Clinical Reminder Jobs
+## Completed Unit: Daily Dosage Reminders
 
-Build on the durable notification outbox to schedule dosage, INR, and review reminders without blocking API traffic.
+The first scheduled clinical reminder is complete. The backend registers a daily 09:00 dosage job, selects active patients due for a dose, and uses the existing durable notification-delivery path rather than making Firebase delivery part of a clinical request.
+
+### Completed Evidence
+
+1. `[x]` `backend/src/jobs/dosage.scheduler.ts` creates one `DOSAGE_REMINDER` notification per patient/day using the unique `reminder_key` format `dosage:{userId}:{YYYY-MM-DD}`.
+2. `[x]` Each reminder is persisted in-app and enqueued through `NotificationDelivery`, so existing retry, recovery-poller, and dead-letter behavior applies.
+3. `[x]` Re-running the job is idempotent and repairs a missing outbox row without duplicating the in-app notification.
+4. `[x]` The scheduler is loaded by `backend/src/server.ts`; its focused integration coverage is in `backend/tests/notificationdelivery.test.ts`.
+
+### Still Deferred
+
+- `[ ]` INR-test and next-review reminder schedules.
+- `[ ]` Missed-dose escalation rules and recipient policy.
+- `[ ]` Operations dashboard for reminder-class delivery health.
+
+## Next Logical Task: Backup, Restore, and Disaster-Recovery Readiness
+
+This is the next production-readiness task because the system stores clinical records and uploaded reports, while the repository has no checked-in backup/restore policy, recovery targets, or verified restore drill.
 
 ### Goal
 
-Replace ad-hoc/direct dosage cron push with outbox-backed scheduled reminders, add INR and next-review reminders, and keep delivery reliability on the existing NotificationDelivery path.
+Define, automate where possible, and test recovery of MongoDB data and S3-compatible file metadata/objects before adding further clinical workflow automation.
 
 ### Implementation Steps
 
-1. `[ ]` Model reminder schedules and due-window selection for dosage, INR test, and next review.
-2. `[~]` Dosage reminders now create an idempotent in-app notification plus `NotificationDelivery`; INR and next-review reminders remain.
-3. `[ ]` Add missed-dose escalation rules and ops-visible delivery/failure metrics for reminder classes.
-4. `[~]` Dosage scheduler idempotency, concurrent execution, missing-outbox repair, and outbox integration are covered; the remaining reminder classes still need tests.
+1. `[ ]` Create `backend/docs/backup-restore-dr-runbook.md` with owners, systems in scope, backup frequency, retention, RPO, RTO, escalation contacts, and evidence-recording requirements.
+2. `[ ]` Document and verify Atlas backup/PITR settings for each environment, including a restore procedure to an isolated database.
+3. `[ ]` Define file-storage recovery: bucket versioning/lifecycle assumptions, object-restore procedure, and reconciliation of `FileAsset` metadata against restored objects.
+4. `[ ]` Add a non-production restore-drill checklist and record the measured restore time and reconciliation result.
+5. `[ ]` Add monitoring/alert requirements for backup freshness and restore-drill due dates.
 
 ### Acceptance Gate
 
-- `[~]` The dosage reminder implementation and integration test enforce exactly one in-app notification and one push delivery row per due window; Docker/Testcontainers execution is pending in CI.
-- `[ ]` Reminder fanout remains best-effort relative to clinical APIs.
-- `[ ]` Failures reuse NotificationDelivery retry/dead-letter semantics.
-- `[~]` TypeScript build, OpenAPI lint, and non-container FCM/device-token tests pass locally; the Jest/Testcontainers suite is pending a Docker-capable CI run.
+- `[ ]` A named owner can restore an isolated copy of the database and validate application connectivity.
+- `[ ]` A representative report and its `FileAsset` record are recoverable and downloadable after the drill.
+- `[ ]` The documented RPO/RTO are measured or explicitly revised from the drill result.
+- `[ ]` The runbook records the latest successful drill and the next scheduled drill.
 
 ## 500-Patient Capacity Plan
 
@@ -615,7 +633,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 3. `[x]` File metadata model and tenant-scoped file access.
 4. Backup/restore/DR runbook and first restore drill.
 5. Monitoring/alerting dashboard.
-6. Notification reliability design for reminders.
+6. `[~]` Notification reliability for reminders: durable delivery and daily dosage reminders are complete; INR/review reminders and missed-dose escalation remain.
 7. Retention, consent, export, and purge policy.
 8. `[x]` CI test environment that runs the existing Jest/Testcontainers suite.
 9. OpenAPI operational ownership for keeping docs current and resolving remaining lint warnings.
@@ -623,7 +641,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 ### Should Do Before 500 Patients
 
 1. `[x]` FCM push foundation and globally owned device-token management.
-2. `[x]` Queue/worker for push retries and dead-letter handling; reminder scheduling still open.
+2. `[~]` Queue/worker for push retries and dead-letter handling is complete; daily dosage reminders are live, while INR/review reminders and missed-dose escalation remain.
 3. Staging/test app with separate backend, DB, storage, and Firebase.
 4. Load test for patient login, report upload, doctor report review, and notification fanout.
 5. S3 lifecycle policies and storage cost reporting.
@@ -664,6 +682,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
   - `backend/src/routes/docs.routes.ts`
   - `backend/src/app.ts`
   - `backend/.env.example`
+- Verified the daily dosage scheduler is loaded by `backend/src/server.ts`, uses the `NotificationDelivery` outbox, and has focused duplicate-suppression and missing-outbox-repair coverage in `backend/tests/notificationdelivery.test.ts`; the focused suite passed 11/11 on 2026-07-11.
 
 ## Key Code References
 
@@ -685,5 +704,6 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Firebase/device-token services: `backend/src/services/fcm.service.ts`, `backend/src/services/device-token.service.ts`
 - Device-token migration runbook: `backend/docs/device-token-migration.md`
 - Notification delivery outbox/worker: `backend/src/models/notificationdelivery.model.ts`, `backend/src/services/notification-delivery.service.ts`, `backend/src/jobs/notification-delivery.queue.ts`, `backend/src/jobs/notification-delivery.worker.ts`
+- Daily dosage reminder scheduler: `backend/src/jobs/dosage.scheduler.ts`
 - Blue-green deployment: `deploy/docker-compose.yml`
 - Flutter INR upload UI: `frontend/lib/features/patient/patient_update_inr_page.dart`

@@ -15,6 +15,8 @@
     "seed:prod": "node build/src/scripts/createAdminUser.js",
     "migrate:assigned-doctor-ids": "ts-node --require tsconfig-paths/register src/scripts/migrateAssignedDoctorIds.ts",
     "migrate:assigned-doctor-ids:prod": "node build/src/scripts/migrateAssignedDoctorIds.js",
+    "migrate:patient-hospital-ids": "ts-node --require tsconfig-paths/register src/scripts/backfillPatientHospitalIds.ts",
+    "migrate:patient-hospital-ids:prod": "node build/src/scripts/backfillPatientHospitalIds.js",
     "migrate:inr-critical-flags": "ts-node --require tsconfig-paths/register src/scripts/migrateInrCriticalFlags.ts",
     "migrate:inr-critical-flags:prod": "node build/src/scripts/migrateInrCriticalFlags.js",
     "migrate:doctor-update-notifications": "ts-node --require tsconfig-paths/register src/scripts/migrateDoctorChangeEventsToNotifications.ts",

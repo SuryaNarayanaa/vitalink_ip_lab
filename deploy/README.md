@@ -109,6 +109,9 @@ docker exec vitalink-blue node build/src/scripts/createAdminUser.js
 
 # Run migrations
 docker exec vitalink-blue node build/src/scripts/migrateAssignedDoctorIds.js
+docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js --dry-run
+# After reviewing the summary, apply the hospital IDs:
+docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js --execute
 docker exec vitalink-blue node build/src/scripts/migrateInrCriticalFlags.js
 ```
 
