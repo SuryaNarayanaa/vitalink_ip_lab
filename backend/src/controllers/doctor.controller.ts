@@ -126,13 +126,17 @@ const notifyPatientDoctorUpdate = async (
     changedFields,
   })
 
-  // Also send FCM push notification (new)
-  await sendPushToUser(String(patientUserId), {
+  // Push is best-effort and must not delay or fail the clinical HTTP response after persistence.
+  void sendPushToUser(String(patientUserId), {
     title,
     body: message,
-    data: {
-      change_type: changeType,
-    },
+    data: { change_type: changeType },
+  }).catch((error) => {
+    logger.error('FCM delivery failed after doctor update was persisted', {
+      error,
+      patientUserId: String(patientUserId),
+      changeType,
+    })
   })
 }
 

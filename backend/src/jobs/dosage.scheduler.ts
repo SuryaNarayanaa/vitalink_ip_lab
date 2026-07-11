@@ -3,7 +3,7 @@ import { PatientProfile, User } from '@alias/models'
 import { sendPushToUser } from '@alias/services/fcm.service'
 import logger from '@alias/utils/logger'
 
-// Runs every minute — checks for patients who haven't taken today's dose
+// Runs daily at 09:00 server time — reminds patients with a dose scheduled today
 cron.schedule('0 9 * * *', async () => {
   try {
     logger.info('[DosageScheduler] Running daily dosage reminder...')

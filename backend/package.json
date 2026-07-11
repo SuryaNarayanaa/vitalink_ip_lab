@@ -20,7 +20,9 @@
     "migrate:doctor-update-notifications": "ts-node --require tsconfig-paths/register src/scripts/migrateDoctorChangeEventsToNotifications.ts",
     "migrate:doctor-update-notifications:prod": "node build/src/scripts/migrateDoctorChangeEventsToNotifications.js",
     "migrate:file-assets": "ts-node --require tsconfig-paths/register src/scripts/backfillFileAssets.ts",
-    "migrate:file-assets:prod": "node build/src/scripts/backfillFileAssets.js"
+    "migrate:file-assets:prod": "node build/src/scripts/backfillFileAssets.js",
+    "migrate:device-tokens": "ts-node --require tsconfig-paths/register src/scripts/migrateDeviceTokenOwnership.ts",
+    "migrate:device-tokens:prod": "node build/src/scripts/migrateDeviceTokenOwnership.js"
   },
   "author": "",
   "license": "MIT",

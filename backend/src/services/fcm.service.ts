@@ -1,4 +1,4 @@
-import { messaging } from '@alias/config/firebase.config'
+import { getFirebaseMessaging } from '@alias/config/firebase.config'
 import DeviceToken from '@alias/models/DeviceToken.model'
 
 export interface PushPayload {
@@ -11,6 +11,9 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload
 ): Promise<void> {
+  const messaging = getFirebaseMessaging()
+  if (!messaging) return
+
   // Get all active tokens for this user
   const tokens = await DeviceToken.find(
     { user_id: userId, is_active: true },
@@ -42,7 +45,7 @@ export async function sendPushToUser(
        res.error?.code === 'messaging/invalid-registration-token')
     ) {
       await DeviceToken.updateOne(
-        { fcm_token: fcmTokens[i] },
+        { fcm_token: fcmTokens[i], user_id: userId, is_active: true },
         { $set: { is_active: false } }
       )
     }

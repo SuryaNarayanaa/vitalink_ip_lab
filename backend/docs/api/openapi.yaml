@@ -37,6 +37,8 @@ tags:
     description: Administrative management for users, hospitals, roles, billing, audit logs, and configuration.
   - name: Statistics
     description: Administrative analytics and aggregate operational metrics.
+  - name: Devices
+    description: Authenticated FCM device token registration and deregistration for push delivery.
 security:
   - bearerAuth: []
 paths:
@@ -1808,6 +1810,57 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /devices/register:
+    post:
+      tags: [Devices]
+      summary: Register or refresh an FCM device token
+      description: |
+        Upserts the physical FCM token as the caller's ownership record.
+
+        - A given `fcm_token` has exactly one current owner globally.
+        - Re-registering the same physical token under a different authenticated user
+          transfers delivery ownership to that user.
+        - Other active tokens for the same user and platform are deactivated so only the
+          newly registered physical device remains active for that platform.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRegisterRequest"
+      responses:
+        "201":
+          description: Device token registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceRegisterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /devices/{tokenId}:
+    delete:
+      tags: [Devices]
+      summary: Deregister an FCM device token
+      description: |
+        Deactivates the caller's active device token document. Ownership is enforced by
+        matching both the token document id and the authenticated user.
+      parameters:
+        - $ref: "#/components/parameters/DeviceTokenIdPath"
+      responses:
+        "200":
+          description: Device token deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1861,6 +1914,14 @@ components:
       schema:
         type: string
         pattern: "^[a-fA-F0-9]{24}$"
+    DeviceTokenIdPath:
+      in: path
+      name: tokenId
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-fA-F0-9]{24}$"
+      description: DeviceToken document id returned by POST /devices/register
     PageQuery:
       in: query
       name: page
@@ -2004,6 +2065,37 @@ components:
           properties:
             data:
               type: "null"
+
+    DevicePlatform:
+      type: string
+      enum: [android, ios, web]
+
+    DeviceRegisterRequest:
+      type: object
+      required: [fcm_token, platform]
+      properties:
+        fcm_token:
+          type: string
+          minLength: 1
+          description: Physical FCM registration token for this device
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+        app_version:
+          type: string
+          description: Optional client application version string
+
+    DeviceRegisterResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [token_id]
+              properties:
+                token_id:
+                  type: string
+                  description: DeviceToken document id for later deregistration
 
     ErrorResponse:
       allOf:
