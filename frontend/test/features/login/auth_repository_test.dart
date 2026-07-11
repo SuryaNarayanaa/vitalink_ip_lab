@@ -104,7 +104,10 @@ void main() {
       );
 
       final response = await repository.verifyLoginOtp(
-        VerifyLoginOtpRequest(challengeId: 'otp-challenge', code: '123456'),
+        VerifyLoginOtpRequest(
+          challengeId: 'otp-challenge',
+          firebaseIdToken: 'firebase-id-token',
+        ),
       );
 
       expect(response.token, 'otp-access');

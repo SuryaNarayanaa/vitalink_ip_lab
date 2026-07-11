@@ -4,12 +4,16 @@ import 'package:frontend/features/login/models/login_models.dart';
 
 void main() {
   group('login OTP models', () {
-    test('parses backend challenge response without full phone data', () {
+    test('parses Firebase-backed challenge response', () {
       final challenge = LoginOtpChallenge.fromJson({
         'challenge_id': 'challenge-123',
         'purpose': 'PHONE_FIRST_LOGIN',
         'delivery_channel': 'SMS',
-        'phone': {'masked': '+********1234', 'last4': '1234'},
+        'phone': {
+          'masked': '+********1234',
+          'last4': '1234',
+          'number': '+919000001234',
+        },
         'expires_at': '2026-07-06T10:30:00.000Z',
         'resend_available_at': '2026-07-06T10:25:00.000Z',
         'attempts_remaining': 4,
@@ -21,6 +25,7 @@ void main() {
       expect(challenge.challengeId, 'challenge-123');
       expect(challenge.maskedPhone, '+********1234');
       expect(challenge.phone.last4, '1234');
+      expect(challenge.phone.number, '+919000001234');
       expect(challenge.attemptsRemaining, 4);
       expect(challenge.maxResends, 3);
       expect(challenge.expiresAt, isNotNull);
@@ -32,14 +37,14 @@ void main() {
       () {
         final verify = VerifyLoginOtpRequest(
           challengeId: 'challenge-123',
-          code: 'test-code',
+          firebaseIdToken: 'firebase-id-token',
         );
         final resend = ResendLoginOtpRequest(challengeId: 'challenge-123');
 
         expect(verify.path, AppStrings.loginOtpVerifyPath);
         expect(verify.toJson(), {
           'challenge_id': 'challenge-123',
-          'code': 'test-code',
+          'firebase_id_token': 'firebase-id-token',
         });
         expect(resend.path, AppStrings.loginOtpResendPath);
         expect(resend.toJson(), {'challenge_id': 'challenge-123'});

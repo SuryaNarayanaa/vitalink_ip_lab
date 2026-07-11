@@ -10,6 +10,7 @@ import { generateTotpCode } from '@alias/services/admin-totp.service';
 
 var mockStartVerification: jest.Mock;
 var mockCheckVerification: jest.Mock;
+var mockVerifyFirebasePhoneIdToken: jest.Mock;
 
 const expectNoMfaSecrets = (userPayload: any) => {
     expect(userPayload).toBeDefined();
@@ -39,6 +40,15 @@ jest.mock('@alias/services/twilio-verify.service', () => ({
         checkVerification: (mockCheckVerification = jest.fn()),
     },
     TwilioVerifyService: jest.fn(),
+}));
+
+jest.mock('@alias/services/firebase-phone-auth.service', () => ({
+    __esModule: true,
+    toFirebaseE164: (phoneNumber: string) => phoneNumber,
+    verifyFirebasePhoneIdToken: (mockVerifyFirebasePhoneIdToken = jest.fn(async (_token, phoneNumber) => ({
+        uid: `firebase-${phoneNumber.replace(/\D/g, '')}`,
+        phone_number: phoneNumber,
+    }))),
 }));
 
 describe('Auth Routes', () => {
@@ -157,6 +167,7 @@ describe('Auth Routes', () => {
     beforeEach(() => {
         mockStartVerification.mockReset();
         mockCheckVerification.mockReset();
+        mockVerifyFirebasePhoneIdToken.mockReset();
         mockStartVerification.mockResolvedValue({
             sid: 'test-verification-id',
             status: 'pending',
@@ -165,6 +176,10 @@ describe('Auth Routes', () => {
             status: 'approved',
             valid: true,
         });
+        mockVerifyFirebasePhoneIdToken.mockImplementation(async (_token, phoneNumber) => ({
+            uid: `firebase-${phoneNumber.replace(/\D/g, '')}`,
+            phone_number: phoneNumber,
+        }));
     });
 
     describe('POST /api/auth/login', () => {
@@ -219,12 +234,14 @@ describe('Auth Routes', () => {
             expect(response.data.data.challenge.challenge_id).toBeDefined();
             expect(response.data.data.challenge.phone.masked).toBe('********4444');
             expect(response.data.data.challenge.phone.masked).not.toContain('9000004444');
-            expect(mockStartVerification).toHaveBeenCalledWith('+919000004444', 'sms');
+            expect(response.data.data.challenge.phone.number).toBe('+919000004444');
+            expect(response.data.data.challenge.provider).toBe('firebase_auth');
 
             const savedChallenge = await OtpChallenge.findById(response.data.data.challenge.challenge_id);
             expect(savedChallenge?.user_id.toString()).toBe(unverifiedPatientUser._id.toString());
             expect(savedChallenge?.user_type).toBe('PATIENT');
             expect(savedChallenge?.phone_hash).not.toContain('4444');
+            expect(savedChallenge?.provider).toBe('firebase_auth');
         });
 
         test('should return a phone OTP challenge for unverified doctor login', async () => {
@@ -236,7 +253,7 @@ describe('Auth Routes', () => {
             expect(response.status).toBe(202);
             expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
             expect(response.data.data.challenge.phone.masked).toBe('********3333');
-            expect(mockStartVerification).toHaveBeenCalledWith('+919000003333', 'sms');
+            expect(response.data.data.challenge.phone.number).toBe('+919000003333');
         });
 
         test('should login admin without phone OTP behavior', async () => {
@@ -394,31 +411,28 @@ describe('Auth Routes', () => {
 
             const response = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: challengeId,
-                code: 'candidate-code',
+                firebase_id_token: 'patient-firebase-id-token',
             });
 
             expect(response.status).toBe(200);
             expect(response.data.data.token).toBeDefined();
             expect(response.data.data.refresh_token).toBeDefined();
             expect(response.data.data.user.login_id).toBe('unverified-patient');
-            expect(mockCheckVerification).toHaveBeenCalledWith('+919000004444', 'candidate-code');
+            expect(mockVerifyFirebasePhoneIdToken).toHaveBeenCalledWith('patient-firebase-id-token', '+919000004444');
 
             const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
             expect(patientProfile?.demographics?.phone_verification?.status).toBe('VERIFIED');
             expect(patientProfile?.demographics?.phone_verification?.verified_at).toBeDefined();
         });
 
-        test('should not mark phone verified after Twilio rejects login OTP', async () => {
+        test('should not mark phone verified after Firebase rejects the ID token', async () => {
             await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
                 $set: {
                     'phone_verification.status': 'PENDING',
                     'phone_verification.verified_at': undefined,
                 },
             });
-            mockCheckVerification.mockResolvedValueOnce({
-                status: 'pending',
-                valid: false,
-            });
+            mockVerifyFirebasePhoneIdToken.mockRejectedValueOnce(new Error('invalid Firebase token'));
 
             const loginResponse = await api.post('/api/auth/login', {
                 login_id: 'unverified-doctor',
@@ -426,7 +440,7 @@ describe('Auth Routes', () => {
             });
             const response = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: loginResponse.data.data.challenge.challenge_id,
-                code: 'candidate-code',
+                firebase_id_token: 'invalid-firebase-id-token',
             });
 
             expect(response.status).toBe(401);
@@ -455,7 +469,7 @@ describe('Auth Routes', () => {
 
             const expiredResponse = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: expiredLogin.data.data.challenge.challenge_id,
-                code: 'candidate-code',
+                firebase_id_token: 'firebase-id-token',
             });
             expect(expiredResponse.status).toBe(410);
 
@@ -472,10 +486,9 @@ describe('Auth Routes', () => {
 
             const lockedResponse = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: lockedLogin.data.data.challenge.challenge_id,
-                code: 'candidate-code',
+                firebase_id_token: 'firebase-id-token',
             });
             expect(lockedResponse.status).toBe(423);
-            expect(mockCheckVerification).not.toHaveBeenCalledWith('+919000004444', 'candidate-code');
         });
 
         test('should prevent cross-account login challenge replay after registered phone changes', async () => {
@@ -497,18 +510,18 @@ describe('Auth Routes', () => {
 
             const response = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: loginResponse.data.data.challenge.challenge_id,
-                code: 'candidate-code',
+                firebase_id_token: 'firebase-id-token',
             });
 
             expect(response.status).toBe(403);
-            expect(mockCheckVerification).not.toHaveBeenCalled();
+            expect(mockVerifyFirebasePhoneIdToken).not.toHaveBeenCalled();
 
             await DoctorProfile.findByIdAndUpdate(unverifiedDoctorProfile._id, {
                 $set: { contact_number: '+919000003333' },
             });
         });
 
-        test('should not issue a token if the phone changes after Twilio approves but before profile verification update', async () => {
+        test('should not issue a token if the phone changes after Firebase verifies but before profile verification update', async () => {
             await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
                 $set: {
                     'demographics.phone': '+919000004444',
@@ -525,19 +538,16 @@ describe('Auth Routes', () => {
             });
             const challengeId = loginResponse.data.data.challenge.challenge_id;
 
-            mockCheckVerification.mockImplementationOnce(async () => {
+            mockVerifyFirebasePhoneIdToken.mockImplementationOnce(async () => {
                 await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
                     $set: { 'demographics.phone': '+919000008888' },
                 });
-                return {
-                    status: 'approved',
-                    valid: true,
-                };
+                return { uid: 'firebase-race-test', phone_number: '+919000004444' };
             });
 
             const response = await api.post('/api/auth/login/otp/verify', {
                 challenge_id: challengeId,
-                code: 'candidate-code',
+                firebase_id_token: 'firebase-id-token',
             });
 
             expect(response.status).toBe(409);
@@ -558,15 +568,13 @@ describe('Auth Routes', () => {
             await OtpChallenge.findByIdAndUpdate(challengeId, {
                 $set: { resend_available_at: new Date(Date.now() - 1000) },
             });
-            mockStartVerification.mockClear();
-
             const response = await api.post('/api/auth/login/otp/resend', {
                 challenge_id: challengeId,
             });
 
             expect(response.status).toBe(200);
             expect(response.data.data.auth_status).toBe('OTP_REQUIRED');
-            expect(mockStartVerification).toHaveBeenCalledWith('+919000003333', 'sms');
+            expect(response.data.data.challenge.provider).toBe('firebase_auth');
         });
 
         test('should fail with invalid login_id', async () => {

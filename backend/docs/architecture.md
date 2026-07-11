@@ -40,7 +40,7 @@ flowchart LR
   end
 
   subgraph Providers["External providers"]
-    Twilio["Twilio Verify\nSMS OTP"]
+    FirebaseAuth["Firebase Authentication\nPhone SMS and ID tokens"]
   end
 
   subgraph Async["Async delivery"]
@@ -74,7 +74,7 @@ flowchart LR
   Middleware --> Docs
 
   Auth --> Mongo
-  Auth -->|start/check verification| Twilio
+  Auth -->|verify signed phone ID token| FirebaseAuth
   Patient --> Mongo
   Doctor --> Mongo
   Admin --> Mongo
@@ -106,9 +106,10 @@ flowchart LR
 - File storage uses the AWS SDK against the Filebase S3-compatible endpoint.
   Report and profile file flows use one-hour presigned PUT/GET URLs or server
   side upload helpers, and only object keys are stored with domain records.
-- Twilio Verify is implemented for patient and doctor first-login phone OTP
-  verification. Admin TOTP MFA is implemented separately through backend TOTP
-  services.
+- Firebase Authentication is implemented for patient and doctor first-login
+  phone verification. Flutter sends and confirms the SMS, then the backend
+  verifies the Firebase ID token. Admin TOTP MFA remains a separate backend
+  service.
 - In-app notifications are persisted in MongoDB. Patient and doctor clients can
   connect to process-local Server-Sent Events streams for real-time notification
   delivery while the API process is alive.
@@ -129,16 +130,17 @@ sequenceDiagram
   participant Client as Flutter client
   participant API as Express /api/v1/auth
   participant DB as MongoDB
-  participant Twilio as Twilio Verify
+  participant Firebase as Firebase Authentication
 
   Client->>API: POST /login with credentials
   API->>DB: Load user, password hash, status, MFA flags
   alt First-login phone OTP required
-    API->>Twilio: Start verification for registered phone
-    API->>DB: Store OTP challenge/session state
-    API-->>Client: OTP challenge response
-    Client->>API: POST /login/otp/verify with code
-    API->>Twilio: Check verification code
+    API->>DB: Store Firebase-bound login challenge
+    API-->>Client: Challenge and registered E.164 phone
+    Client->>Firebase: Request and confirm phone SMS
+    Firebase-->>Client: Signed Firebase ID token
+    Client->>API: POST /login/otp/verify with ID token
+    API->>Firebase: Verify ID token and phone claim
     API->>DB: Mark phone verified and create auth session
     API-->>Client: Access token, refresh token, user session
   else Admin TOTP required

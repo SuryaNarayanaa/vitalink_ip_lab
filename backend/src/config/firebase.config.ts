@@ -1,10 +1,57 @@
-import { cert, getApps, initializeApp } from 'firebase-admin/app'
+import { cert, getApps, initializeApp, type App } from 'firebase-admin/app'
+import type { Auth } from 'firebase-admin/auth'
 import { getMessaging, type Messaging } from 'firebase-admin/messaging'
 
+let appInstance: App | null | undefined
+let authInstance: Auth | null | undefined
 let messagingInstance: Messaging | null | undefined
 
+const isEnabled = (key: string) =>
+  ['1', 'true', 'yes', 'on'].includes((process.env[key] || '').trim().toLowerCase())
+
 export function isFirebaseMessagingEnabled() {
-  return ['1', 'true', 'yes', 'on'].includes((process.env.FCM_ENABLED || '').trim().toLowerCase())
+  return isEnabled('FCM_ENABLED')
+}
+
+export function isFirebaseAuthEnabled() {
+  return isEnabled('FIREBASE_AUTH_ENABLED')
+}
+
+function initializeFirebaseApp(): App {
+  if (appInstance) return appInstance
+
+  const existingApp = getApps()[0]
+  if (existingApp) {
+    appInstance = existingApp
+    return existingApp
+  }
+
+  const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT?.trim()
+  if (!rawServiceAccount) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT is required when Firebase Auth or FCM is enabled')
+  }
+
+  let serviceAccount: object
+  try {
+    serviceAccount = JSON.parse(rawServiceAccount)
+  } catch {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT must be valid JSON')
+  }
+
+  appInstance = initializeApp({ credential: cert(serviceAccount) })
+  return appInstance
+}
+
+export function getFirebaseAuth(): Auth {
+  if (!isFirebaseAuthEnabled()) {
+    throw new Error('Firebase Authentication is disabled; set FIREBASE_AUTH_ENABLED=true')
+  }
+  if (authInstance) return authInstance
+  // Keep Auth lazy: firebase-admin/auth currently pulls an ESM-only JOSE
+  // dependency that older Jest/CommonJS runners cannot parse at module load.
+  const { getAuth } = require('firebase-admin/auth') as typeof import('firebase-admin/auth')
+  authInstance = getAuth(initializeFirebaseApp())
+  return authInstance
 }
 
 export function initializeFirebaseMessaging(): Messaging | null {
@@ -14,22 +61,7 @@ export function initializeFirebaseMessaging(): Messaging | null {
   }
   if (messagingInstance) return messagingInstance
 
-  const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT?.trim()
-  if (!rawServiceAccount) {
-    throw new Error('FCM_ENABLED is true but FIREBASE_SERVICE_ACCOUNT is missing')
-  }
-
-  let serviceAccount: object
-  try {
-    serviceAccount = JSON.parse(rawServiceAccount)
-  } catch {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT must be valid JSON when FCM_ENABLED is true')
-  }
-
-  if (!getApps().length) {
-    initializeApp({ credential: cert(serviceAccount) })
-  }
-  messagingInstance = getMessaging()
+  messagingInstance = getMessaging(initializeFirebaseApp())
   return messagingInstance
 }
 

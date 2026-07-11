@@ -8,6 +8,7 @@ import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
 import 'package:frontend/features/login/models/login_models.dart';
+import 'package:frontend/services/firebase_phone_auth_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class LoginPage extends StatefulWidget {
@@ -27,6 +28,8 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _otpController = TextEditingController();
   final AuthRepository _authRepository = AppDependencies.authRepository;
+  final FirebasePhoneAuthService _firebasePhoneAuth =
+      FirebasePhoneAuthService();
   bool _obscurePassword = true;
   LoginOtpChallenge? _otpChallenge;
   LoginTotpChallenge? _totpChallenge;
@@ -119,10 +122,13 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
+      final idToken = await _firebasePhoneAuth.verifySmsCode(
+        _otpController.text.trim(),
+      );
       final response = await _authRepository.verifyLoginOtp(
         VerifyLoginOtpRequest(
           challengeId: challenge.challengeId,
-          code: _otpController.text.trim(),
+          firebaseIdToken: idToken,
         ),
       );
       await _handleSuccess(response);
@@ -191,6 +197,8 @@ class _LoginPageState extends State<LoginPage> {
         _otpChallenge = updatedChallenge;
         _otpController.clear();
       });
+      await _sendFirebaseCode(updatedChallenge, forceResend: true);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('OTP sent to ${updatedChallenge.maskedPhone}')),
       );
@@ -210,6 +218,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _returnToLogin() {
+    _firebasePhoneAuth.clear();
     setState(() {
       _otpChallenge = null;
       _totpChallenge = null;
@@ -231,12 +240,25 @@ class _LoginPageState extends State<LoginPage> {
           onSuccess: (data, variables) async {
             if (!mounted) return;
             if (data.isOtpRequired) {
+              final challenge = data.otpChallenge!;
               setState(() {
-                _otpChallenge = data.otpChallenge;
+                _otpChallenge = challenge;
                 _totpChallenge = null;
                 _otpController.clear();
                 _otpError = null;
+                _isResendingOtp = true;
               });
+              try {
+                await _sendFirebaseCode(challenge);
+              } catch (error) {
+                if (!mounted) return;
+                setState(() => _otpError = error);
+                _handleError(error);
+              } finally {
+                if (mounted) {
+                  setState(() => _isResendingOtp = false);
+                }
+              }
               return;
             }
 
@@ -262,9 +284,8 @@ class _LoginPageState extends State<LoginPage> {
         ),
         builder: (context, mutation) {
           final error = mutation.error;
-          final errorText = error is ApiException
-              ? error.message
-              : error?.toString();
+          final errorText =
+              error is ApiException ? error.message : error?.toString();
 
           return SizedBox(
             width: screenWidth,
@@ -297,8 +318,7 @@ class _LoginPageState extends State<LoginPage> {
                     physics: const BouncingScrollPhysics(),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight:
-                            screenHeight -
+                        minHeight: screenHeight -
                             MediaQuery.of(context).padding.top -
                             MediaQuery.of(context).padding.bottom,
                       ),
@@ -423,6 +443,37 @@ class _LoginPageState extends State<LoginPage> {
         },
       ),
     );
+  }
+
+  Future<void> _sendFirebaseCode(
+    LoginOtpChallenge challenge, {
+    bool forceResend = false,
+  }) async {
+    if (challenge.phone.number.isEmpty) {
+      throw StateError('The backend did not provide a Firebase phone number.');
+    }
+
+    await _firebasePhoneAuth.sendCode(
+      phoneNumber: challenge.phone.number,
+      forceResend: forceResend,
+      onAutoVerified: (idToken) => _finishFirebaseVerification(
+        challenge,
+        idToken,
+      ),
+    );
+  }
+
+  Future<void> _finishFirebaseVerification(
+    LoginOtpChallenge challenge,
+    String idToken,
+  ) async {
+    final response = await _authRepository.verifyLoginOtp(
+      VerifyLoginOtpRequest(
+        challengeId: challenge.challengeId,
+        firebaseIdToken: idToken,
+      ),
+    );
+    await _handleSuccess(response);
   }
 
   Widget _buildTextField({

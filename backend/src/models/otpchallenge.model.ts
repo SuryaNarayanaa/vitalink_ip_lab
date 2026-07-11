@@ -51,7 +51,7 @@ const OtpChallengeSchema = new mongoose.Schema({
   provider: {
     type: String,
     required: true,
-    default: 'twilio_verify',
+    default: 'firebase_auth',
   },
   provider_verification_sid: {
     type: String,

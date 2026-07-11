@@ -18,7 +18,7 @@ export type LoginInput = z.infer<typeof loginSchema>
 export const verifyLoginOtpSchema = z.object({
   body: z.object({
     challenge_id: z.string().min(1, 'Challenge ID is required'),
-    code: z.string().min(1, 'OTP code is required'),
+    firebase_id_token: z.string().min(1, 'Firebase ID token is required'),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),

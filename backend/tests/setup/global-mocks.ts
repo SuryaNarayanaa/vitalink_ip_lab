@@ -55,6 +55,17 @@ jest.mock('@alias/config/s3-client', () => ({
     },
 }));
 
+jest.mock('@alias/services/firebase-phone-auth.service', () => ({
+    __esModule: true,
+    toFirebaseE164: (phoneNumber: string) => phoneNumber.startsWith('+')
+        ? phoneNumber
+        : `+91${phoneNumber.replace(/\D/g, '')}`,
+    verifyFirebasePhoneIdToken: jest.fn(async (_token: string, phoneNumber: string) => ({
+        uid: `test-firebase-${phoneNumber.replace(/\D/g, '')}`,
+        phone_number: phoneNumber,
+    })),
+}));
+
 jest.mock('@alias/utils/fileUpload', () => {
     class FileValidationError extends Error {}
     const describe = (file: Express.Multer.File) => {
@@ -172,7 +183,7 @@ jest.spyOn(axios, 'create').mockImplementation((...args: Parameters<typeof axios
         ) {
             return realInstancePost('/api/auth/login/otp/verify', {
                 challenge_id: response.data.data.challenge.challenge_id,
-                code: '000000',
+                firebase_id_token: 'test-firebase-id-token',
             });
         }
 

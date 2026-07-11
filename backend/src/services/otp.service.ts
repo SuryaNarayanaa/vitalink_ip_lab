@@ -85,6 +85,7 @@ export async function buildOtpChallengeValues(input: {
   policy?: OtpPolicy
   providerVerificationSid?: string
   providerStatus?: string
+  provider?: 'twilio_verify' | 'firebase_auth'
 }) {
   const policy = input.policy || getDefaultOtpPolicy()
   const now = input.now || new Date()
@@ -97,7 +98,7 @@ export async function buildOtpChallengeValues(input: {
       delivery_channel: OtpDeliveryChannel.SMS,
       phone_hash: hashPhoneNumber(input.phoneNumber),
       phone_last4: getPhoneLast4(input.phoneNumber),
-      provider: 'twilio_verify',
+      provider: input.provider || 'twilio_verify',
       provider_verification_sid: input.providerVerificationSid,
       provider_status: input.providerStatus,
       expires_at: new Date(now.getTime() + policy.expiryMinutes * 60 * 1000),
@@ -110,6 +111,102 @@ export async function buildOtpChallengeValues(input: {
       status: OtpChallengeStatus.PENDING,
     },
   }
+}
+
+/** Creates the backend half of a Firebase phone challenge without sending an SMS. */
+export async function issueFirebasePhoneVerificationChallenge(input: {
+  userId: string | mongoose.Types.ObjectId
+  userType: UserType.DOCTOR | UserType.PATIENT
+  phoneNumber: string
+  policy?: OtpPolicy
+}) {
+  const { challenge } = await buildOtpChallengeValues({
+    ...input,
+    provider: 'firebase_auth',
+    providerStatus: 'awaiting_client_verification',
+  })
+  return OtpChallenge.create(challenge)
+}
+
+/** Reserves app-level resend quota; the Flutter Firebase SDK performs the send. */
+export async function resendFirebasePhoneVerificationChallenge(
+  challengeId: string,
+  phoneNumber: string,
+  now = new Date()
+) {
+  const policy = getDefaultOtpPolicy()
+  const phoneHash = hashPhoneNumber(phoneNumber)
+  const challenge = await OtpChallenge.findById(challengeId)
+  if (!challenge) return null
+  if (challenge.phone_hash !== phoneHash) {
+    return { allowed: false, availability: { allowed: false, reason: OtpResendBlockReason.PHONE_MISMATCH } }
+  }
+
+  const resend = await buildOtpResendUpdate(
+    challenge,
+    policy,
+    now,
+    undefined,
+    'awaiting_client_resend'
+  )
+  if (!resend.allowed || !resend.update) return resend
+
+  const updated = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: challengeId,
+      phone_hash: phoneHash,
+      provider: 'firebase_auth',
+      status: OtpChallengeStatus.PENDING,
+      resend_count: challenge.resend_count,
+    },
+    { $set: resend.update },
+    { new: true }
+  )
+
+  return {
+    allowed: Boolean(updated),
+    availability: updated ? { allowed: true } : { allowed: false, reason: OtpResendBlockReason.CANCELLED },
+    challenge: updated,
+  }
+}
+
+/** Atomically consumes a challenge after Firebase has authenticated its phone. */
+export async function completeFirebasePhoneVerificationChallenge(
+  challengeId: string,
+  phoneNumber: string,
+  firebaseUid: string,
+  now = new Date()
+) {
+  const updated = await OtpChallenge.findOneAndUpdate(
+    {
+      _id: challengeId,
+      phone_hash: hashPhoneNumber(phoneNumber),
+      provider: 'firebase_auth',
+      status: OtpChallengeStatus.PENDING,
+      expires_at: { $gt: now },
+    },
+    {
+      $set: {
+        status: OtpChallengeStatus.VERIFIED,
+        verified_at: now,
+        provider_status: 'verified',
+        'metadata.firebase_uid': firebaseUid,
+      },
+    },
+    { new: true }
+  )
+
+  if (updated) {
+    return { verified: true, result: OtpVerificationResult.VERIFIED, update: { verified_at: now } }
+  }
+
+  const challenge = await OtpChallenge.findById(challengeId)
+  if (!challenge) return null
+  if (challenge.phone_hash !== hashPhoneNumber(phoneNumber)) {
+    return { verified: false, result: OtpVerificationResult.PHONE_MISMATCH, update: {} }
+  }
+  const blocked = getVerificationPreflightBlock(challenge, now)
+  return blocked || { verified: false, result: OtpVerificationResult.ALREADY_VERIFIED, update: {} }
 }
 
 export function buildVerificationAttemptUpdate(

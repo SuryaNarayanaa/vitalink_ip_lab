@@ -34,6 +34,7 @@ interface Config {
   otpMaxAttempts: number
   otpResendCooldownSeconds: number
   otpMaxResends: number
+  firebasePhoneDefaultCountryCode: string
   adminTotpEncryptionKey: string
   adminTotpChallengeExpiryMinutes: number
   adminTotpMaxAttempts: number
@@ -193,16 +194,13 @@ export function getMissingEnvironmentVariables(): string[] {
     'S3_BUCKET_NAME',
     'FILE_ASSET_LEGACY_CUTOFF_AT',
     'ADMIN_TOTP_ENCRYPTION_KEY',
-    'TWILIO_ACCOUNT_SID',
-    'TWILIO_AUTH_TOKEN',
-    'TWILIO_VERIFY_SERVICE_SID',
   ]
 
   if (apiDocsEnabled) {
     required.push('API_DOCS_USERNAME', 'API_DOCS_PASSWORD')
   }
 
-  if (getBoolEnv('FCM_ENABLED', false)) {
+  if (getBoolEnv('FCM_ENABLED', false) || getBoolEnv('FIREBASE_AUTH_ENABLED', false)) {
     required.push('FIREBASE_SERVICE_ACCOUNT')
   }
 
@@ -246,6 +244,7 @@ export const config: Config = {
   otpMaxAttempts: getIntEnv('OTP_MAX_ATTEMPTS', 5),
   otpResendCooldownSeconds: getIntEnv('OTP_RESEND_COOLDOWN_SECONDS', 60),
   otpMaxResends: getIntEnv('OTP_MAX_RESENDS', 3),
+  firebasePhoneDefaultCountryCode: getEnv('FIREBASE_PHONE_DEFAULT_COUNTRY_CODE', { defaultValue: '+91' }),
   adminTotpEncryptionKey: getEnv('ADMIN_TOTP_ENCRYPTION_KEY', {
     requiredInProduction: true,
     requiredInStaging: true,
@@ -254,9 +253,9 @@ export const config: Config = {
   adminTotpChallengeExpiryMinutes: getIntEnv('ADMIN_TOTP_CHALLENGE_EXPIRY_MINUTES', 5),
   adminTotpMaxAttempts: getIntEnv('ADMIN_TOTP_MAX_ATTEMPTS', 5),
   refreshTokenExpiryDays: getIntEnv('REFRESH_TOKEN_EXPIRY_DAYS', 30),
-  twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID', { requiredInProduction: true, requiredInStaging: true }),
-  twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN', { requiredInProduction: true, requiredInStaging: true }),
-  twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID', { requiredInProduction: true, requiredInStaging: true }),
+  twilioAccountSid: getEnv('TWILIO_ACCOUNT_SID'),
+  twilioAuthToken: getEnv('TWILIO_AUTH_TOKEN'),
+  twilioVerifyServiceSid: getEnv('TWILIO_VERIFY_SERVICE_SID'),
   twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
   twilioVerifyTemplateSid: getEnv('TWILIO_VERIFY_TEMPLATE_SID'),
   twilioVerifyTemplateTtlMinutes: getIntEnv('TWILIO_VERIFY_TEMPLATE_TTL_MINUTES', getIntEnv('OTP_EXPIRY_MINUTES', 10)),

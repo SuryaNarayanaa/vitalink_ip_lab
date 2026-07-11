@@ -12,14 +12,20 @@ class LoginRequest {
 }
 
 class VerifyLoginOtpRequest {
-  VerifyLoginOtpRequest({required this.challengeId, required this.code});
+  VerifyLoginOtpRequest({
+    required this.challengeId,
+    required this.firebaseIdToken,
+  });
 
   final String challengeId;
-  final String code;
+  final String firebaseIdToken;
 
   String get path => AppStrings.loginOtpVerifyPath;
 
-  Map<String, dynamic> toJson() => {'challenge_id': challengeId, 'code': code};
+  Map<String, dynamic> toJson() => {
+        'challenge_id': challengeId,
+        'firebase_id_token': firebaseIdToken,
+      };
 }
 
 class ResendLoginOtpRequest {
@@ -117,15 +123,15 @@ class UserModel {
       userType: roleFromUser.isNotEmpty
           ? roleFromUser
           : roleFromRole.isNotEmpty
-          ? roleFromRole
-          : roleFromProfile,
+              ? roleFromRole
+              : roleFromProfile,
       isActive: _readBool(json['is_active'], fallback: true),
       profileId: _readString(profile).isNotEmpty ? _readString(profile) : null,
       userTypeModel: roleFromModel.isNotEmpty
           ? roleFromModel
           : roleModelFromProfile.isNotEmpty
-          ? roleModelFromProfile
-          : null,
+              ? roleModelFromProfile
+              : null,
     );
   }
 
@@ -185,16 +191,18 @@ class AuthSessionModel {
 }
 
 class LoginOtpPhone {
-  LoginOtpPhone({required this.masked, this.last4});
+  LoginOtpPhone({required this.masked, required this.number, this.last4});
 
   factory LoginOtpPhone.fromJson(Map<String, dynamic> json) {
     return LoginOtpPhone(
       masked: _readString(json['masked']),
+      number: _readString(json['number']),
       last4: _readNullableString(json['last4']),
     );
   }
 
   final String masked;
+  final String number;
   final String? last4;
 }
 
@@ -280,16 +288,16 @@ class LoginTotpChallenge {
 
 class LoginResult {
   LoginResult.authenticated(this.response)
-    : otpChallenge = null,
-      totpChallenge = null;
+      : otpChallenge = null,
+        totpChallenge = null;
 
   LoginResult.otpRequired(this.otpChallenge)
-    : response = null,
-      totpChallenge = null;
+      : response = null,
+        totpChallenge = null;
 
   LoginResult.totpRequired(this.totpChallenge)
-    : response = null,
-      otpChallenge = null;
+      : response = null,
+        otpChallenge = null;
 
   final LoginResponse? response;
   final LoginOtpChallenge? otpChallenge;

@@ -22,14 +22,15 @@ import {
   verifyAdminMfaLoginChallenge,
 } from '@alias/services/admin-totp.service'
 import {
+  completeFirebasePhoneVerificationChallenge,
   hashPhoneNumber,
-  issuePhoneVerificationOtp,
+  issueFirebasePhoneVerificationChallenge,
   OtpResendBlockReason,
   OtpVerificationResult,
-  resendPhoneVerificationOtp,
-  verifyOtpChallenge,
+  resendFirebasePhoneVerificationChallenge,
 } from '@alias/services/otp.service'
 import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
+import { toFirebaseE164, verifyFirebasePhoneIdToken } from '@alias/services/firebase-phone-auth.service'
 import {
   createAuthSession,
   refreshAuthSession,
@@ -150,11 +151,11 @@ const buildOtpChallengeResponse = (challenge: any, phoneNumber: string) => ({
     phone: {
       masked: maskPhoneNumber(phoneNumber),
       last4: challenge.phone_last4,
+      number: toFirebaseE164(phoneNumber),
     },
+    provider: 'firebase_auth',
     expires_at: challenge.expires_at,
     resend_available_at: challenge.resend_available_at,
-    attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
-    max_attempts: challenge.max_attempts,
     resend_count: challenge.resend_count,
     max_resends: challenge.max_resends,
   },
@@ -341,7 +342,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         { $set: { status: OtpChallengeStatus.CANCELLED } }
       )
 
-      const challenge = await issuePhoneVerificationOtp({
+      const challenge = await issueFirebasePhoneVerificationChallenge({
         userId: user._id,
         userType: user.user_type as UserType.DOCTOR | UserType.PATIENT,
         phoneNumber,
@@ -418,9 +419,26 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
 export const verifyLoginOtpController = asyncHandler(
   async (req: Request<{}, {}, VerifyLoginOtpInput["body"]>, res: Response) => {
-    const { challenge_id, code } = req.body
+    const { challenge_id, firebase_id_token } = req.body
     const { challenge, user, phoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
-    const result = await verifyOtpChallenge(challenge._id.toString(), phoneNumber, code)
+    let decodedToken
+    try {
+      decodedToken = await verifyFirebasePhoneIdToken(firebase_id_token, phoneNumber)
+    } catch (error) {
+      logger.warn('Firebase phone token verification failed', {
+        event: 'auth.firebase_phone_verification_failed',
+        challenge_id,
+        request_id: (req as any).requestId,
+        error: error instanceof Error ? error.message : 'Firebase token verification failed',
+      })
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'Firebase phone verification failed')
+    }
+
+    const result = await completeFirebasePhoneVerificationChallenge(
+      challenge._id.toString(),
+      phoneNumber,
+      decodedToken.uid
+    )
 
     if (!result) {
       throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
@@ -510,7 +528,7 @@ export const resendLoginOtpController = asyncHandler(
   async (req: Request<{}, {}, ResendLoginOtpInput["body"]>, res: Response) => {
     const { challenge_id } = req.body
     const { challenge, phoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
-    const result = await resendPhoneVerificationOtp(challenge._id.toString(), phoneNumber)
+    const result = await resendFirebasePhoneVerificationChallenge(challenge._id.toString(), phoneNumber)
 
     if (!result) {
       throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
@@ -542,7 +560,8 @@ export const resendLoginOtpController = asyncHandler(
       return
     }
 
-    const updatedChallenge = await OtpChallenge.findById(challenge._id)
+    const updatedChallenge = ('challenge' in result ? result.challenge : null) ||
+      await OtpChallenge.findById(challenge._id)
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Phone OTP resent successfully',
