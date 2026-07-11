@@ -46,10 +46,24 @@ import OtpChallenge from './otpchallenge.model'
 import AdminMfaChallenge from './adminmfachallenge.model'
 import AuthSession from './authsession.model'
 import FileAsset from './fileasset.model'
+import DeviceToken from './DeviceToken.model'
 
-
-export { User, DoctorProfile, PatientProfile, AdminProfile, AuditLog, SystemConfig, Notification, Hospital, Invoice, OtpChallenge, AdminMfaChallenge, AuthSession, FileAsset }
-
+export {
+  User,
+  DoctorProfile,
+  PatientProfile,
+  AdminProfile,
+  AuditLog,
+  SystemConfig,
+  Notification,
+  Hospital,
+  Invoice,
+  OtpChallenge,
+  AdminMfaChallenge,
+  AuthSession,
+  FileAsset,
+  DeviceToken,
+}
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile
 export const Patient = PatientProfile
