@@ -14,4 +14,5 @@ deploy/vitalink-pem-key-pair.pem
 /deliverables
 /tmp_documents
 psghospitalinrapp-firebase-adminsdk-fbsvc-c33c6bd64d.json
+*-firebase-adminsdk-*.json
 
