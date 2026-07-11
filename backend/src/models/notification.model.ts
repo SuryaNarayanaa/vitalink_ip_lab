@@ -57,6 +57,10 @@ const NotificationSchema = new mongoose.Schema({
   action_url: {
     type: String,
   },
+  /** Stable key for idempotent scheduled-notification creation. */
+  reminder_key: {
+    type: String,
+  },
   expires_at: {
     type: Date,
   },
@@ -65,6 +69,7 @@ const NotificationSchema = new mongoose.Schema({
 // TTL index for auto-expiry
 NotificationSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
 NotificationSchema.index({ user_id: 1, is_read: 1, createdAt: -1 })
+NotificationSchema.index({ reminder_key: 1 }, { unique: true, sparse: true })
 
 export interface NotificationDocument extends mongoose.InferSchemaType<typeof NotificationSchema> {}
 

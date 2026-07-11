@@ -1,4 +1,3 @@
-import { sendPushToUser } from '@alias/services/fcm.service'
 import { Request, Response } from 'express'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
@@ -29,6 +28,7 @@ import {
   DoctorChangeType,
   createDoctorUpdateNotification
 } from '@alias/services/doctor-update-notification.service'
+import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
 
 const normalizeLoginId = (value: string) => value.trim()
 
@@ -116,8 +116,8 @@ const notifyPatientDoctorUpdate = async (
   message: string,
   changedFields: string[] = []
 ) => {
-  // Save in-app notification (existing)
-  await createDoctorUpdateNotification({
+  // In-app notification + SSE for immediate foreground updates.
+  const created = await createDoctorUpdateNotification({
     patientUserId,
     changedByDoctorId: doctorId,
     changeType,
@@ -126,16 +126,20 @@ const notifyPatientDoctorUpdate = async (
     changedFields,
   })
 
-  // Push is best-effort and must not delay or fail the clinical HTTP response after persistence.
-  void sendPushToUser(String(patientUserId), {
+  // Durable FCM outbox: persist delivery state and enqueue asynchronously.
+  // Must not fail or block the clinical HTTP response after persistence.
+  void enqueueNotificationPush({
+    notificationId: String(created._id),
+    userId: String(patientUserId),
     title,
     body: message,
     data: { change_type: changeType },
   }).catch((error) => {
-    logger.error('FCM delivery failed after doctor update was persisted', {
-      error,
+    logger.error('notification_delivery.doctor_update_enqueue_failed', {
+      error: error instanceof Error ? error.message : String(error),
       patientUserId: String(patientUserId),
       changeType,
+      notificationId: String(created._id),
     })
   })
 }

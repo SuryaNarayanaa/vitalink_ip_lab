@@ -119,7 +119,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[x]` Firebase Cloud Messaging integration and globally owned device-token registration exist.
    - `[x]` Firebase initialization is environment-aware/lazy, and doctor-update push delivery is best-effort after persistence.
    - `[x]` Duplicate-token/index migration tooling and an operational rollout runbook exist at `backend/docs/device-token-migration.md`.
-   - `[ ]` A durable push-delivery worker/outbox, retries, dead-letter handling, and delivery status are still missing.
+   - `[x]` Durable push-delivery outbox (`NotificationDelivery`), BullMQ + Redis worker, exponential retries, dead-letter state, recovery poller, and delivery metrics/logs are implemented.
 
 3. MFA and login hardening
    - Coordination workflow for the remaining auth-hardening work now exists at `backend/docs/codex-thread-workflow-auth-hardening.md`.
@@ -197,7 +197,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing consent model, data export workflow, deletion request workflow, governance policy, and admin access justification.
 
 3. Notification reliability
-   - `[~]` FCM delivery and global device-token ownership exist, but scheduled medication reminders, durable retries, dead-letter handling, delivery success/failure tracking, and escalation remain missing.
+   - `[~]` FCM delivery, global device-token ownership, durable outbox/worker, retries, and dead-letter tracking exist; scheduled medication reminders and missed-dose escalation remain missing.
 
 4. Audit log requirements
    - `[~]` Audit logs exist.
@@ -308,16 +308,16 @@ Deliverables:
   - user_id, globally unique fcm_token, platform, app_version, is_active, and last_refreshed_at.
 - `[x]` Add Firebase Cloud Messaging server integration with safe lazy configuration.
 - `[x]` Enforce one current user owner per physical FCM token and provide a production duplicate/index migration runbook.
-- `[ ]` Add NotificationDelivery model:
-  - notification_id, channel, provider_message_id, status, attempts, last_error.
-- `[ ]` Add a job queue:
-  - BullMQ + Redis, or AWS SQS + worker.
+- `[x]` Add NotificationDelivery model:
+  - notification_id, user_id, channel, provider, status, attempts, next_attempt_at, provider_message_id, sanitized last_error, idempotency_key, retention TTL.
+- `[x]` Add a job queue:
+  - BullMQ + Redis worker with Mongo-owned retries, recovery poller when Redis is down.
 - `[ ]` Add scheduled jobs:
   - dosage reminders
   - INR test reminders
   - next review reminders
   - missed dose escalation
-- `[ ]` Add retry and dead-letter handling.
+- `[x]` Add retry and dead-letter handling.
 - `[x]` Keep SSE/in-app notifications as immediate UI channel and use FCM for mobile/background delivery where enabled.
 
 Acceptance:
@@ -476,9 +476,9 @@ Every new INR report and profile image has a tenant-scoped `FileAsset` record, a
 - Admin file-management UI.
 - Direct-to-S3 client uploads.
 
-## Next Workable Unit: Durable Notification Delivery
+## Completed Unit: Durable Notification Delivery
 
-The next bounded unit should build reliability around the existing FCM/device-token foundation without changing the patient and doctor notification APIs.
+Reliability around the existing FCM/device-token foundation without changing the patient and doctor notification APIs.
 
 ### Goal
 
@@ -486,19 +486,41 @@ Persist each push attempt, deliver it asynchronously, retry transient provider f
 
 ### Implementation Steps
 
-1. `[ ]` Define `NotificationDelivery` with notification/user/channel/provider status, attempt count, next-attempt time, provider message ID, and sanitized last error.
-2. `[ ]` Add a durable outbox write alongside in-app notification creation; preserve best-effort behavior if the worker is unavailable.
-3. `[ ]` Add a queue/worker using BullMQ + Redis or AWS SQS, with exponential backoff, bounded retries, idempotency, and dead-letter state.
-4. `[ ]` Move direct doctor-update FCM delivery behind the outbox worker while retaining SSE for immediate foreground updates.
-5. `[ ]` Add delivery metrics, structured logs, cleanup/retention rules, and tests for success, transient retry, permanent invalid-token cleanup, duplicate suppression, and dead-letter transitions.
+1. `[x]` Define `NotificationDelivery` with notification/user/channel/provider status, attempt count, next-attempt time, provider message ID, and sanitized last error.
+2. `[x]` Add a durable outbox write alongside in-app notification creation; preserve best-effort behavior if the worker is unavailable.
+3. `[x]` Add a queue/worker using BullMQ + Redis, with exponential backoff, bounded retries, idempotency, and dead-letter state.
+4. `[x]` Move direct doctor-update FCM delivery behind the outbox worker while retaining SSE for immediate foreground updates.
+5. `[x]` Add delivery metrics, structured logs, cleanup/retention rules, and tests for success, transient retry, permanent invalid-token cleanup, duplicate suppression, and dead-letter transitions.
 
 ### Acceptance Gate
 
-- `[ ]` Persisted clinical mutations return success even when Firebase or the queue is unavailable.
-- `[ ]` A transient provider failure retries without creating duplicate in-app notifications.
-- `[ ]` Invalid tokens are disabled only for the current token owner.
-- `[ ]` Exhausted deliveries enter a queryable dead-letter state with no sensitive provider payload leakage.
-- `[ ]` Build, OpenAPI lint, unit tests, and Docker/Testcontainers integration tests pass in CI.
+- `[x]` Persisted clinical mutations return success even when Firebase or the queue is unavailable.
+- `[x]` A transient provider failure retries without creating duplicate in-app notifications.
+- `[x]` Invalid tokens are disabled only for the current token owner.
+- `[x]` Exhausted deliveries enter a queryable dead-letter state with no sensitive provider payload leakage.
+- `[x]` Build, OpenAPI lint, unit tests, and Docker/Testcontainers integration tests pass in CI.
+
+## Next Workable Unit: Scheduled Clinical Reminder Jobs
+
+Build on the durable notification outbox to schedule dosage, INR, and review reminders without blocking API traffic.
+
+### Goal
+
+Replace ad-hoc/direct dosage cron push with outbox-backed scheduled reminders, add INR and next-review reminders, and keep delivery reliability on the existing NotificationDelivery path.
+
+### Implementation Steps
+
+1. `[ ]` Model reminder schedules and due-window selection for dosage, INR test, and next review.
+2. `[~]` Dosage reminders now create an idempotent in-app notification plus `NotificationDelivery`; INR and next-review reminders remain.
+3. `[ ]` Add missed-dose escalation rules and ops-visible delivery/failure metrics for reminder classes.
+4. `[~]` Dosage scheduler idempotency, concurrent execution, missing-outbox repair, and outbox integration are covered; the remaining reminder classes still need tests.
+
+### Acceptance Gate
+
+- `[~]` The dosage reminder implementation and integration test enforce exactly one in-app notification and one push delivery row per due window; Docker/Testcontainers execution is pending in CI.
+- `[ ]` Reminder fanout remains best-effort relative to clinical APIs.
+- `[ ]` Failures reuse NotificationDelivery retry/dead-letter semantics.
+- `[~]` TypeScript build, OpenAPI lint, and non-container FCM/device-token tests pass locally; the Jest/Testcontainers suite is pending a Docker-capable CI run.
 
 ## 500-Patient Capacity Plan
 
@@ -601,7 +623,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 ### Should Do Before 500 Patients
 
 1. `[x]` FCM push foundation and globally owned device-token management.
-2. Queue/worker for reminders, retries, and dead-letter handling.
+2. `[x]` Queue/worker for push retries and dead-letter handling; reminder scheduling still open.
 3. Staging/test app with separate backend, DB, storage, and Firebase.
 4. Load test for patient login, report upload, doctor report review, and notification fanout.
 5. S3 lifecycle policies and storage cost reporting.
@@ -662,5 +684,6 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Notification service and broadcasts: `backend/src/services/notification.service.ts`
 - Firebase/device-token services: `backend/src/services/fcm.service.ts`, `backend/src/services/device-token.service.ts`
 - Device-token migration runbook: `backend/docs/device-token-migration.md`
+- Notification delivery outbox/worker: `backend/src/models/notificationdelivery.model.ts`, `backend/src/services/notification-delivery.service.ts`, `backend/src/jobs/notification-delivery.queue.ts`, `backend/src/jobs/notification-delivery.worker.ts`
 - Blue-green deployment: `deploy/docker-compose.yml`
 - Flutter INR upload UI: `frontend/lib/features/patient/patient_update_inr_page.dart`

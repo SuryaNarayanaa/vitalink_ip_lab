@@ -44,6 +44,13 @@ interface Config {
   twilioVerifyChannel: string
   twilioVerifyTemplateSid: string
   twilioVerifyTemplateTtlMinutes: number
+  redisUrl: string
+  notificationDeliveryEnabled: boolean
+  notificationDeliveryMaxAttempts: number
+  notificationDeliveryBaseBackoffMs: number
+  notificationDeliveryRetentionDays: number
+  notificationDeliveryRecoveryIntervalMs: number
+  notificationDeliveryWorkerConcurrency: number
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -217,5 +224,12 @@ export const config: Config = {
   twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
   twilioVerifyTemplateSid: getEnv('TWILIO_VERIFY_TEMPLATE_SID'),
   twilioVerifyTemplateTtlMinutes: getIntEnv('TWILIO_VERIFY_TEMPLATE_TTL_MINUTES', getIntEnv('OTP_EXPIRY_MINUTES', 10)),
+  redisUrl: getEnv('REDIS_URL', { defaultValue: isTest ? '' : '' }),
+  notificationDeliveryEnabled: getBoolEnv('NOTIFICATION_DELIVERY_ENABLED', !isTest),
+  notificationDeliveryMaxAttempts: getIntEnv('NOTIFICATION_DELIVERY_MAX_ATTEMPTS', 5),
+  notificationDeliveryBaseBackoffMs: getIntEnv('NOTIFICATION_DELIVERY_BASE_BACKOFF_MS', 2_000),
+  notificationDeliveryRetentionDays: getIntEnv('NOTIFICATION_DELIVERY_RETENTION_DAYS', 30),
+  notificationDeliveryRecoveryIntervalMs: getIntEnv('NOTIFICATION_DELIVERY_RECOVERY_INTERVAL_MS', 30_000),
+  notificationDeliveryWorkerConcurrency: getIntEnv('NOTIFICATION_DELIVERY_WORKER_CONCURRENCY', 5),
 }
 
