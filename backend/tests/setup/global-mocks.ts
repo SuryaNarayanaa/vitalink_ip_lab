@@ -1,6 +1,7 @@
 import path from 'path';
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
+import { createHash } from 'crypto';
 
 const TEST_BUCKET = 'mock-filebase-bucket';
 let keyCounter = 0;
@@ -55,11 +56,31 @@ jest.mock('@alias/config/s3-client', () => ({
 }));
 
 jest.mock('@alias/utils/fileUpload', () => {
-    const getUploadUrl = jest.fn(async (folder: string, filename: string) => {
-        const key = buildKey(folder, filename);
+    class FileValidationError extends Error {}
+    const describe = (file: Express.Multer.File) => {
+        const buffer = file.buffer;
+        let detectedMime = '';
+        if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') detectedMime = 'application/pdf';
+        else if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) detectedMime = 'image/png';
+        else if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) detectedMime = 'image/jpeg';
+        else if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') detectedMime = 'image/webp';
+        if (!detectedMime) throw new FileValidationError('File content is not a supported PDF, PNG, JPEG, or WEBP file');
+        const declared = file.mimetype === 'image/jpg' ? 'image/jpeg' : file.mimetype;
+        if (declared !== detectedMime) throw new FileValidationError(`File content does not match declared MIME type ${file.mimetype}`);
+        return {
+            detectedMime,
+            byteSize: buffer.length,
+            sha256Checksum: createHash('sha256').update(buffer).digest('hex'),
+        };
+    };
+
+    const getUploadUrl = jest.fn(async (folder: string, file: Express.Multer.File) => {
+        const key = buildKey(folder, file.originalname);
+        const metadata = describe(file);
         return {
             key,
             uploadUrl: buildPresignedUrl(key, 'PutObject'),
+            ...metadata,
         };
     });
 
@@ -67,14 +88,36 @@ jest.mock('@alias/utils/fileUpload', () => {
 
     const uploadFile = jest.fn(async (folder: string, file: Express.Multer.File) => {
         const originalname = file?.originalname || 'upload.bin';
-        return buildKey(folder, originalname);
+        const metadata = describe(file);
+        return {
+            bucket: TEST_BUCKET,
+            key: buildKey(folder, originalname),
+            originalFilename: originalname,
+            ...metadata,
+        };
+    });
+    const deleteFile = jest.fn(async () => undefined);
+    const readStoredFileMetadata = jest.fn(async (key: string) => ({
+        bucket: TEST_BUCKET,
+        key,
+        detectedMime: 'application/pdf',
+        byteSize: 16,
+        sha256Checksum: 'a'.repeat(64),
+    }));
+    const isLegacyFileReferenceEligible = jest.fn((value: Date | string | undefined | null) => {
+        if (!value) return false;
+        return new Date(value) < new Date('2026-07-11T00:00:00.000Z');
     });
 
     return {
         __esModule: true,
+        FileValidationError,
         getUploadUrl,
         getDownloadUrl,
         uploadFile,
+        deleteFile,
+        readStoredFileMetadata,
+        isLegacyFileReferenceEligible,
     };
 });
 

@@ -1,6 +1,6 @@
 # VitaLink Data Model Documentation
 
-Last updated: 2026-07-05
+Last updated: 2026-07-10
 
 ## Purpose
 
@@ -31,6 +31,9 @@ erDiagram
     HOSPITAL ||--o{ INVOICE : "hospital_id"
     USER ||--o{ NOTIFICATION : "user_id"
     USER ||--o{ AUDIT_LOG : "user_id"
+    USER ||--o{ FILE_ASSET : "owner_user_id"
+    HOSPITAL ||--o{ FILE_ASSET : "hospital_id"
+    PATIENT_PROFILE ||--o{ FILE_ASSET : "patient_profile_id"
     USER ||--o{ PATIENT_PROFILE : "assigned_doctor_id (doctor user)"
 
     USER {
@@ -122,6 +125,20 @@ erDiagram
         map feature_flags
         boolean is_active
     }
+
+    FILE_ASSET {
+        objectId _id
+        objectId hospital_id FK
+        objectId owner_user_id FK
+        objectId patient_profile_id FK
+        string purpose
+        string bucket
+        string object_key UK
+        string detected_mime
+        number byte_size
+        string sha256_checksum
+        string status
+    }
 ```
 
 ## Collection Catalog
@@ -205,6 +222,7 @@ Key fields:
 | `phone_verification.status` | enum | No | `PENDING` or `VERIFIED`; defaults to `PENDING` for OTP groundwork |
 | `phone_verification.verified_at` | date | No | Set when phone verification succeeds |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
+| `profile_picture_file_asset_id` | ObjectId | No | References tenant-scoped `fileassets`; absent on legacy records until backfill |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 
 ### `patientprofiles`
@@ -225,6 +243,7 @@ Key fields:
 | `health_logs` | array | No | Embedded self-reported health updates |
 | `account_status` | enum | No | `Active`, `Discharged`, `Deceased` |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
+| `profile_picture_file_asset_id` | ObjectId | No | References tenant-scoped `fileassets`; absent on legacy records until backfill |
 
 Embedded structures:
 
@@ -269,6 +288,7 @@ Embedded structures:
 | `inr_value` | number | Required |
 | `is_critical` | boolean | Default `false` |
 | `file_url` | string | S3-compatible object key |
+| `file_asset_id` | ObjectId | Tenant-scoped `fileassets` reference for authorization and metadata |
 | `notes` | string | Doctor-added note |
 
 `health_logs`
@@ -283,6 +303,35 @@ Embedded structures:
 Important implementation note:
 
 - Doctor and admin flows use patient `login_id` as an `op_num` route identifier. That identifier is not stored on `patientprofiles`; it is the patient's `users.login_id`. This should be treated as a contract rule in API integrations.
+
+### `fileassets`
+
+Tenant-scoped storage metadata and authorization anchor for uploaded clinical reports and profile images. New uploads create this record before the owning profile/report reference is committed; legacy object-key-only records remain readable until backfilled.
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `hospital_id` | ObjectId | Yes | Tenant boundary used during every new asset lookup |
+| `owner_user_id` | ObjectId | Yes | User that owns the file |
+| `patient_profile_id` | ObjectId | No | Patient context for INR reports and patient profile pictures |
+| `purpose` | enum | Yes | `INR_REPORT`, `PATIENT_PROFILE_PICTURE`, `DOCTOR_PROFILE_PICTURE` |
+| `storage_provider` | enum | Yes | Currently `S3_COMPATIBLE` |
+| `bucket` | string | Yes | Storage bucket |
+| `object_key` | string | Yes | UUID-based key with byte-detected safe extension |
+| `original_filename` | string | Yes | Client filename retained as metadata only; never used as authorization |
+| `detected_mime` | string | Yes | MIME derived from magic bytes |
+| `byte_size` | number | Yes | Server-observed buffer length |
+| `sha256_checksum` | string | Yes | Lowercase SHA-256 of server-side bytes |
+| `status` | enum | Yes | `ACTIVE`, `FAILED`, `DELETED` |
+| `created_by` | ObjectId | Yes | User that initiated upload/backfill ownership |
+| `failure_reason` | string | No | Compensation/cleanup failure detail |
+| `deleted_at` | date | No | Soft deletion/compensation marker |
+| `retention_eligible_at` | date | No | Reserved for the later retention policy |
+
+New download resolution requires matching asset ID, hospital, owner, purpose, patient context when applicable, active status, and no deletion marker. Only owning records without an asset ID may use the isolated legacy object-key fallback.
+
+The legacy fallback also requires an exact requester/owner tenant match and a reference timestamp before the immutable `FILE_ASSET_LEGACY_CUTOFF_AT` deployment boundary. Current APIs cannot write raw profile-picture keys. Profile-picture replacement uses compare-and-set semantics and retires the previously referenced active asset so concurrent replacements do not silently create active orphan objects.
+
+Staging and production must supply that cutoff explicitly as a valid ISO timestamp. Operators set it to the coordinated instant when all older key-only application instances have been drained; the new application fails startup when it is missing or invalid. The rollout and backfill order is documented in `backend/docs/api-reference.md`.
 
 ### `hospitals`
 
@@ -385,11 +434,11 @@ The following uniqueness guarantees exist in the current implementation.
 | `users` | `profile_id` | Unique index | One authentication account per role profile |
 | `hospitals` | `code` | Unique index | One tenant code per hospital |
 | `invoices` | `invoice_number` | Unique index | One billing identifier per invoice |
+| `fileassets` | `{ bucket, object_key }` | Unique compound index | One metadata record per stored object |
 
 Current gaps:
 
 - `hospitals.admin_email` is required but not unique.
-- No explicit unique identifier exists for uploaded files beyond object-key generation logic.
 - No unique patient business key exists inside `patientprofiles`; operational uniqueness depends on `users.login_id`.
 
 ## Index Strategy
@@ -415,6 +464,11 @@ Current gaps:
 | `auditlogs` | `{ action: 1, createdAt: -1 }` | Action-type investigations |
 | `auditlogs` | `{ resource_type: 1, resource_id: 1 }` | Resource audit tracing |
 | `auditlogs` | `{ success: 1, createdAt: -1 }` | Failure and anomaly review |
+| `fileassets` | `{ hospital_id: 1, purpose: 1, createdAt: -1 }` | Tenant/purpose history |
+| `fileassets` | `{ owner_user_id: 1, createdAt: -1 }` | Owner file history |
+| `fileassets` | `{ patient_profile_id: 1, createdAt: -1 }` | Patient clinical file history |
+| `fileassets` | `{ bucket: 1, object_key: 1 }` unique | Storage identity and idempotent backfill |
+| `fileassets` | `{ status: 1 }` | Cleanup and failed-delivery operations |
 
 ### How the current indexes support the application
 
@@ -479,6 +533,7 @@ MongoDB does not enforce foreign keys natively, so the application layer must pr
 - `patientprofiles.assigned_doctor_id` must reference a doctor user record, not a doctor profile record.
 - Tenant-bound profiles should reference a valid `hospitals._id`.
 - `notifications.user_id` and `auditlogs.user_id` should always point to an existing user unless a deliberate retention/archive policy says otherwise.
+- Every active `fileassets` record must match its owning profile/report reference, tenant, owner, purpose, bucket, byte size, and checksum.
 
 Deletion policy expectations:
 
@@ -494,6 +549,9 @@ The repository currently uses script-based migrations in `backend/src/scripts` r
 - `migrateAssignedDoctorIds.ts`
 - `migrateDoctorChangeEventsToNotifications.ts`
 - `migrateInrCriticalFlags.ts`
+- `backfillFileAssets.ts` (dry-run by default; requires `--execute` for writes)
+
+The FileAsset backfill dry run reads each candidate object, validates its byte signature, and computes metadata without database writes. Its summary distinguishes would-create/would-attach counts from executed writes; reruns reuse only matching active assets and reject ownership conflicts.
 
 This is workable for a small system, but it needs operating rules.
 

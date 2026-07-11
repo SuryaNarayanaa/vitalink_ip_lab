@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { Server } from "http";
 import logger from './utils/logger'
 import '@alias/jobs/dosage.scheduler'  
+import { initializeFirebaseMessaging } from '@alias/config/firebase.config'
 
 let server: Server | null = null;
 let shuttingDown = false;
@@ -47,6 +48,7 @@ async function startServer() {
   const PORT = config.port;
 
   try {
+    initializeFirebaseMessaging()
     await connectDB();
     server = app.listen(PORT, () => {
       logger.info(`Server is running on port ${PORT}`);
