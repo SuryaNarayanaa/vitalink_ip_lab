@@ -2,7 +2,7 @@
 
 Date: 2026-07-06
 
-Last repository verification: 2026-07-10
+Last repository verification: 2026-07-11
 
 Status legend used below:
 
@@ -49,7 +49,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 ### Data Model
 
-- User, AdminProfile, DoctorProfile, PatientProfile, Hospital, Invoice, Notification, SystemConfig, and AuditLog models exist.
+- User, AdminProfile, DoctorProfile, PatientProfile, Hospital, Invoice, Notification, DeviceToken, FileAsset, SystemConfig, and AuditLog models exist.
 - Patient data includes demographics, next of kin, assigned doctor, hospital, INR history, health logs, dosage schedule, medical config, account status, and profile picture key.
 - Useful MongoDB indexes exist on user login/profile uniqueness, hospital IDs, notifications, audit logs, and status/date fields.
 
@@ -64,6 +64,9 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 - Files are uploaded to S3-compatible storage using presigned PUT URLs.
 - Report/profile downloads use presigned GET URLs.
 - Flutter INR page already uses `file_picker` and multipart upload.
+- New uploads use UUID object keys, byte-signature MIME validation, SHA-256 checksums, tenant/owner-scoped `FileAsset` records, and compensating object cleanup.
+- File reads authorize against active `FileAsset` metadata and its persisted bucket. Legacy key-only reads are isolated behind a tenant check and an immutable deployment cutoff.
+- Dry-run-first, idempotent FileAsset backfill tooling exists for legacy report and profile-picture references.
 
 ### Notifications
 
@@ -71,6 +74,9 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 - Server-Sent Events streams exist for patient and doctor notification updates.
 - Admin broadcast notifications exist for all users, doctors, patients, or specific users.
 - Doctor updates trigger patient notifications for reassignment, dosage changes, report changes, next review date, and instructions.
+- Firebase Cloud Messaging integration and device-token registration exist behind `FCM_ENABLED`; Firebase initialization is lazy and disabled safely in tests/development by default.
+- Physical FCM tokens have global ownership semantics, with an idempotent dry-run-first migration and rollout runbook for consolidating pre-existing duplicate owners and indexes.
+- Doctor-update pushes are best-effort and cannot turn an already-persisted clinical mutation into an HTTP failure.
 
 ### Audit and Logging
 
@@ -92,9 +98,8 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 - Backend Jest tests exist for auth, admin, doctor, patient, statistics, and patient file upload.
 - Tests use Testcontainers and MongoDB.
-- Current local verification: `npm run build` passes.
-- Current local test run could not execute because no working container runtime is available for Testcontainers.
-- GitHub Actions now runs the backend build and full Jest/Testcontainers suite; the workflow passed for repository HEAD `7aec2a0` on 2026-07-10.
+- Current local verification: `bun run build` passes and the focused FileAsset suite passes 15/15 with Jest.
+- GitHub Actions runs the backend build and full Jest/Testcontainers suite; both post-merge runs for PR #16 passed on 2026-07-11.
 
 ## Missing or Incomplete Against the Requirements
 
@@ -110,8 +115,11 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
      - Consider exposing versioned raw spec endpoints under `/api/v1/docs` as well if external integrators should stay fully under `/api`.
 
 2. Mobile push notification contract
-   - `[~]` In-app/SSE notifications exist.
-   - `[ ]` Missing Firebase Cloud Messaging integration, device token model, push delivery worker, retries, and delivery status.
+   - `[x]` In-app/SSE notifications exist.
+   - `[x]` Firebase Cloud Messaging integration and globally owned device-token registration exist.
+   - `[x]` Firebase initialization is environment-aware/lazy, and doctor-update push delivery is best-effort after persistence.
+   - `[x]` Duplicate-token/index migration tooling and an operational rollout runbook exist at `backend/docs/device-token-migration.md`.
+   - `[ ]` A durable push-delivery worker/outbox, retries, dead-letter handling, and delivery status are still missing.
 
 3. MFA and login hardening
    - Coordination workflow for the remaining auth-hardening work now exists at `backend/docs/codex-thread-workflow-auth-hardening.md`.
@@ -134,7 +142,6 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[x]` The document includes schema/collection descriptions, ERD, index strategy, unique key inventory, sensitive-field notes, and migration policy.
    - `[~]` Further implementation needed:
      - Add a retention-and-purge policy document.
-     - Add a file asset model proposal or implementation document once file metadata is normalized.
      - Keep the document updated as collections evolve.
 
 6. Backup, restore, DR, retention, archival, purge
@@ -145,7 +152,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 1. Architecture diagram
    - `[x]` Checked-in current-state architecture and data-flow diagrams now exist at `backend/docs/architecture.md`.
-   - Firebase/FCM and monitoring are clearly marked as planned placeholders in that document until implementation lands.
+   - `[~]` The architecture document exists; update any remaining Firebase/FCM placeholder language to reflect the implemented direct-delivery foundation and the still-planned durable queue.
 
 2. Environment strategy
    - `[ ]` Some deployment files exist, but Dev/UAT/Prod environment matrix is not formalized.
@@ -171,7 +178,8 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[x]` A route-by-route tenant authorization audit is checked in at `backend/docs/tenant-authorization-audit.md`.
    - `[x]` Patient, doctor, admin, statistics, notification broadcast, audit-log read, and current file-access paths are tenant-scoped and covered by backend tests.
    - `[~]` Authorization is enforced across controllers and services, but should be consolidated into reusable policy middleware as the route surface grows.
-   - `[ ]` Need tenant-scoped data export controls and normalized tenant metadata on file assets.
+   - `[x]` File assets carry normalized tenant and ownership metadata and current file reads fail closed on missing/mismatched tenant scope.
+   - `[ ]` Tenant-scoped data export controls are still needed.
 
 7. Scalability roadmap
    - `[~]` This document now includes a clearer phased roadmap for queues, notification delivery, compliance, monitoring, and staging.
@@ -189,7 +197,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
    - `[ ]` Missing consent model, data export workflow, deletion request workflow, governance policy, and admin access justification.
 
 3. Notification reliability
-   - `[ ]` Missing scheduled medication reminders, retry policy, dead-letter queue, delivery success/failure tracking, and escalation.
+   - `[~]` FCM delivery and global device-token ownership exist, but scheduled medication reminders, durable retries, dead-letter handling, delivery success/failure tracking, and escalation remain missing.
 
 4. Audit log requirements
    - `[~]` Audit logs exist.
@@ -218,7 +226,7 @@ Deliverables:
 Acceptance:
 
 - `[x]` Backend build passes.
-- `[x]` Existing Jest suite runs successfully in CI at repository HEAD `7aec2a0`.
+- `[x]` Existing Jest/Testcontainers suite runs successfully in post-merge CI for PR #16 as of 2026-07-11.
 - `[ ]` Frontend `flutter test` and analyzer are added to CI.
 - `[~]` OpenAPI now covers the implemented route surface at a useful level, but should still be tightened continuously as controllers evolve.
 - `[x]` Backend CI validates `backend/docs/api/openapi.yaml` with Redocly before build/tests.
@@ -258,18 +266,21 @@ Acceptance:
 
 Existing upload is a good start. Harden it before scaling:
 
-- `[ ]` Add a FileAsset model:
+- `[x]` Add a FileAsset model:
   - tenant/hospital ID
   - owner user ID
   - patient profile ID
   - purpose: INR_REPORT, PROFILE_PICTURE, etc.
   - storage provider, bucket, key, MIME, size, checksum, upload status
   - created_by, deleted_at, retention/delete eligibility
-- `[~]` Upload keys now include hospital and patient/user ownership, but records without hospital metadata still use an `unassigned` segment:
+- `[x]` New upload keys require hospital and patient/user ownership; no new upload uses an `unassigned` segment:
   - `hospitals/{hospitalId}/patients/{patientId}/reports/{generatedFileName}`
   - `hospitals/{hospitalId}/profiles/{userId}/{generatedFileName}`
-- `[ ]` Use UUID/crypto-random keys instead of `Math.random`.
-- `[ ]` Verify file magic bytes, not just client MIME type.
+- `[x]` Use UUID/crypto-random keys instead of `Math.random`.
+- `[x]` Verify file magic bytes, not just client MIME type.
+- `[x]` Compute and persist server-side SHA-256 and detected MIME/size metadata.
+- `[x]` Compensate failed owning-record writes and retire replaced profile-picture assets.
+- `[x]` Provide dry-run-first, idempotent legacy backfill with metadata validation and conflict reporting.
 - `[ ]` Add optional virus/malware scan hook for production uploads.
 - `[x]` Keep file upload size limits:
   - INR report: 10 MB
@@ -283,29 +294,31 @@ Existing upload is a good start. Harden it before scaling:
 
 Acceptance:
 
-- `[~]` Uploads use hospital and owner segments in object keys; the FileAsset migration must eliminate the `unassigned` fallback for new uploads.
-- `[x]` Current patient/doctor file reads enforce ownership and hospital scope.
-- `[ ]` File metadata survives even if object key changes.
-- `[~]` Presigned GET URLs expire after one hour and are generated on demand; database fields retain object keys, not signed URLs. The final expiry policy still needs to be documented.
+- `[x]` New uploads require hospital and owner scope and use cryptographically random object keys.
+- `[x]` Current patient/doctor file reads enforce owner, purpose, active-status, and hospital scope before signing.
+- `[x]` File metadata is normalized in `FileAsset`, including persisted bucket and object key.
+- `[x]` Presigned GET URLs are generated on demand from authorized metadata; legacy fallback is tenant- and cutoff-gated.
+- `[~]` The final URL-expiry and long-term retention policy still needs to be documented.
 
 ### Phase 3: Notification and Reminder Reliability
 
 Deliverables:
 
-- Add DeviceToken model:
-  - user_id, platform, token, app_version, last_seen_at, disabled_at.
-- Add Firebase Cloud Messaging server integration.
-- Add NotificationDelivery model:
+- `[x]` Add DeviceToken model:
+  - user_id, globally unique fcm_token, platform, app_version, is_active, and last_refreshed_at.
+- `[x]` Add Firebase Cloud Messaging server integration with safe lazy configuration.
+- `[x]` Enforce one current user owner per physical FCM token and provide a production duplicate/index migration runbook.
+- `[ ]` Add NotificationDelivery model:
   - notification_id, channel, provider_message_id, status, attempts, last_error.
-- Add a job queue:
+- `[ ]` Add a job queue:
   - BullMQ + Redis, or AWS SQS + worker.
-- Add scheduled jobs:
+- `[ ]` Add scheduled jobs:
   - dosage reminders
   - INR test reminders
   - next review reminders
   - missed dose escalation
-- Add retry and dead-letter handling.
-- Keep SSE/in-app notifications as immediate UI channel; use FCM for mobile/background delivery.
+- `[ ]` Add retry and dead-letter handling.
+- `[x]` Keep SSE/in-app notifications as immediate UI channel and use FCM for mobile/background delivery where enabled.
 
 Acceptance:
 
@@ -407,9 +420,9 @@ Acceptance:
 - Staging uses no production patient data.
 - Release checklist requires staging smoke pass.
 
-## Next Workable Unit: FileAsset Foundation and Safe Upload Metadata
+## Completed Workable Unit: FileAsset Foundation and Safe Upload Metadata
 
-This is the next bounded unit after tenant authorization hardening. It normalizes file ownership and storage metadata without changing the Flutter upload contract or requiring the later retention, malware-scanning, and purge-policy decisions.
+This bounded unit is complete. It normalized file ownership and storage metadata without changing the Flutter upload contract or requiring the later retention, malware-scanning, and purge-policy decisions.
 
 ### Goal
 
@@ -417,30 +430,30 @@ Every new INR report and profile image has a tenant-scoped `FileAsset` record, a
 
 ### Implementation Steps
 
-1. `[ ]` Define `FileAsset` and storage enums.
+1. `[x]` Define `FileAsset` and storage enums.
    - Add `backend/src/models/fileasset.model.ts` and export it from `backend/src/models/index.ts`.
    - Store `hospital_id`, `owner_user_id`, optional `patient_profile_id`, purpose, provider, bucket, object key, original filename, detected MIME, byte size, SHA-256 checksum, status, creator, timestamps, and soft-delete/retention fields.
    - Add indexes for tenant/purpose/date, owner/date, patient/date, unique bucket/object key, and status.
 
-2. `[ ]` Harden the shared upload utility.
+2. `[x]` Harden the shared upload utility.
    - Replace `Math.random` naming with `crypto.randomUUID()` while preserving a safe detected extension.
    - Detect PDF/PNG/JPEG/WEBP from magic bytes and reject MIME/content mismatches before requesting an upload URL.
    - Compute SHA-256 from the server-side buffer.
    - Return structured upload metadata instead of only the object key.
    - Add object deletion support so a successful object upload can be compensated if the database write fails.
 
-3. `[ ]` Integrate metadata writes without breaking existing API responses.
+3. `[x]` Integrate metadata writes without breaking existing API responses.
    - Create a `FileAsset` after storage upload and before committing the owning profile/report update.
    - Add `file_asset_id` references to INR history entries and patient/doctor profile images while temporarily retaining the existing `file_url` object-key fields.
    - On persistence failure, delete the newly uploaded object or mark the asset `FAILED` if cleanup fails.
    - Continue generating presigned GET URLs at response time so Flutter clients require no immediate changes.
 
-4. `[ ]` Enforce asset ownership on download resolution.
+4. `[x]` Enforce asset ownership on download resolution.
    - Resolve new downloads through `FileAsset` using hospital, owner/patient, purpose, and active-status filters.
    - Preserve a clearly isolated legacy fallback for records without `file_asset_id`.
    - Never accept an arbitrary object key from a request as authorization to sign a download.
 
-5. `[ ]` Add backfill and tests.
+5. `[x]` Add backfill and tests.
    - Add an idempotent dry-run-first migration script that creates asset records for existing INR and profile object keys and then attaches `file_asset_id` references.
    - Unit-test UUID keys, extension sanitization, byte-signature detection, checksum output, mismatch rejection, and cleanup behavior.
    - Extend patient/doctor integration tests for metadata creation, same-tenant download, cross-tenant denial, failed database writes, and legacy fallback.
@@ -448,12 +461,12 @@ Every new INR report and profile image has a tenant-scoped `FileAsset` record, a
 
 ### Acceptance Gate
 
-- `[ ]` `npm run lint:openapi`, `npm run build`, and the full backend Jest suite pass in CI.
-- `[ ]` New uploads contain no `Math.random`-derived key segments and reject spoofed MIME types.
-- `[ ]` Each successful new upload has exactly one active `FileAsset` with matching size and SHA-256 checksum.
-- `[ ]` Cross-tenant asset lookup returns `403` or `404` and never creates a presigned URL.
-- `[ ]` A database failure after object upload does not leave an untracked active object.
-- `[ ]` Existing legacy report and profile-image records remain readable during the migration window.
+- `[x]` `npm run lint:openapi`, the TypeScript build, and the full backend Jest/Testcontainers suite pass in CI.
+- `[x]` New uploads contain no `Math.random`-derived key segments and reject spoofed MIME types.
+- `[x]` Each successful new upload has exactly one active `FileAsset` with matching size and SHA-256 checksum.
+- `[x]` Cross-tenant asset lookup returns `403` or `404` and never creates a presigned URL.
+- `[x]` A database failure after object upload is compensated; failed cleanup is recorded as a failed asset rather than an untracked active object.
+- `[x]` Eligible legacy report and profile-image records remain readable during the configured migration window.
 
 ### Explicitly Deferred From This Unit
 
@@ -462,6 +475,30 @@ Every new INR report and profile image has a tenant-scoped `FileAsset` record, a
 - Patient purge/deletion orchestration.
 - Admin file-management UI.
 - Direct-to-S3 client uploads.
+
+## Next Workable Unit: Durable Notification Delivery
+
+The next bounded unit should build reliability around the existing FCM/device-token foundation without changing the patient and doctor notification APIs.
+
+### Goal
+
+Persist each push attempt, deliver it asynchronously, retry transient provider failures, and expose enough delivery state for operations to diagnose failures without making clinical HTTP commands depend on Firebase availability.
+
+### Implementation Steps
+
+1. `[ ]` Define `NotificationDelivery` with notification/user/channel/provider status, attempt count, next-attempt time, provider message ID, and sanitized last error.
+2. `[ ]` Add a durable outbox write alongside in-app notification creation; preserve best-effort behavior if the worker is unavailable.
+3. `[ ]` Add a queue/worker using BullMQ + Redis or AWS SQS, with exponential backoff, bounded retries, idempotency, and dead-letter state.
+4. `[ ]` Move direct doctor-update FCM delivery behind the outbox worker while retaining SSE for immediate foreground updates.
+5. `[ ]` Add delivery metrics, structured logs, cleanup/retention rules, and tests for success, transient retry, permanent invalid-token cleanup, duplicate suppression, and dead-letter transitions.
+
+### Acceptance Gate
+
+- `[ ]` Persisted clinical mutations return success even when Firebase or the queue is unavailable.
+- `[ ]` A transient provider failure retries without creating duplicate in-app notifications.
+- `[ ]` Invalid tokens are disabled only for the current token owner.
+- `[ ]` Exhausted deliveries enter a queryable dead-letter state with no sensitive provider payload leakage.
+- `[ ]` Build, OpenAPI lint, unit tests, and Docker/Testcontainers integration tests pass in CI.
 
 ## 500-Patient Capacity Plan
 
@@ -553,7 +590,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 
 1. `[x]` MFA for admins plus refresh-token/session invalidation.
 2. `[x]` Tenant authorization audit and hardening across the current route surface.
-3. File metadata model and tenant-scoped file access.
+3. `[x]` File metadata model and tenant-scoped file access.
 4. Backup/restore/DR runbook and first restore drill.
 5. Monitoring/alerting dashboard.
 6. Notification reliability design for reminders.
@@ -563,7 +600,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 
 ### Should Do Before 500 Patients
 
-1. FCM push notifications and device-token management.
+1. `[x]` FCM push foundation and globally owned device-token management.
 2. Queue/worker for reminders, retries, and dead-letter handling.
 3. Staging/test app with separate backend, DB, storage, and Firebase.
 4. Load test for patient login, report upload, doctor report review, and notification fanout.
@@ -582,9 +619,12 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 ## Verification Performed
 
 - Read current backend, frontend, and deployment source.
-- Ran `npm run build` in `backend`: passed.
-- Ran `npm test -- --runInBand` in `backend`: failed because Testcontainers could not find a working container runtime strategy on this machine.
-- Verified GitHub Actions backend CI passed at repository HEAD `7aec2a0` on 2026-07-10, including OpenAPI lint, TypeScript build, and the Jest/Testcontainers suite.
+- Ran `bun run build` in `backend`: passed on 2026-07-11.
+- Ran `npm test -- --runInBand tests/fileupload.test.ts`: passed, 15/15 tests.
+- Verified both GitHub Actions backend CI runs for merged PR #16 passed on 2026-07-11, including OpenAPI lint, TypeScript build, and the full Jest/Testcontainers suite.
+- Verified the independent combined-tree review approved the FileAsset, Firebase/device-token, migration, and model-barrel integration changes before merge.
+- Verified the DeviceToken migration is dry-run by default, idempotently consolidates duplicate physical-token owners, repairs obsolete/conflicting indexes, and is documented in `backend/docs/device-token-migration.md`.
+- Verified admin create/update doctor contracts reject caller-supplied `profile_picture_url` values and the admin service no longer persists raw client-provided storage keys.
 - Verified the earlier `twilioconfig.test.ts` staging expectation mismatch was fixed by isolating the Twilio environment-variable assertions.
 - Added Redocly OpenAPI validation to backend CI and verified `npm run lint:openapi` passes for `backend/docs/api/openapi.yaml` with existing style warnings.
 - Verified first-login phone OTP and Twilio Verify integration on deployed doctor flow, including successful OTP completion and subsequent normal login.
@@ -615,8 +655,12 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 - Patient report routes and upload limits: `backend/src/routes/patient.routes.ts`
 - Patient upload/download controller logic: `backend/src/controllers/patient.controller.ts`
 - S3-compatible upload utilities: `backend/src/utils/fileUpload.ts`
+- FileAsset model and scoped resolution: `backend/src/models/fileasset.model.ts`, `backend/src/services/fileasset.service.ts`
+- FileAsset backfill: `backend/src/scripts/backfillFileAssets.ts`
 - Tenant-aware admin service logic: `backend/src/services/admin.service.ts`
 - Audit log model and indexes: `backend/src/models/auditlog.model.ts`
 - Notification service and broadcasts: `backend/src/services/notification.service.ts`
+- Firebase/device-token services: `backend/src/services/fcm.service.ts`, `backend/src/services/device-token.service.ts`
+- Device-token migration runbook: `backend/docs/device-token-migration.md`
 - Blue-green deployment: `deploy/docker-compose.yml`
 - Flutter INR upload UI: `frontend/lib/features/patient/patient_update_inr_page.dart`
