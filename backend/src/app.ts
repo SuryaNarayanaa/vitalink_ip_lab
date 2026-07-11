@@ -9,7 +9,9 @@ import logger from "./utils/logger";
 import cors from "cors";
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
-import { config } from "./config";
+import { config, getMissingEnvironmentVariables } from "./config";
+import { getFirebaseMessagingHealth } from './config/firebase.config'
+import { getNotificationDeliveryWorkerHealth } from './jobs/notification-delivery.worker'
 import { apiLimiter, authLimiter } from "./config/ratelimiter";
 import { apiVersionHeaders, legacyApiHeaders } from "./middlewares/apiVersion.middleware";
 
@@ -139,13 +141,36 @@ app.get('/health/live', (req, res) => {
 app.get('/health/ready', (req, res) => {
   const readyState = mongoose.connection.readyState;
   const databaseState = dbStates[readyState] || 'unknown';
+  const firebase = getFirebaseMessagingHealth();
+  const notificationWorker = getNotificationDeliveryWorkerHealth();
+  const missingEnvironmentVariables = getMissingEnvironmentVariables();
+  const databaseReady = readyState === 1;
+  const firebaseReady = firebase.state !== 'failed';
+  const workerReady = !notificationWorker.enabled || notificationWorker.state === 'started';
+  const configurationReady = missingEnvironmentVariables.length === 0;
+  const isReady = databaseReady && firebaseReady && workerReady && configurationReady;
   const responseData = {
     database: {
       state: databaseState,
+      connected: databaseReady,
+      connection_success: databaseReady,
+    },
+    firebase: {
+      ...firebase,
+      initialization_success: firebase.state === 'initialized',
+    },
+    notification_worker: {
+      ...notificationWorker,
+      started: notificationWorker.state === 'started',
+    },
+    configuration: {
+      ready: configurationReady,
+      no_missing_environment_variables: configurationReady,
+      missing_environment_variables: missingEnvironmentVariables,
     },
   };
 
-  if (readyState !== 1) {
+  if (!isReady) {
     return res
       .status(StatusCodes.SERVICE_UNAVAILABLE)
       .json(new ApiResponse(StatusCodes.SERVICE_UNAVAILABLE, 'Service is not ready', responseData));

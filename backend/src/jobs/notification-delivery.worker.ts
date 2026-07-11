@@ -8,6 +8,7 @@ import { processNotificationDelivery } from '@alias/services/notification-delive
 import logger from '@alias/utils/logger'
 
 let worker: Worker | null = null
+let workerState: 'started' | 'disabled' | 'not_configured' | 'stopped' = 'stopped'
 
 function getRedisConnection(): ConnectionOptions | null {
   const url = config.redisUrl?.trim()
@@ -37,12 +38,14 @@ function getRedisConnection(): ConnectionOptions | null {
 
 export function startNotificationDeliveryWorker(): Worker | null {
   if (!config.notificationDeliveryEnabled) {
+    workerState = 'disabled'
     logger.info('notification_delivery.worker_disabled')
     return null
   }
 
   const connection = getRedisConnection()
   if (!connection) {
+    workerState = 'not_configured'
     logger.info('notification_delivery.worker_skipped_no_redis')
     return null
   }
@@ -83,6 +86,8 @@ export function startNotificationDeliveryWorker(): Worker | null {
     logger.error('notification_delivery.worker_error', { error: err.message })
   })
 
+  workerState = 'started'
+
   logger.info('notification_delivery.worker_started', {
     concurrency: config.notificationDeliveryWorkerConcurrency,
   })
@@ -96,4 +101,12 @@ export async function stopNotificationDeliveryWorker(): Promise<void> {
     worker = null
     logger.info('notification_delivery.worker_stopped')
   }
+  if (workerState === 'started') workerState = 'stopped'
+}
+
+export function getNotificationDeliveryWorkerHealth(): {
+  enabled: boolean
+  state: 'started' | 'disabled' | 'not_configured' | 'stopped'
+} {
+  return { enabled: config.notificationDeliveryEnabled, state: workerState }
 }
