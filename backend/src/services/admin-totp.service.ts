@@ -241,6 +241,56 @@ export const createAdminTotpEnrollment = async (user: any) => {
   return { secret, otpauth_url }
 }
 
+/**
+ * Replaces an administrator's authenticator factor during a supervised
+ * recovery. The caller must deliver the returned URI directly to the new
+ * device; it is deliberately never persisted in plaintext.
+ */
+export const replaceAdminTotpForRecovery = async (user: any) => {
+  if (user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Authenticator reset is only available for admins')
+  }
+
+  const currentUser = await User.findOne({ _id: user._id, user_type: UserType.ADMIN, is_active: true })
+  if (!currentUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Active admin user not found')
+  }
+
+  const secret = generateAdminTotpSecret()
+  const encrypted = encryptSecret(secret)
+  const now = new Date()
+  await User.updateOne(
+    { _id: currentUser._id, user_type: UserType.ADMIN, is_active: true },
+    {
+      $set: {
+        'admin_mfa.totp.status': 'ENABLED',
+        'admin_mfa.totp.secret_ciphertext': encrypted.ciphertext,
+        'admin_mfa.totp.secret_iv': encrypted.iv,
+        'admin_mfa.totp.secret_auth_tag': encrypted.authTag,
+        'admin_mfa.totp.enrolled_at': now,
+        'admin_mfa.totp.activated_at': now,
+      },
+      $unset: {
+        'admin_mfa.totp.pending_secret_ciphertext': '',
+        'admin_mfa.totp.pending_secret_iv': '',
+        'admin_mfa.totp.pending_secret_auth_tag': '',
+        'admin_mfa.totp.last_verified_at': '',
+        'admin_mfa.totp.last_verified_time_step': '',
+      },
+    }
+  )
+
+  await AdminMfaChallenge.updateMany(
+    { user_id: currentUser._id, status: AdminMfaChallengeStatus.PENDING },
+    { $set: { status: AdminMfaChallengeStatus.CANCELLED } }
+  )
+
+  const issuer = 'VitaLink'
+  const accountName = encodeURIComponent(currentUser.login_id)
+  const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
+  return { secret, otpauth_url }
+}
+
 export const activateAdminTotpEnrollment = async (user: any, code: string) => {
   if (user.user_type !== UserType.ADMIN) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Admin MFA enrollment is only available for admins')

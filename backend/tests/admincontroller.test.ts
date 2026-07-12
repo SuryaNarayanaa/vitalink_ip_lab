@@ -741,5 +741,47 @@ describe('Admin Routes', () => {
             expect(sameTenantNotice).toBeTruthy();
             expect(crossTenantNotice).toBeNull();
         });
+
+        test('should let an App Admin replace an admin authenticator and revoke their sessions', async () => {
+            const replacementProfile = await AdminProfile.create({
+                name: 'Replacement MFA Admin',
+                admin_role: AdminRole.HOSPITAL_ADMIN,
+                hospital_id: primaryHospital._id,
+            });
+            const replacementUser = await User.create({
+                login_id: 'replacement_mfa_admin',
+                password: 'Admin@123',
+                user_type: 'ADMIN',
+                profile_id: replacementProfile._id,
+                is_active: true,
+            });
+            const session = await AuthSession.create({
+                user_id: replacementUser._id,
+                user_type: 'ADMIN',
+                access_token_id: `mfa-reset-access-${replacementUser._id}`,
+                refresh_token_hash: `mfa-reset-refresh-${replacementUser._id}`,
+                expires_at: new Date(Date.now() + 60_000),
+            });
+
+            const response = await api.post(
+                `/api/admin/users/${replacementUser._id}/mfa/reset`,
+                {},
+                { headers: { Authorization: `Bearer ${adminToken}` } }
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.factor_type).toBe('AUTHENTICATOR_APP');
+            expect(response.data.data.setup.secret).toMatch(/^[A-Z2-7]+$/);
+            expect(response.data.data.setup.otpauth_url).toContain('otpauth://totp/');
+
+            const updatedUser = await User.findById(replacementUser._id).lean();
+            expect(updatedUser?.admin_mfa?.totp?.status).toBe('ENABLED');
+            expect(updatedUser?.admin_mfa?.totp?.secret_ciphertext).toBeDefined();
+            expect(updatedUser?.admin_mfa?.totp?.secret_ciphertext).not.toBe(response.data.data.setup.secret);
+
+            const revokedSession = await AuthSession.findById(session._id).lean();
+            expect(revokedSession?.revoked_reason).toBe('MFA_RESET');
+            expect(revokedSession?.revoked_at).toBeDefined();
+        });
     });
 });

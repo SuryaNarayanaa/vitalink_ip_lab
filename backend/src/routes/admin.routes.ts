@@ -12,7 +12,7 @@ import {
   getRoles, updateRole,
   listHospitals, createHospital, getHospital, updateHospital, updateHospitalStatus, deleteHospital,
   listInvoices, generateInvoices, createInvoiceCheckout,
-  listUsers, inviteUser, updateUser,
+  listUsers, inviteUser, updateUser, resetUserAuthenticator,
 } from '@alias/controllers/admin.controller'
 import {
   createDoctorSchema, updateDoctorSchema, getDoctorsSchema,
@@ -45,6 +45,7 @@ router.post('/billing/checkout/:invoiceId', createInvoiceCheckout)
 
 router.get('/users', listUsers)
 router.post('/users', inviteUser)
+router.post('/users/:id/mfa/reset', validate(userIdParamSchema), resetUserAuthenticator)
 router.put('/users/:id', updateUser)
 
 // ─── Doctor Management ───

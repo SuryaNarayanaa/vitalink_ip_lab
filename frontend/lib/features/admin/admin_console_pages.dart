@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
@@ -298,6 +299,14 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         ),
                       ),
                     ),
+                    if (role == 'app_admin' || role == 'hospital_admin' || role == 'auditor')
+                      PopupMenuItem(
+                        value: 'reset_mfa',
+                        child: const Text('Reset authenticator'),
+                        onTap: () => Future.microtask(
+                          () => _resetAuthenticator(id, '${u['name'] ?? u['email'] ?? 'this administrator'}'),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -306,6 +315,91 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
         );
         return _pageScaffold(context, 'Users', content);
       },
+    );
+  }
+
+  Future<void> _resetAuthenticator(String userId, String userName) async {
+    final shouldReset = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset authenticator?'),
+        content: Text(
+          'This replaces $userName\'s existing authenticator setup and signs them out on every device. '
+          'You must give the new QR code only to that administrator.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reset authenticator'),
+          ),
+        ],
+      ),
+    );
+    if (shouldReset != true || !mounted) return;
+
+    try {
+      final result = await _repo.resetUserAuthenticator(userId);
+      if (!mounted) return;
+      _refresh();
+      await _showReplacementQr(
+        userName,
+        (result['setup'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    }
+  }
+
+  Future<void> _showReplacementQr(String userName, Map<String, dynamic> setup) {
+    final otpauthUrl = '${setup['otpauth_url'] ?? ''}';
+    final secret = '${setup['secret'] ?? ''}';
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New authenticator setup'),
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Have $userName scan this code on their new phone before they sign in.'),
+              const SizedBox(height: 16),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: QrImageView(
+                    data: otpauthUrl,
+                    version: QrVersions.auto,
+                    size: 208,
+                    backgroundColor: Colors.white,
+                    semanticsLabel: 'Replacement authenticator setup QR code',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SelectableText('Manual setup key: $secret'),
+              const SizedBox(height: 12),
+              Text(
+                'This QR code is shown only now. Do not take a screenshot or send it through email or chat.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),
+        ],
+      ),
     );
   }
 

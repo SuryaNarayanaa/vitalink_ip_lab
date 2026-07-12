@@ -256,3 +256,8 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.updateAdminUser(req.params.id, req.body, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User updated successfully', result))
 })
+
+export const resetUserAuthenticator = asyncHandler(async (req: Request, res: Response) => {
+  const result = await adminService.resetAdminAuthenticator(req.params.id, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Authenticator reset successfully', result))
+})

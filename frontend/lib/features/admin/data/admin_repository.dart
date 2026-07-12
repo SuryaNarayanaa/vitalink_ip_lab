@@ -153,6 +153,10 @@ class AdminRepository {
     return _apiClient.put('${AppStrings.adminUsersPath}/$id', data: data);
   }
 
+  Future<Map<String, dynamic>> resetUserAuthenticator(String id) async {
+    return _apiClient.post('${AppStrings.adminUsersPath}/$id/mfa/reset');
+  }
+
   Future<Map<String, dynamic>> getRoles() async {
     final response = await _apiClient.getRaw(AppStrings.adminRolesPath);
     return _extractData(response);

@@ -9,6 +9,7 @@ import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
 import { InvoiceStatus } from '@alias/models/invoice.model'
+import { replaceAdminTotpForRecovery } from './admin-totp.service'
 
 const normalizeSearchValue = (value: unknown): string => {
   if (typeof value === 'string') return value.toLowerCase()
@@ -399,6 +400,35 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
   return {
     user: formatUserForAdmin(await User.findById(user._id).populate({ path: 'profile_id', populate: { path: 'hospital_id' } })),
     invalidated_sessions: invalidatedSessions,
+  }
+}
+
+export async function resetAdminAuthenticator(userId: string, actorUserId?: string) {
+  const ctx = await getAdminContext(actorUserId)
+  requireAppAdmin(ctx)
+
+  const user = await User.findById(userId).populate('profile_id')
+  if (!user || user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Admin user not found')
+  }
+  if (!user.is_active) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Cannot reset MFA for an inactive admin')
+  }
+  if (String(user._id) === actorUserId) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Ask another App Admin to reset your authenticator')
+  }
+
+  const enrollment = await replaceAdminTotpForRecovery(user)
+  const invalidatedSessions = await revokeActiveAuthSessionsForUser(
+    String(user._id),
+    AuthSessionRevocationReason.MFA_RESET
+  )
+
+  return {
+    user: formatUserForAdmin(await User.findById(user._id).populate({ path: 'profile_id', populate: { path: 'hospital_id' } })),
+    factor_type: 'AUTHENTICATOR_APP',
+    setup: enrollment,
+    invalidated_sessions: invalidatedSessions.modifiedCount || 0,
   }
 }
 
