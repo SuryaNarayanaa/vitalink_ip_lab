@@ -42,6 +42,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   };
 
   SystemHealthModel? _health;
+  bool _healthUnavailable = false;
 
   @override
   void initState() {
@@ -113,8 +114,15 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   Future<void> _loadHealth() async {
     try {
       final health = await _repo.getSystemHealth();
-      if (mounted) setState(() => _health = health);
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _health = health;
+          _healthUnavailable = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _healthUnavailable = true);
+    }
   }
 
   Future<void> _saveConfig() async {
@@ -773,7 +781,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                   label: Text(
                     h != null
                         ? (isHealthy ? 'Healthy' : 'Issues')
-                        : 'Loading...',
+                        : (_healthUnavailable ? 'Unavailable' : 'Loading...'),
                   ),
                   backgroundColor: h == null
                       ? Colors.grey.withValues(alpha: 0.1)
@@ -808,6 +816,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                     Colors.orange,
                   ),
                 ],
+              )
+            else if (_healthUnavailable)
+              const Text(
+                'System health is unavailable or restricted for this account.',
               ),
           ],
         ),
