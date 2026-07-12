@@ -125,7 +125,7 @@ export const performBatchOperation = asyncHandler(async (req: Request, res: Resp
 // ─── System Health ───
 
 export const getSystemHealth = asyncHandler(async (req: Request, res: Response) => {
-  const health = await adminService.getSystemHealth(req.user?.user_id)
+  const health = await adminService.getSystemHealth()
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'System health', health))
 })
 

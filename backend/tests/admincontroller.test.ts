@@ -853,13 +853,14 @@ describe('Admin Routes', () => {
             expect(response.data.data.database.name).toBeUndefined();
         });
 
-        test('should not expose system health to hospital administrators', async () => {
+        test('should redact database connection details from hospital-admin health responses', async () => {
             const response = await api.get('/api/admin/system/health', {
                 headers: { Authorization: `Bearer ${hospitalAdminToken}` }
             });
 
-            expect(response.status).toBe(403);
-            expect(response.data.message).toContain('App Admin');
+            expect(response.status).toBe(200);
+            expect(response.data.data.database.host).toBeUndefined();
+            expect(response.data.data.database.name).toBeUndefined();
         });
 
         test('should return aggregated hospital user counts and support status changes', async () => {

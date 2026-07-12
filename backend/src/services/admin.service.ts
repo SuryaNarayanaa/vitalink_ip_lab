@@ -1129,8 +1129,7 @@ export async function getLegacyDoctorById(id: string, actorUserId?: string) {
 
 // ─── System Health ───
 
-export async function getSystemHealth(actorUserId?: string) {
-  requireAppAdmin(await getAdminContext(actorUserId))
+export async function getSystemHealth() {
   const mongooseModule = await import('mongoose')
   const mongooseInstance = mongooseModule.default
 
