@@ -20,6 +20,7 @@ import {
   createPatientSchema, updatePatientSchema, getUsersSchema,
   reassignPatientSchema, userIdParamSchema, updateSystemConfigSchema,
   broadcastNotificationSchema, batchOperationSchema, resetPasswordSchema,
+  updateAdminUserSchema, updateRoleSchema,
 } from '@alias/validators/admin.validator'
 
 const router = Router()
@@ -32,7 +33,7 @@ router.use(auditLogger)
 // ─── HTML Admin Console Support ───
 // Any authenticated admin may inspect the policy matrix; only manage_roles may edit it.
 router.get('/roles', getRoles)
-router.put('/roles/:roleKey', requireAdminPermission('manage_roles'), updateRole)
+router.put('/roles/:roleKey', requireAdminPermission('manage_roles'), validate(updateRoleSchema), updateRole)
 
 router.get('/hospitals', requireAdminPermission('manage_hospitals'), listHospitals)
 router.post('/hospitals', requireAdminPermission('manage_hospitals'), createHospital)
@@ -48,7 +49,7 @@ router.post('/billing/checkout/:invoiceId', requireAdminPermission('manage_billi
 router.get('/users', requireAdminPermission('manage_users'), listUsers)
 router.post('/users', requireAdminPermission('manage_users'), inviteUser)
 router.post('/users/:id/mfa/reset', requireAdminPermission('manage_users'), validate(userIdParamSchema), resetUserAuthenticator)
-router.put('/users/:id', requireAdminPermission('manage_users'), updateUser)
+router.put('/users/:id', requireAdminPermission('manage_users'), validate(updateAdminUserSchema), updateUser)
 
 // ─── Doctor Management ───
 router.post('/doctors', requireAdminPermission('manage_doctors'), validate(createDoctorSchema), createDoctor)

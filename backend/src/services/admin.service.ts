@@ -31,6 +31,47 @@ const emptyPaginatedResult = (key: 'doctors' | 'patients', page: number, limit: 
   pagination: paginationResult(0, page, limit),
 })
 
+const ADMIN_ROLES = Object.values(AdminRole) as string[]
+
+/**
+ * Create a profile and its owning user as one unit.  MongoDB transactions need
+ * a replica set; the compensation path keeps local standalone deployments from
+ * leaving an orphan profile when user creation fails.
+ */
+async function createProfileAndUser<T extends mongoose.Document>(
+  createProfile: (session?: mongoose.ClientSession) => Promise<T>,
+  createUser: (profileId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) => Promise<any>,
+) {
+  const session = await mongoose.startSession()
+  let profile: T | undefined
+  let user: any
+  try {
+    await session.withTransaction(async () => {
+      profile = await createProfile(session)
+      user = await createUser(profile!._id, session)
+    })
+    return { profile: profile!, user }
+  } catch (error: any) {
+    // A standalone MongoDB cannot run transactions. Preserve the same
+    // no-orphan guarantee for local development while production uses the
+    // transaction above.
+    if (!/Transaction numbers are only allowed|replica set member|Transaction support/i.test(String(error?.message))) {
+      throw error
+    }
+    profile = undefined
+    try {
+      profile = await createProfile()
+      user = await createUser(profile._id)
+      return { profile, user }
+    } catch (fallbackError) {
+      if (profile?._id) await profile.deleteOne()
+      throw fallbackError
+    }
+  } finally {
+    await session.endSession()
+  }
+}
+
 async function findDoctorByIdentifier(identifier: string) {
   let doctor = null
   if (mongoose.Types.ObjectId.isValid(identifier)) {
@@ -195,8 +236,14 @@ export async function updateRoleDefinition(roleKey: string, data: any, actorUser
   const ctx = await getAdminContext(actorUserId)
   requirePermission(ctx, 'manage_roles')
   if (!ctx.isAppAdmin) throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
-  const role = await updateRolePermissions(roleKey, data.permissions || {})
-  if (!role) throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
+  const allowedPermissions = DEFAULT_ROLE_DEFINITIONS[roleKey]?.permissions
+  if (!allowedPermissions) throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
+  const permissions = data?.permissions
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions) || Object.keys(permissions).length === 0 ||
+    Object.entries(permissions).some(([key, value]) => !Object.prototype.hasOwnProperty.call(allowedPermissions, key) || typeof value !== 'boolean')) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Role permissions must contain only supported boolean permission values')
+  }
+  const role = await updateRolePermissions(roleKey, permissions)
   return { role }
 }
 
@@ -388,26 +435,31 @@ export async function listUsers(actorUserId?: string) {
 export async function inviteAdminUser(data: any, actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
   requireCanMutate(ctx)
+  if (data.role !== undefined && !ADMIN_ROLES.includes(data.role)) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid admin role')
+  }
   if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
   const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
   if (data.role === AdminRole.HOSPITAL_ADMIN) ensureTenantAccess(ctx, hospitalId)
   const existing = await User.findOne({ login_id: data.email || data.login_id })
   if (existing) throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
-  const profile = await AdminProfile.create({
-    name: data.name,
-    admin_role: data.role || AdminRole.HOSPITAL_ADMIN,
-    permission: data.role === AdminRole.AUDITOR ? 'READ_ONLY' : 'FULL_ACCESS',
-    hospital_id: hospitalId,
-  })
   const temporaryPassword = generateTemporaryPassword()
-  const user = await User.create({
-    login_id: data.email || data.login_id,
-    password: temporaryPassword,
-    user_type: UserType.ADMIN,
-    profile_id: profile._id,
-    user_type_model: 'AdminProfile',
-    must_change_password: true,
-  })
+  const { user } = await createProfileAndUser(
+    session => AdminProfile.create([{
+      name: data.name,
+      admin_role: data.role || AdminRole.HOSPITAL_ADMIN,
+      permission: data.role === AdminRole.AUDITOR ? 'READ_ONLY' : 'FULL_ACCESS',
+      hospital_id: hospitalId,
+    }], session ? { session } : undefined).then(([profile]) => profile),
+    (profileId, session) => User.create([{
+      login_id: data.email || data.login_id,
+      password: temporaryPassword,
+      user_type: UserType.ADMIN,
+      profile_id: profileId,
+      user_type_model: 'AdminProfile',
+      must_change_password: true,
+    }], session ? { session } : undefined).then(([createdUser]) => createdUser),
+  )
   return {
     user: formatUserForAdmin(await user.populate('profile_id')),
     temporary_password: temporaryPassword,
@@ -423,7 +475,8 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
   ensureTenantAccess(ctx, getProfileHospitalId(user))
   const profile: any = user.profile_id
   const updates: any = {}
-  if (data.role) {
+  if (data.role !== undefined) {
+    if (!ADMIN_ROLES.includes(data.role)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid admin role')
     if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
     updates.admin_role = data.role
   }
@@ -433,7 +486,7 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
     ensureTenantAccess(ctx, updates.hospital_id)
   }
   if (Object.keys(updates).length && user.user_type === UserType.ADMIN) {
-    await AdminProfile.findByIdAndUpdate(profile._id, updates)
+    await AdminProfile.findByIdAndUpdate(profile._id, updates, { runValidators: true })
   }
   const wasActive = user.is_active
   if (typeof data.is_active === 'boolean') user.is_active = data.is_active
@@ -496,20 +549,21 @@ export async function registerDoctor(data: {
     throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
   }
 
-  const doctorProfile = await DoctorProfile.create({
-    name: data.name,
-    department: data.department || 'Cardiology',
-    contact_number: data.contact_number,
-    hospital_id: hospitalId,
-  })
-
-  const user = await User.create({
-    login_id: data.login_id,
-    password: data.password,
-    user_type: UserType.DOCTOR,
-    profile_id: doctorProfile._id,
-    user_type_model: 'DoctorProfile',
-  })
+  const { user } = await createProfileAndUser(
+    session => DoctorProfile.create([{
+      name: data.name,
+      department: data.department || 'Cardiology',
+      contact_number: data.contact_number,
+      hospital_id: hospitalId,
+    }], session ? { session } : undefined).then(([profile]) => profile),
+    (profileId, session) => User.create([{
+      login_id: data.login_id,
+      password: data.password,
+      user_type: UserType.DOCTOR,
+      profile_id: profileId,
+      user_type_model: 'DoctorProfile',
+    }], session ? { session } : undefined).then(([createdUser]) => createdUser),
+  )
 
   return {
     user: await User.findById(user._id).populate('profile_id'),
@@ -713,33 +767,34 @@ export async function onboardPatient(data: {
       }
     : undefined
 
-  const patientProfile = await PatientProfile.create({
-    assigned_doctor_id: doctorUser._id,
-    hospital_id: hospitalId,
-    demographics: {
-      name: data.demographics.name,
-      age: data.demographics.age,
-      gender: data.demographics.gender,
-      phone: data.demographics.phone,
-      next_of_kin: nextOfKin,
-    },
-    medical_config: data.medical_config
-      ? {
-          ...data.medical_config,
-          therapy_start_date: data.medical_config.therapy_start_date
-            ? new Date(data.medical_config.therapy_start_date)
-            : undefined,
-        }
-      : undefined,
-  })
-
-  const user = await User.create({
-    login_id: data.login_id,
-    password: data.password,
-    user_type: UserType.PATIENT,
-    profile_id: patientProfile!._id,
-    user_type_model: 'PatientProfile',
-  })
+  const { user } = await createProfileAndUser(
+    session => PatientProfile.create([{
+      assigned_doctor_id: doctorUser._id,
+      hospital_id: hospitalId,
+      demographics: {
+        name: data.demographics.name,
+        age: data.demographics.age,
+        gender: data.demographics.gender,
+        phone: data.demographics.phone,
+        next_of_kin: nextOfKin,
+      },
+      medical_config: data.medical_config
+        ? {
+            ...data.medical_config,
+            therapy_start_date: data.medical_config.therapy_start_date
+              ? new Date(data.medical_config.therapy_start_date)
+              : undefined,
+          }
+        : undefined,
+    }], session ? { session } : undefined).then(([profile]) => profile),
+    (profileId, session) => User.create([{
+      login_id: data.login_id,
+      password: data.password,
+      user_type: UserType.PATIENT,
+      profile_id: profileId,
+      user_type_model: 'PatientProfile',
+    }], session ? { session } : undefined).then(([createdUser]) => createdUser),
+  )
 
   return {
     user: await User.findById(user._id).populate('profile_id'),

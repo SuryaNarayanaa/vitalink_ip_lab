@@ -6,6 +6,7 @@ import { AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospita
 import { AdminRole } from '@alias/models/adminprofile.model';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
+import * as adminService from '@alias/services/admin.service';
 
 describe('Admin Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -363,6 +364,24 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(false);
         });
 
+        test('should reject unknown roles and malformed role permissions', async () => {
+            const invalidRole = await api.put(`/api/admin/users/${adminUser._id}`, {
+                role: 'super_admin',
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(invalidRole.status).toBe(400);
+            expect(invalidRole.data.success).toBe(false);
+
+            const invalidPermission = await api.put('/api/admin/roles/hospital_admin', {
+                permissions: { arbitrary_permission: true },
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(invalidPermission.status).toBe(400);
+            expect(invalidPermission.data.success).toBe(false);
+        });
+
         test('should let auditors read billing when manage_billing is granted', async () => {
             const response = await api.get('/api/admin/billing/invoices', {
                 headers: { Authorization: `Bearer ${auditorToken}` },
@@ -414,6 +433,29 @@ describe('Admin Routes', () => {
     });
 
     describe('Doctor Management', () => {
+        test('should delete a created profile when user creation fails without transaction support', async () => {
+            const startSessionSpy = jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+                withTransaction: jest.fn().mockRejectedValue(new Error('Transaction numbers are only allowed on a replica set member')),
+                endSession: jest.fn(),
+            } as any);
+            const createUserSpy = jest.spyOn(User, 'create').mockRejectedValue(new Error('Simulated user creation failure'));
+            const profileName = 'Dr. Cleanup Verification';
+
+            try {
+                await expect(adminService.registerDoctor({
+                    login_id: 'doctor_cleanup_verification',
+                    password: 'Doctor@456',
+                    name: profileName,
+                    contact_number: '9000000009',
+                }, String(adminUser._id))).rejects.toThrow('Simulated user creation failure');
+
+                expect(await DoctorProfile.countDocuments({ name: profileName })).toBe(0);
+            } finally {
+                createUserSpy.mockRestore();
+                startSessionSpy.mockRestore();
+            }
+        });
+
         test('should list doctors with pagination', async () => {
             const response = await api.get('/api/admin/doctors?page=1&limit=10', {
                 headers: { Authorization: `Bearer ${adminToken}` }

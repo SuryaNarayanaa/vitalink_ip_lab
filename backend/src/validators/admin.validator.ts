@@ -2,6 +2,22 @@ import { z } from 'zod'
 import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
 
+const adminRoleSchema = z.enum(['app_admin', 'hospital_admin', 'auditor'])
+const roleKeySchema = z.enum(['app_admin', 'hospital_admin', 'doctor', 'patient', 'auditor'])
+const rolePermissionsSchema = z.object({
+  manage_hospitals: z.boolean().optional(),
+  manage_users: z.boolean().optional(),
+  manage_roles: z.boolean().optional(),
+  view_audit: z.boolean().optional(),
+  manage_doctors: z.boolean().optional(),
+  manage_patients: z.boolean().optional(),
+  export_data: z.boolean().optional(),
+  manage_billing: z.boolean().optional(),
+  manage_system: z.boolean().optional(),
+}).strict().refine(value => Object.keys(value).length > 0, {
+  message: 'At least one permission is required',
+})
+
 // ─── Param Schemas ───
 
 export const userIdParamSchema = z.object({
@@ -190,6 +206,29 @@ export const updateSystemConfigSchema = z.object({
       })
     }
   }),
+})
+
+export const updateAdminUserSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'User ID is required'),
+  }),
+  body: z.object({
+    role: adminRoleSchema.optional(),
+    name: z.string().min(1).optional(),
+    hospital_id: z.string().min(1).optional(),
+    hospital: z.string().min(1).optional(),
+    is_active: z.boolean().optional(),
+    status: z.enum(['active', 'inactive']).optional(),
+  }).strict(),
+})
+
+export const updateRoleSchema = z.object({
+  params: z.object({
+    roleKey: roleKeySchema,
+  }),
+  body: z.object({
+    permissions: rolePermissionsSchema,
+  }).strict(),
 })
 
 export const broadcastNotificationSchema = z.object({
