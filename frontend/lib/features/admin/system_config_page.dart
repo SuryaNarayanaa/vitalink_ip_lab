@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
@@ -626,6 +627,45 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                   label: const Text('Start authenticator setup'),
                 ),
               if (hasPendingSetup) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Scan this QR code with your authenticator app.',
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: QrImageView(
+                      data: enrollment.otpauthUrl,
+                      version: QrVersions.auto,
+                      size: 208,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.square,
+                        color: Colors.black,
+                      ),
+                      dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: Colors.black,
+                      ),
+                      semanticsLabel: 'Authenticator app setup QR code',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'If your app cannot scan a code, use the setup key below instead.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 _SetupValueTile(
                   label: 'Setup key',
                   value: enrollment.secret,
