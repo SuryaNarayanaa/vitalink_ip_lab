@@ -144,12 +144,11 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
           : 'This will restore access for this hospital.',
       confirmLabel: action,
     );
-    if (confirmed) {
-      await _runAction(
-        () => _repo.updateHospitalStatus(id, status),
-        '$hospitalName ${status == 'suspended' ? 'suspended' : 'activated'} successfully.',
-      );
-    }
+    if (!confirmed || !mounted) return;
+    await _runAction(
+      () => _repo.updateHospitalStatus(id, status),
+      '$hospitalName ${status == 'suspended' ? 'suspended' : 'activated'} successfully.',
+    );
   }
 
   Future<void> _confirmHospitalDeactivation(String hospitalName, String id) async {
@@ -159,12 +158,11 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
       message: 'This removes platform access for the hospital. You can reactivate it later.',
       confirmLabel: 'Deactivate',
     );
-    if (confirmed) {
-      await _runAction(
-        () => _repo.deleteHospital(id),
-        '$hospitalName deactivated successfully.',
-      );
-    }
+    if (!confirmed || !mounted) return;
+    await _runAction(
+      () => _repo.deleteHospital(id),
+      '$hospitalName deactivated successfully.',
+    );
   }
 
   Future<void> _runAction(
@@ -173,12 +171,11 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
   ) async {
     try {
       await action();
+      if (!mounted) return;
       _refresh();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMessage)),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
     } catch (e) {
       if (mounted) _showError(context, e);
     }
@@ -767,23 +764,22 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
       message: 'Invoices will be created for every active hospital using the current plan and amount.',
       confirmLabel: 'Generate',
     );
-    if (!confirmed) return;
+    if (!confirmed || !mounted) return;
 
     try {
       final result = await _repo.generateInvoices();
+      if (!mounted) return;
       _refresh();
-      if (mounted) {
-        final generated = result['generated'] as num? ?? 0;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              generated == 0
-                  ? 'No active hospitals required invoices.'
-                  : '$generated invoice${generated == 1 ? '' : 's'} generated successfully.',
-            ),
+      final generated = result['generated'] as num? ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            generated == 0
+                ? 'No active hospitals required invoices.'
+                : '$generated invoice${generated == 1 ? '' : 's'} generated successfully.',
           ),
-        );
-      }
+        ),
+      );
     } catch (e) {
       if (mounted) _showError(context, e);
     }

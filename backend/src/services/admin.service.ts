@@ -552,7 +552,8 @@ export async function getAllDoctors(
     { $unwind: '$profile' },
     { $match: profileQuery },
     { $set: { profile_id: '$profile' } },
-    { $unset: 'profile' },
+    // Aggregation bypasses User#toJSON, so explicitly preserve its sensitive-field contract.
+    { $unset: ['profile', 'password', 'salt', 'password_history'] },
     {
       $facet: {
         doctors: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
@@ -786,7 +787,8 @@ export async function getAllPatients(
     { $unwind: '$profile' },
     { $match: profileQuery },
     { $set: { profile_id: '$profile' } },
-    { $unset: 'profile' },
+    // Aggregation bypasses User#toJSON, so explicitly preserve its sensitive-field contract.
+    { $unset: ['profile', 'password', 'salt', 'password_history'] },
     {
       $facet: {
         patients: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],

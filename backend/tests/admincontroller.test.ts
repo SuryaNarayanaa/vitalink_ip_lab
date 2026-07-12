@@ -435,6 +435,22 @@ describe('Admin Routes', () => {
             expect(response.data.data.doctors).toHaveLength(1);
             expect(response.data.data.pagination).toMatchObject({ total: 2, page: 1, limit: 1, pages: 2, hasNext: true });
             expect(String(response.data.data.doctors[0].profile_id.hospital_id)).toBe(primaryHospital._id.toString());
+            expect(response.data.data.doctors[0].password).toBeUndefined();
+            expect(response.data.data.doctors[0].salt).toBeUndefined();
+            expect(response.data.data.doctors[0].password_history).toBeUndefined();
+        });
+
+        test('should apply an app-admin hospital filter before doctor pagination', async () => {
+            const response = await api.get(`/api/admin/doctors?hospital_id=${primaryHospital._id}&page=1&limit=10`, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.pagination.total).toBe(2);
+            expect(response.data.data.doctors).toHaveLength(2);
+            expect(response.data.data.doctors.every((doctor: any) =>
+                String(doctor.profile_id.hospital_id) === primaryHospital._id.toString()
+            )).toBe(true);
         });
 
         test('should create a doctor successfully', async () => {
@@ -529,6 +545,20 @@ describe('Admin Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.data.patients).toHaveLength(1);
             expect(response.data.data.pagination).toMatchObject({ total: 1, page: 1, limit: 1, pages: 1, hasNext: false });
+            expect(String(response.data.data.patients[0].profile_id.hospital_id)).toBe(primaryHospital._id.toString());
+            expect(response.data.data.patients[0].password).toBeUndefined();
+            expect(response.data.data.patients[0].salt).toBeUndefined();
+            expect(response.data.data.patients[0].password_history).toBeUndefined();
+        });
+
+        test('should apply an app-admin hospital filter before patient pagination', async () => {
+            const response = await api.get(`/api/admin/patients?hospital_id=${primaryHospital._id}&page=1&limit=10`, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.pagination.total).toBe(1);
+            expect(response.data.data.patients).toHaveLength(1);
             expect(String(response.data.data.patients[0].profile_id.hospital_id)).toBe(primaryHospital._id.toString());
         });
 
