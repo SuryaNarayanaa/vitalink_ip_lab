@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, AuditLog } from '@alias/models';
+import { AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, AuditLog, Invoice } from '@alias/models';
 import { AdminRole } from '@alias/models/adminprofile.model';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
@@ -426,6 +426,17 @@ describe('Admin Routes', () => {
             expect(response.data.data.doctors.length).toBeGreaterThanOrEqual(2);
         });
 
+        test('should paginate hospital-admin doctors after tenant filtering', async () => {
+            const response = await api.get('/api/admin/doctors?search=doctor_admin&page=1&limit=1', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.doctors).toHaveLength(1);
+            expect(response.data.data.pagination).toMatchObject({ total: 2, page: 1, limit: 1, pages: 2, hasNext: true });
+            expect(String(response.data.data.doctors[0].profile_id.hospital_id)).toBe(primaryHospital._id.toString());
+        });
+
         test('should create a doctor successfully', async () => {
             const response = await api.post('/api/admin/doctors', {
                 login_id: 'doctor_admin_03',
@@ -510,6 +521,17 @@ describe('Admin Routes', () => {
     });
 
     describe('Patient Management', () => {
+        test('should paginate hospital-admin patients after tenant filtering', async () => {
+            const response = await api.get('/api/admin/patients?search=PAT_ADMIN&page=1&limit=1', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.patients).toHaveLength(1);
+            expect(response.data.data.pagination).toMatchObject({ total: 1, page: 1, limit: 1, pages: 1, hasNext: false });
+            expect(String(response.data.data.patients[0].profile_id.hospital_id)).toBe(primaryHospital._id.toString());
+        });
+
         test('should create a patient successfully', async () => {
             createdPatientLoginId = 'PAT_ADMIN_NEW';
 
@@ -794,9 +816,57 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
-            expect(response.data.data.status).toBe('ok');
+            expect(response.data.data.status).toBe('healthy');
             expect(response.data.data.database).toBeDefined();
             expect(response.data.data.memory).toBeDefined();
+            expect(response.data.data.database.host).toBeUndefined();
+            expect(response.data.data.database.name).toBeUndefined();
+        });
+
+        test('should not expose system health to hospital administrators', async () => {
+            const response = await api.get('/api/admin/system/health', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.message).toContain('App Admin');
+        });
+
+        test('should return aggregated hospital user counts and support status changes', async () => {
+            const listResponse = await api.get('/api/admin/hospitals', {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            expect(listResponse.status).toBe(200);
+            const primary = listResponse.data.data.hospitals.find((hospital: any) => hospital._id === primaryHospital._id.toString());
+            const secondary = listResponse.data.data.hospitals.find((hospital: any) => hospital._id === secondaryHospital._id.toString());
+            expect(primary).toMatchObject({ doctors: 2, patients: 2 });
+            expect(secondary).toMatchObject({ doctors: 1, patients: 1 });
+
+            const hospital = await Hospital.create({
+                code: 'P2_STATUS', name: 'P2 Status Hospital', location: 'Erode', admin_email: 'p2-status@example.com'
+            });
+            const suspend = await api.patch(`/api/admin/hospitals/${hospital._id}/status`, { status: 'suspended' }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            expect(suspend.status).toBe(200);
+            expect(suspend.data.data.hospital.status).toBe('suspended');
+
+            const deactivate = await api.delete(`/api/admin/hospitals/${hospital._id}`, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            expect(deactivate.status).toBe(200);
+            expect(deactivate.data.data.hospital.status).toBe('inactive');
+        });
+
+        test('should report the generated invoice count', async () => {
+            const before = await Invoice.countDocuments();
+            const response = await api.post('/api/admin/billing/invoices', {}, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            expect(response.status).toBe(201);
+            expect(response.data.data.generated).toBeGreaterThan(0);
+            expect(await Invoice.countDocuments()).toBe(before + response.data.data.generated);
         });
 
         test('should support patient search listing', async () => {

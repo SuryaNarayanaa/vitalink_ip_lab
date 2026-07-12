@@ -3,6 +3,7 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
+import 'package:frontend/core/widgets/admin/admin_action_confirmation.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
 
@@ -104,7 +105,8 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                       value: 'status',
                       child: Text(status == 'active' ? 'Suspend' : 'Activate'),
                       onTap: () => Future.microtask(
-                        () => _setHospitalStatus(
+                        () => _confirmHospitalStatus(
+                          name,
                           id,
                           status == 'active' ? 'suspended' : 'active',
                         ),
@@ -113,7 +115,9 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                     PopupMenuItem(
                       value: 'delete',
                       child: const Text('Deactivate'),
-                      onTap: () => Future.microtask(() => _deleteHospital(id)),
+                      onTap: () => Future.microtask(
+                        () => _confirmHospitalDeactivation(name, id),
+                      ),
                     ),
                   ],
                 );
@@ -126,18 +130,55 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
     );
   }
 
-  Future<void> _setHospitalStatus(String id, String status) async {
-    await _runAction(() => _repo.updateHospitalStatus(id, status));
+  Future<void> _confirmHospitalStatus(
+    String hospitalName,
+    String id,
+    String status,
+  ) async {
+    final action = status == 'suspended' ? 'Suspend' : 'Activate';
+    final confirmed = await showAdminActionConfirmation(
+      context,
+      title: '$action $hospitalName?',
+      message: status == 'suspended'
+          ? 'Staff and patients will lose access until this hospital is reactivated.'
+          : 'This will restore access for this hospital.',
+      confirmLabel: action,
+    );
+    if (confirmed) {
+      await _runAction(
+        () => _repo.updateHospitalStatus(id, status),
+        '$hospitalName ${status == 'suspended' ? 'suspended' : 'activated'} successfully.',
+      );
+    }
   }
 
-  Future<void> _deleteHospital(String id) async {
-    await _runAction(() => _repo.deleteHospital(id));
+  Future<void> _confirmHospitalDeactivation(String hospitalName, String id) async {
+    final confirmed = await showAdminActionConfirmation(
+      context,
+      title: 'Deactivate $hospitalName?',
+      message: 'This removes platform access for the hospital. You can reactivate it later.',
+      confirmLabel: 'Deactivate',
+    );
+    if (confirmed) {
+      await _runAction(
+        () => _repo.deleteHospital(id),
+        '$hospitalName deactivated successfully.',
+      );
+    }
   }
 
-  Future<void> _runAction(Future<dynamic> Function() action) async {
+  Future<void> _runAction(
+    Future<dynamic> Function() action,
+    String successMessage,
+  ) async {
     try {
       await action();
       _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(successMessage)),
+        );
+      }
     } catch (e) {
       if (mounted) _showError(context, e);
     }
@@ -669,7 +710,7 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
           onSearch: () => setState(() {}),
           actions: [
             FilledButton.icon(
-              onPressed: () => _runAction(() => _repo.generateInvoices()),
+              onPressed: _confirmInvoiceGeneration,
               icon: const Icon(Icons.receipt_long_rounded),
               label: const Text('Generate'),
             ),
@@ -717,6 +758,35 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
         return _pageScaffold(context, 'Billing', content);
       },
     );
+  }
+
+  Future<void> _confirmInvoiceGeneration() async {
+    final confirmed = await showAdminActionConfirmation(
+      context,
+      title: 'Generate invoices?',
+      message: 'Invoices will be created for every active hospital using the current plan and amount.',
+      confirmLabel: 'Generate',
+    );
+    if (!confirmed) return;
+
+    try {
+      final result = await _repo.generateInvoices();
+      _refresh();
+      if (mounted) {
+        final generated = result['generated'] as num? ?? 0;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              generated == 0
+                  ? 'No active hospitals required invoices.'
+                  : '$generated invoice${generated == 1 ? '' : 's'} generated successfully.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    }
   }
 
   Future<void> _runAction(Future<dynamic> Function() action) async {

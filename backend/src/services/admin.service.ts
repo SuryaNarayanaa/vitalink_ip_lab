@@ -15,13 +15,21 @@ import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions, getRolePermissions, updat
 /** @deprecated Prefer DEFAULT_ROLE_DEFINITIONS / persisted role policy. Kept as a re-export for callers. */
 export const ROLE_DEFINITIONS = DEFAULT_ROLE_DEFINITIONS
 
-const normalizeSearchValue = (value: unknown): string => {
-  if (typeof value === 'string') return value.toLowerCase()
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value).toLowerCase()
-  }
-  return ''
-}
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const paginationResult = (total: number, page: number, limit: number) => ({
+  total,
+  page,
+  limit,
+  pages: Math.ceil(total / limit),
+  hasNext: page * limit < total,
+  hasPrev: page > 1,
+})
+
+const emptyPaginatedResult = (key: 'doctors' | 'patients', page: number, limit: number) => ({
+  [key]: [],
+  pagination: paginationResult(0, page, limit),
+})
 
 async function findDoctorByIdentifier(identifier: string) {
   let doctor = null
@@ -209,13 +217,35 @@ export async function listHospitals(filters: { status?: string; search?: string 
       { code: new RegExp(filters.search, 'i') },
     ]
   }
-  const hospitals = await Hospital.find(query).sort({ createdAt: -1 }).lean()
-  const formatted = await Promise.all(hospitals.map(async h => {
-    const [doctors, patients] = await Promise.all([
-      DoctorProfile.countDocuments({ hospital_id: h._id }),
-      PatientProfile.countDocuments({ hospital_id: h._id }),
-    ])
-    return formatHospital(h, { doctors, patients })
+  const hospitals = await Hospital.aggregate([
+    { $match: query },
+    { $sort: { createdAt: -1 } },
+    {
+      $lookup: {
+        from: DoctorProfile.collection.name,
+        let: { hospitalId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$hospital_id', '$$hospitalId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'doctorCounts',
+      },
+    },
+    {
+      $lookup: {
+        from: PatientProfile.collection.name,
+        let: { hospitalId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$hospital_id', '$$hospitalId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'patientCounts',
+      },
+    },
+  ])
+  const formatted = hospitals.map(h => formatHospital(h, {
+    doctors: h.doctorCounts[0]?.count ?? 0,
+    patients: h.patientCounts[0]?.count ?? 0,
   }))
   return { hospitals: formatted }
 }
@@ -493,8 +523,8 @@ export async function getAllDoctors(
 ) {
   const ctx = await getAdminContext(actorUserId)
   const { department, is_active, search } = filters
-  const page = pagination.page || 1
-  const limit = pagination.limit || 20
+  const page = Math.max(1, pagination.page || 1)
+  const limit = Math.max(1, pagination.limit || 20)
 
   const query: any = { user_type: UserType.DOCTOR }
 
@@ -502,43 +532,40 @@ export async function getAllDoctors(
     query.is_active = is_active
   }
 
-  const users = await User.find(query)
-    .populate('profile_id')
-    .sort({ createdAt: -1 })
+  const profileQuery: any = {}
+  if (ctx.isHospitalAdmin) profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(ctx.hospitalId)
+  else if (filters.hospital_id && mongoose.Types.ObjectId.isValid(filters.hospital_id)) {
+    profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(filters.hospital_id)
+  } else if (filters.hospital_id) {
+    return emptyPaginatedResult('doctors', page, limit)
+  }
+  if (department) profileQuery['profile.department'] = new RegExp(escapeRegex(department), 'i')
+  if (search) {
+    const searchPattern = new RegExp(escapeRegex(search), 'i')
+    profileQuery.$or = [{ 'profile.name': searchPattern }, { login_id: searchPattern }]
+  }
 
-  const filteredUsers = users.filter((user: any) => {
-    const profile = user.profile_id as any
-    if (!profile) return false
-    if (ctx.isHospitalAdmin && String(profile.hospital_id || '') !== ctx.hospitalId) return false
-    if (!ctx.isHospitalAdmin && filters.hospital_id && String(profile.hospital_id || '') !== filters.hospital_id) return false
-    if (department) {
-      const departmentMatch = normalizeSearchValue(profile.department)
-        .includes(normalizeSearchValue(department))
-      if (!departmentMatch) return false
-    }
-    if (search) {
-      const s = normalizeSearchValue(search)
-      const nameMatch = normalizeSearchValue(profile.name).includes(s)
-      const loginMatch = normalizeSearchValue(user.login_id).includes(s)
-      if (!nameMatch && !loginMatch) return false
-    }
-    return true
-  })
-
-  const total = filteredUsers.length
   const skip = (page - 1) * limit
-  const paginatedUsers = filteredUsers.slice(skip, skip + limit)
+  const [result] = await User.aggregate([
+    { $match: query },
+    { $lookup: { from: DoctorProfile.collection.name, localField: 'profile_id', foreignField: '_id', as: 'profile' } },
+    { $unwind: '$profile' },
+    { $match: profileQuery },
+    { $set: { profile_id: '$profile' } },
+    { $unset: 'profile' },
+    {
+      $facet: {
+        doctors: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ])
+  const doctors = result?.doctors ?? []
+  const total = result?.total[0]?.count ?? 0
 
   return {
-    doctors: paginatedUsers,
-    pagination: {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrev: page > 1,
-    },
+    doctors,
+    pagination: paginationResult(total, page, limit),
   }
 }
 
@@ -724,64 +751,55 @@ export async function getAllPatients(
   actorUserId?: string
 ) {
   const ctx = await getAdminContext(actorUserId)
-  const page = pagination.page || 1
-  const limit = pagination.limit || 20
+  const page = Math.max(1, pagination.page || 1)
+  const limit = Math.max(1, pagination.limit || 20)
 
   const query: any = { user_type: UserType.PATIENT }
-
-  const users = await User.find(query)
-    .populate('profile_id')
-    .sort({ createdAt: -1 })
 
   let assignedDoctorId: string | undefined
   if (filters.assigned_doctor_id) {
     const doctorUser = await findDoctorByIdentifier(filters.assigned_doctor_id)
     if (!doctorUser) {
-      return {
-        patients: [],
-        pagination: {
-          total: 0,
-          page,
-          limit,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
-      }
+      return emptyPaginatedResult('patients', page, limit)
     }
     assignedDoctorId = String(doctorUser._id)
   }
 
-  const filteredUsers = users.filter((user: any) => {
-    const profile = user.profile_id as any
-    if (!profile) return false
-    if (ctx.isHospitalAdmin && String(profile.hospital_id || '') !== ctx.hospitalId) return false
-    if (!ctx.isHospitalAdmin && filters.hospital_id && String(profile.hospital_id || '') !== filters.hospital_id) return false
-    if (assignedDoctorId && String(profile.assigned_doctor_id) !== assignedDoctorId) return false
-    if (filters.account_status && profile.account_status !== filters.account_status) return false
-    if (filters.search) {
-      const s = normalizeSearchValue(filters.search)
-      const nameMatch = normalizeSearchValue(profile.demographics?.name).includes(s)
-      const loginMatch = normalizeSearchValue(user.login_id).includes(s)
-      if (!nameMatch && !loginMatch) return false
-    }
-    return true
-  })
+  const profileQuery: any = {}
+  if (ctx.isHospitalAdmin) profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(ctx.hospitalId)
+  else if (filters.hospital_id && mongoose.Types.ObjectId.isValid(filters.hospital_id)) {
+    profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(filters.hospital_id)
+  } else if (filters.hospital_id) {
+    return emptyPaginatedResult('patients', page, limit)
+  }
+  if (assignedDoctorId) profileQuery['profile.assigned_doctor_id'] = new mongoose.Types.ObjectId(assignedDoctorId)
+  if (filters.account_status) profileQuery['profile.account_status'] = filters.account_status
+  if (filters.search) {
+    const searchPattern = new RegExp(escapeRegex(filters.search), 'i')
+    profileQuery.$or = [{ 'profile.demographics.name': searchPattern }, { login_id: searchPattern }]
+  }
 
-  const total = filteredUsers.length
   const skip = (page - 1) * limit
-  const paginatedUsers = filteredUsers.slice(skip, skip + limit)
+  const [result] = await User.aggregate([
+    { $match: query },
+    { $lookup: { from: PatientProfile.collection.name, localField: 'profile_id', foreignField: '_id', as: 'profile' } },
+    { $unwind: '$profile' },
+    { $match: profileQuery },
+    { $set: { profile_id: '$profile' } },
+    { $unset: 'profile' },
+    {
+      $facet: {
+        patients: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ])
+  const patients = result?.patients ?? []
+  const total = result?.total[0]?.count ?? 0
 
   return {
-    patients: paginatedUsers,
-    pagination: {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrev: page > 1,
-    },
+    patients,
+    pagination: paginationResult(total, page, limit),
   }
 }
 
@@ -1109,7 +1127,8 @@ export async function getLegacyDoctorById(id: string, actorUserId?: string) {
 
 // ─── System Health ───
 
-export async function getSystemHealth() {
+export async function getSystemHealth(actorUserId?: string) {
+  requireAppAdmin(await getAdminContext(actorUserId))
   const mongooseModule = await import('mongoose')
   const mongooseInstance = mongooseModule.default
 
@@ -1120,13 +1139,12 @@ export async function getSystemHealth() {
     3: 'disconnecting',
   }
 
+  const databaseState = dbStates[mongooseInstance.connection.readyState] || 'unknown'
   return {
-    status: 'ok',
+    status: databaseState === 'connected' ? 'healthy' : 'degraded',
     uptime: process.uptime(),
     database: {
-      state: dbStates[mongooseInstance.connection.readyState] || 'unknown',
-      host: mongooseInstance.connection.host,
-      name: mongooseInstance.connection.name,
+      state: databaseState,
     },
     memory: {
       rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + ' MB',
