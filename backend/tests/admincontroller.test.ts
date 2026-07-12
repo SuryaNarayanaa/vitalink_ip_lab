@@ -250,7 +250,7 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(403);
             expect(response.data.success).toBe(false);
-            expect(response.data.message).toContain('read-only');
+            expect(String(response.data.message)).toMatch(/read-only|manage_system/i);
         });
 
         test('should prevent auditors from broadcasting notifications', async () => {
@@ -265,8 +265,111 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(403);
             expect(response.data.success).toBe(false);
-            expect(response.data.message).toContain('read-only');
+            expect(String(response.data.message)).toMatch(/read-only|manage_system/i);
             expect(await Notification.countDocuments({ title: 'Auditor broadcast attempt' })).toBe(0);
+        });
+
+        test('should persist role edits and enforce the edited permission', async () => {
+            const rolesResponse = await api.get('/api/admin/roles', {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(rolesResponse.status).toBe(200);
+            expect(rolesResponse.data.data.roles.app_admin.permissions.manage_roles).toBe(true);
+            expect(rolesResponse.data.data.roles.app_admin.permissions.manage_system).toBe(true);
+
+            const lockoutAttempt = await api.put('/api/admin/roles/app_admin', {
+                permissions: { manage_roles: false, manage_users: false },
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(lockoutAttempt.status).toBe(200);
+            expect(lockoutAttempt.data.data.role.permissions.manage_roles).toBe(true);
+            expect(lockoutAttempt.data.data.role.permissions.manage_users).toBe(false);
+
+            const deniedUsersResponse = await api.post('/api/admin/users', {
+                name: 'Denied by role policy',
+                email: 'role-policy-denied@example.com',
+                role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(deniedUsersResponse.status).toBe(403);
+            expect(String(deniedUsersResponse.data.message)).toMatch(/manage_users/i);
+
+            const deniedUsersList = await api.get('/api/admin/users', {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(deniedUsersList.status).toBe(403);
+
+            // Role management must remain available for recovery after manage_users is revoked.
+            const refreshedRoles = await api.get('/api/admin/roles', {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(refreshedRoles.status).toBe(200);
+            expect(refreshedRoles.data.data.roles.app_admin.permissions.manage_users).toBe(false);
+            expect(refreshedRoles.data.data.roles.app_admin.permissions.manage_roles).toBe(true);
+
+            const restoreResponse = await api.put('/api/admin/roles/app_admin', {
+                permissions: { manage_users: true },
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(restoreResponse.status).toBe(200);
+            expect(restoreResponse.data.data.role.permissions.manage_users).toBe(true);
+
+            const allowedUsersResponse = await api.post('/api/admin/users', {
+                name: 'Allowed after restore',
+                email: 'role-policy-restored@example.com',
+                role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(allowedUsersResponse.status).toBe(201);
+
+            // Seed path must not overwrite saved permission edits on subsequent reads.
+            const hospitalAdminRoles = await api.get('/api/admin/roles', {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(hospitalAdminRoles.status).toBe(200);
+            expect(hospitalAdminRoles.data.data.roles.app_admin.permissions.manage_users).toBe(true);
+
+            await api.put('/api/admin/roles/hospital_admin', {
+                permissions: { manage_billing: false },
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            const reReadHospitalAdmin = await api.get('/api/admin/roles', {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            expect(reReadHospitalAdmin.data.data.roles.hospital_admin.permissions.manage_billing).toBe(false);
+
+            // Restore hospital_admin billing for later suite tests that may rely on defaults.
+            await api.put('/api/admin/roles/hospital_admin', {
+                permissions: { manage_billing: true },
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+        });
+
+        test('should deny hospital admin role policy updates', async () => {
+            const response = await api.put('/api/admin/roles/doctor', {
+                permissions: { manage_patients: false },
+            }, {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` },
+            });
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+        });
+
+        test('should let auditors read billing when manage_billing is granted', async () => {
+            const response = await api.get('/api/admin/billing/invoices', {
+                headers: { Authorization: `Bearer ${auditorToken}` },
+            });
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(Array.isArray(response.data.data.invoices)).toBe(true);
         });
 
         test('should generate a unique temporary password and require invited admins to change it', async () => {

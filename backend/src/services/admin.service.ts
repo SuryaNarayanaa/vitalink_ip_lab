@@ -10,6 +10,10 @@ import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
 import { InvoiceStatus } from '@alias/models/invoice.model'
 import { replaceAdminTotpForRecovery } from './admin-totp.service'
+import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions, getRolePermissions, updateRolePermissions } from './role-policy.service'
+
+/** @deprecated Prefer DEFAULT_ROLE_DEFINITIONS / persisted role policy. Kept as a re-export for callers. */
+export const ROLE_DEFINITIONS = DEFAULT_ROLE_DEFINITIONS
 
 const normalizeSearchValue = (value: unknown): string => {
   if (typeof value === 'string') return value.toLowerCase()
@@ -33,34 +37,6 @@ async function findDoctorByIdentifier(identifier: string) {
   return doctor
 }
 
-export const ROLE_DEFINITIONS = {
-  app_admin: {
-    label: 'App Admin',
-    color: 'admin',
-    permissions: { manage_hospitals: true, manage_users: true, manage_roles: true, view_audit: true, manage_doctors: true, manage_patients: true, export_data: true, manage_billing: true },
-  },
-  hospital_admin: {
-    label: 'Hospital Admin',
-    color: 'doctor',
-    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: true, manage_patients: true, export_data: false, manage_billing: true },
-  },
-  doctor: {
-    label: 'Doctor',
-    color: 'doctor',
-    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: false, manage_patients: true, export_data: false, manage_billing: false },
-  },
-  patient: {
-    label: 'Patient',
-    color: 'patient',
-    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: false, manage_doctors: false, manage_patients: false, export_data: false, manage_billing: false },
-  },
-  auditor: {
-    label: 'System Auditor',
-    color: 'auditor',
-    permissions: { manage_hospitals: false, manage_users: false, manage_roles: false, view_audit: true, manage_doctors: false, manage_patients: false, export_data: true, manage_billing: true },
-  },
-}
-
 export async function getAdminContext(userId?: string) {
   const user = userId ? await User.findById(userId).populate({
     path: 'profile_id',
@@ -69,6 +45,7 @@ export async function getAdminContext(userId?: string) {
   const profile: any = user?.profile_id
   const role = profile?.admin_role || AdminRole.APP_ADMIN
   const hospitalId = profile?.hospital_id?._id || profile?.hospital_id
+  const permissions = await getRolePermissions(role)
   return {
     role,
     hospitalId: hospitalId ? String(hospitalId) : undefined,
@@ -76,12 +53,19 @@ export async function getAdminContext(userId?: string) {
     isAppAdmin: role === AdminRole.APP_ADMIN,
     isHospitalAdmin: role === AdminRole.HOSPITAL_ADMIN,
     isAuditor: role === AdminRole.AUDITOR,
+    permissions,
   }
 }
 
 export function requireCanMutate(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
   if (ctx.isAuditor) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Auditors have read-only access')
+  }
+}
+
+export function requirePermission(ctx: Awaited<ReturnType<typeof getAdminContext>>, permission: string) {
+  if (!ctx.permissions[permission]) {
+    throw new ApiError(StatusCodes.FORBIDDEN, `Role does not have the ${permission} permission`)
   }
 }
 
@@ -196,20 +180,16 @@ async function revokeSessionsIfAccountDisabled(user: any, wasActive: boolean) {
 }
 
 export async function getRoles() {
-  return { roles: ROLE_DEFINITIONS }
+  return { roles: await getRoleDefinitions() }
 }
 
 export async function updateRoleDefinition(roleKey: string, data: any, actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
-  requireAppAdmin(ctx)
-  if (!(ROLE_DEFINITIONS as any)[roleKey]) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
-  }
-  ;(ROLE_DEFINITIONS as any)[roleKey].permissions = {
-    ...(ROLE_DEFINITIONS as any)[roleKey].permissions,
-    ...(data.permissions || {}),
-  }
-  return { role: (ROLE_DEFINITIONS as any)[roleKey] }
+  requirePermission(ctx, 'manage_roles')
+  if (!ctx.isAppAdmin) throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
+  const role = await updateRolePermissions(roleKey, data.permissions || {})
+  if (!role) throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
+  return { role }
 }
 
 export async function listHospitals(filters: { status?: string; search?: string } = {}, actorUserId?: string) {

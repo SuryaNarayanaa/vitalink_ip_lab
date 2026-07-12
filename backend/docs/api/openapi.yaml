@@ -927,7 +927,7 @@ paths:
   /admin/roles:
     get:
       tags: [Admin]
-      summary: List role settings
+      summary: List persisted role policy definitions
       responses:
         "200":
           description: Roles retrieved
@@ -943,7 +943,7 @@ paths:
   /admin/roles/{roleKey}:
     put:
       tags: [Admin]
-      summary: Update role settings
+      summary: Update persisted role permissions
       parameters:
         - in: path
           name: roleKey
@@ -3066,6 +3066,8 @@ components:
         export_data:
           type: boolean
         manage_billing:
+          type: boolean
+        manage_system:
           type: boolean
       additionalProperties:
         type: boolean

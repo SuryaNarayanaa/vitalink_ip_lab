@@ -165,12 +165,7 @@ class AdminRepository {
   Future<Map<String, dynamic>> updateRole(
     String roleKey,
     Map<String, dynamic> permissions,
-  ) async {
-    return _apiClient.put(
-      '${AppStrings.adminRolesPath}/$roleKey',
-      data: {'permissions': permissions},
-    );
-  }
+  ) => _apiClient.put('${AppStrings.adminRolesPath}/$roleKey', data: {'permissions': permissions});
 
   Future<Map<String, dynamic>> getInvoices() async {
     final response = await _apiClient.getRaw(AppStrings.adminInvoicesPath);

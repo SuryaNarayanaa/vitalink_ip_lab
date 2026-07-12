@@ -569,7 +569,8 @@ class _RolesRbacPageState extends State<RolesRbacPage> {
           ..sort();
         final content = _AdminListShell(
           title: 'Roles & RBAC',
-          subtitle: 'Review and update platform permission mappings.',
+          subtitle:
+              'Role permissions are enforced across administrative routes.',
           actions: [
             FilledButton.icon(
               onPressed: _draft.isEmpty ? null : () => _saveRoles(roleKeys),
@@ -590,16 +591,17 @@ class _RolesRbacPageState extends State<RolesRbacPage> {
                     role: roles[roleKey] as Map<String, dynamic>,
                     permissions: perms,
                     draft: _draft[roleKey],
-                    onChanged: (perm, value) {
-                      setState(() {
-                        final current = Map<String, dynamic>.from(
-                          ((roles[roleKey] as Map)['permissions'] as Map)
-                              .cast<String, dynamic>(),
-                        );
-                        _draft[roleKey] = {...current, ...?_draft[roleKey]};
-                        _draft[roleKey]![perm] = value;
-                      });
-                    },
+                    onChanged: (permission, value) => setState(() {
+                      final current = Map<String, dynamic>.from(
+                        ((roles[roleKey] as Map)['permissions'] as Map)
+                            .cast<String, dynamic>(),
+                      );
+                      _draft[roleKey] = {
+                        ...current,
+                        ...?_draft[roleKey],
+                        permission: value
+                      };
+                    }),
                   ),
               ],
             ),
@@ -809,7 +811,7 @@ class _QueryBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (query.isLoading){
+    if (query.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (query.isError) {
@@ -936,7 +938,10 @@ class _RoleCard extends StatelessWidget {
                   FilterChip(
                     label: Text(permission.replaceAll('_', ' ')),
                     selected: values[permission] == true,
-                    onSelected: (value) => onChanged(permission, value),
+                    // Backend always retains app_admin.manage_roles so role policy cannot be locked out.
+                    onSelected: roleKey == 'app_admin' && permission == 'manage_roles'
+                        ? null
+                        : (value) => onChanged(permission, value),
                   ),
               ],
             ),

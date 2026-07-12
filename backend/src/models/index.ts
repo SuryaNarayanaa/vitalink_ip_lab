@@ -48,6 +48,7 @@ import AuthSession from './authsession.model'
 import FileAsset from './fileasset.model'
 import DeviceToken from './DeviceToken.model'
 import NotificationDelivery from './notificationdelivery.model'
+import RoleDefinition from './roledefinition.model'
 
 export {
   User,
@@ -65,6 +66,7 @@ export {
   FileAsset,
   DeviceToken,
   NotificationDelivery,
+  RoleDefinition,
 }
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile
