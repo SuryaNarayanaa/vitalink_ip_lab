@@ -141,13 +141,15 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
       title: '$action $hospitalName?',
       message: status == 'suspended'
           ? 'Staff and patients will lose access until this hospital is reactivated.'
-          : 'This will restore access for this hospital.',
+          : 'This restores hospital access. Deactivated user accounts must be reactivated separately.',
       confirmLabel: action,
     );
     if (!confirmed || !mounted) return;
     await _runAction(
       () => _repo.updateHospitalStatus(id, status),
-      '$hospitalName ${status == 'suspended' ? 'suspended' : 'activated'} successfully.',
+      status == 'suspended'
+          ? '$hospitalName suspended successfully.'
+          : '$hospitalName activated. Deactivated user accounts remain inactive until reactivated.',
     );
   }
 
