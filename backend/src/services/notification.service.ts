@@ -5,6 +5,7 @@ import { ApiError } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
 import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
 import { getAdminContext, getTenantUserIdsForAdmin } from '@alias/services/admin.service'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 export type BroadcastTarget = 'ALL' | 'DOCTORS' | 'PATIENTS' | 'SPECIFIC'
 
@@ -16,6 +17,10 @@ export async function broadcastNotification(
   priority: string = 'MEDIUM',
   actorUserId?: string
 ) {
+  if (!await isFeatureEnabled('notifications_enabled')) {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Notifications are currently disabled.')
+  }
+
   let userIds: string[] = []
   const ctx = await getAdminContext(actorUserId)
   const tenantUserIds = await getTenantUserIdsForAdmin(actorUserId)

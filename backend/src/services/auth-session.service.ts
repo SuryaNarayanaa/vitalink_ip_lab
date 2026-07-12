@@ -1,19 +1,20 @@
 import crypto from 'crypto'
 import mongoose from 'mongoose'
-import { config } from '@alias/config'
 import { AuthSession, User } from '@alias/models'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { generateToken } from '@alias/utils/jwt.utils'
 import { UserType } from '@alias/validators'
 import { hasActiveHospitalAccess } from './hospital-access.service'
+import { getSessionTimeoutMinutes, MAX_SESSION_TIMEOUT_MINUTES } from './config.service'
 
 const REFRESH_TOKEN_BYTES = 48
+export const SESSION_ACCESS_TOKEN_LIFETIME_SECONDS = MAX_SESSION_TIMEOUT_MINUTES * 60
 
 const hashRefreshToken = (refreshToken: string) =>
   crypto.createHash('sha256').update(refreshToken).digest('hex')
 
-const getRefreshTokenExpiry = () =>
-  new Date(Date.now() + config.refreshTokenExpiryDays * 24 * 60 * 60 * 1000)
+export const getSessionExpiry = (timeoutMinutes: number) =>
+  new Date(Date.now() + timeoutMinutes * 60 * 1000)
 
 export const createAuthSession = async ({
   user,
@@ -26,7 +27,8 @@ export const createAuthSession = async ({
 }) => {
   const accessTokenId = crypto.randomUUID()
   const refreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url')
-  const expiresAt = getRefreshTokenExpiry()
+  const timeoutMinutes = await getSessionTimeoutMinutes()
+  const expiresAt = getSessionExpiry(timeoutMinutes)
 
   const session = await AuthSession.create({
     user_id: user._id,
@@ -43,7 +45,10 @@ export const createAuthSession = async ({
     user_type: user.user_type as UserType,
     session_id: session._id.toString(),
     token_id: accessTokenId,
-  })
+  // Session validation is authoritative and checked on every request. Keep the
+  // JWT valid for the largest allowed session duration so increasing the admin
+  // setting can extend an existing session immediately as well.
+  }, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS)
 
   return {
     token: accessToken,
@@ -114,7 +119,8 @@ export const refreshAuthSession = async ({
   session.access_token_id = crypto.randomUUID()
   const replacementRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url')
   session.refresh_token_hash = hashRefreshToken(replacementRefreshToken)
-  session.expires_at = getRefreshTokenExpiry()
+  const timeoutMinutes = await getSessionTimeoutMinutes()
+  session.expires_at = getSessionExpiry(timeoutMinutes)
   session.last_used_at = new Date()
   session.ip_address = ipAddress
   session.user_agent = Array.isArray(userAgent) ? userAgent.join(', ') : userAgent
@@ -125,7 +131,7 @@ export const refreshAuthSession = async ({
     user_type: session.user_type as UserType,
     session_id: session._id.toString(),
     token_id: session.access_token_id,
-  })
+  }, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS)
 
   return {
     token: accessToken,

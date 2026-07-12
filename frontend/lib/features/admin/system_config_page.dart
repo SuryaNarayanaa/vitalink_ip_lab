@@ -36,9 +36,9 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   bool _isActivatingTotp = false;
 
   Map<String, bool> _featureFlags = {
-    'enable_notifications': true,
-    'enable_pdf_export': true,
-    'enable_patient_self_registration': false,
+    'maintenance_mode': false,
+    'patient_registration_enabled': true,
+    'notifications_enabled': true,
   };
 
   SystemHealthModel? _health;
@@ -82,19 +82,23 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
               4.5)
           .toString();
 
-      final session = config['session_settings'] ?? {};
-      _sessionTimeoutCtrl.text = (session['timeout_minutes'] ?? 30).toString();
+      _sessionTimeoutCtrl.text =
+          (config['session_timeout_minutes'] ?? 30).toString();
 
       final rateLimit = config['rate_limiting'] ?? config['rate_limit'] ?? {};
       _maxRequestsCtrl.text = (rateLimit['max_requests'] ?? 100).toString();
       _windowDurationCtrl.text =
-          (rateLimit['window_seconds'] ?? rateLimit['window_ms'] != null
-                  ? ((rateLimit['window_ms'] as int) / 1000).round()
-                  : 60)
-              .toString();
+          (rateLimit['window_minutes'] ?? 15).toString();
 
       if (config['feature_flags'] != null) {
-        _featureFlags = Map<String, bool>.from(config['feature_flags']);
+        final savedFlags = Map<String, dynamic>.from(config['feature_flags']);
+        _featureFlags = {
+          'maintenance_mode': savedFlags['maintenance_mode'] as bool? ?? false,
+          'patient_registration_enabled':
+              savedFlags['patient_registration_enabled'] as bool? ?? true,
+          'notifications_enabled':
+              savedFlags['notifications_enabled'] as bool? ?? true,
+        };
       }
       setState(() => _hasUnsavedChanges = false);
     } catch (e) {
@@ -156,12 +160,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
           'critical_low': double.parse(_inrLowCtrl.text),
           'critical_high': double.parse(_inrHighCtrl.text),
         },
-        'session_settings': {
-          'timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
-        },
+        'session_timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
         'rate_limit': {
           'max_requests': int.parse(_maxRequestsCtrl.text),
-          'window_ms': int.parse(_windowDurationCtrl.text) * 1000,
+          'window_minutes': int.parse(_windowDurationCtrl.text),
         },
         'feature_flags': _featureFlags,
       });
@@ -374,6 +376,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
                             }
+                            final high = double.tryParse(_inrHighCtrl.text);
+                            if (high != null && n >= high) {
+                              return 'Must be below critical high';
+                            }
                             return null;
                           },
                         ),
@@ -395,6 +401,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             final n = double.tryParse(v);
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
+                            }
+                            final low = double.tryParse(_inrLowCtrl.text);
+                            if (low != null && n <= low) {
+                              return 'Must be above critical low';
                             }
                             return null;
                           },
@@ -457,7 +467,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                           controller: _windowDurationCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Window Duration',
-                            suffixText: 'sec',
+                            suffixText: 'min',
                           ),
                           keyboardType: TextInputType.number,
                           onChanged: _onFieldChanged,

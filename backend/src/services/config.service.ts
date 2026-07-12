@@ -1,4 +1,14 @@
-import { SystemConfig } from '@alias/models'
+import { AuthSession, SystemConfig } from '@alias/models'
+import { ApiError } from '@alias/utils'
+import { StatusCodes } from 'http-status-codes'
+
+export const DEFAULT_FEATURE_FLAGS = {
+  maintenance_mode: false,
+  patient_registration_enabled: true,
+  notifications_enabled: true,
+} as const
+
+export const MAX_SESSION_TIMEOUT_MINUTES = 1440
 
 export async function getSystemConfig() {
   let config = await SystemConfig.findOne({ is_active: true })
@@ -8,11 +18,7 @@ export async function getSystemConfig() {
       inr_thresholds: { critical_low: 1.5, critical_high: 4.5 },
       session_timeout_minutes: 30,
       rate_limit: { max_requests: 100, window_minutes: 15 },
-      feature_flags: {
-        registration_enabled: true,
-        maintenance_mode: false,
-        beta_features: false,
-      },
+      feature_flags: DEFAULT_FEATURE_FLAGS,
       is_active: true,
     })
   }
@@ -29,15 +35,18 @@ export async function updateSystemConfig(updates: {
   let config = await SystemConfig.findOne({ is_active: true })
 
   if (!config) {
+    validateInrThresholds(updates.inr_thresholds?.critical_low ?? 1.5, updates.inr_thresholds?.critical_high ?? 4.5)
     config = await SystemConfig.create({
       ...updates,
       is_active: true,
     })
-    return config
   }
 
   // Deep merge updates
   if (updates.inr_thresholds) {
+    const criticalLow = updates.inr_thresholds.critical_low ?? config.inr_thresholds.critical_low
+    const criticalHigh = updates.inr_thresholds.critical_high ?? config.inr_thresholds.critical_high
+    validateInrThresholds(criticalLow, criticalHigh)
     if (updates.inr_thresholds.critical_low !== undefined) {
       config.inr_thresholds.critical_low = updates.inr_thresholds.critical_low
     }
@@ -66,5 +75,33 @@ export async function updateSystemConfig(updates: {
   }
 
   await config.save()
+  if (updates.session_timeout_minutes !== undefined) {
+    // Auth middleware checks this database expiry on every request, so changing
+    // the setting takes effect for already-issued tokens as well.
+    await AuthSession.updateMany(
+      { revoked_at: { $exists: false }, expires_at: { $gt: new Date() } },
+      { $set: { expires_at: new Date(Date.now() + updates.session_timeout_minutes * 60 * 1000) } }
+    )
+  }
   return config
+}
+
+/** Ensures a value cannot be classified as both critically low and high. */
+export function validateInrThresholds(criticalLow: number, criticalHigh: number) {
+  if (criticalLow >= criticalHigh) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'INR critical low threshold must be less than the critical high threshold.'
+    )
+  }
+}
+
+export async function getSessionTimeoutMinutes(): Promise<number> {
+  const systemConfig = await getSystemConfig()
+  return systemConfig.session_timeout_minutes
+}
+
+export async function isFeatureEnabled(feature: keyof typeof DEFAULT_FEATURE_FLAGS): Promise<boolean> {
+  const systemConfig = await getSystemConfig()
+  return systemConfig.feature_flags.get(feature) ?? DEFAULT_FEATURE_FLAGS[feature]
 }

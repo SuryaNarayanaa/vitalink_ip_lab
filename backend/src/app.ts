@@ -14,6 +14,7 @@ import { getFirebaseMessagingHealth } from './config/firebase.config'
 import { getNotificationDeliveryWorkerHealth } from './jobs/notification-delivery.worker'
 import { apiLimiter, authLimiter } from "./config/ratelimiter";
 import { apiVersionHeaders, legacyApiHeaders } from "./middlewares/apiVersion.middleware";
+import { enforceSystemFeatureFlags } from './middlewares/systemConfig.middleware'
 
 const app = express();
 app.set('trust proxy', config.trustProxy);
@@ -187,8 +188,8 @@ if (config.apiDocsEnabled) {
 app.use(`/api/${config.apiVersion}/auth/login`, apiVersionHeaders(config.apiVersion), authLimiter);
 app.use('/api/auth/login', legacyApiHeaders, authLimiter);
 
-app.use(`/api/${config.apiVersion}`, apiLimiter, apiVersionHeaders(config.apiVersion), router);
-app.use("/api", apiLimiter, legacyApiHeaders, router);
+app.use(`/api/${config.apiVersion}`, apiLimiter, enforceSystemFeatureFlags, apiVersionHeaders(config.apiVersion), router);
+app.use("/api", apiLimiter, enforceSystemFeatureFlags, legacyApiHeaders, router);
 app.use('/api', (req, res) => {
   return res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'API route not found', {
     path: req.originalUrl,

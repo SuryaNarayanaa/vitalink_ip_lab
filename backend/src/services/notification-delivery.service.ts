@@ -9,6 +9,7 @@ import {
   incrementDeliveryMetric,
 } from '@alias/services/notification-delivery.metrics'
 import logger from '@alias/utils/logger'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 const TERMINAL_STATUSES = new Set([
   NotificationDeliveryStatus.SUCCEEDED,
@@ -158,6 +159,10 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
  * Failures after a durable write are logged; callers should not fail clinical mutations.
  */
 export async function enqueueNotificationPush(input: EnqueuePushInput): Promise<boolean> {
+  if (!await isFeatureEnabled('notifications_enabled')) {
+    return false
+  }
+
   let deliveryId: string | undefined
   try {
     const { delivery } = await createPushDeliveryOutbox(input)

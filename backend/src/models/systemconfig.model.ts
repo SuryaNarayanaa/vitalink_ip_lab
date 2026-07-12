@@ -17,9 +17,9 @@ const SystemConfigSchema = new mongoose.Schema({
     type: Map,
     of: Boolean,
     default: {
-      registration_enabled: true,
       maintenance_mode: false,
-      beta_features: false,
+      patient_registration_enabled: true,
+      notifications_enabled: true,
     },
   },
   is_active: {

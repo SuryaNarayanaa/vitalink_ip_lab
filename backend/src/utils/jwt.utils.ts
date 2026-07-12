@@ -1,11 +1,12 @@
 import jwt from 'jsonwebtoken'
+import { StringValue } from 'ms'
 import { config } from '@alias/config'
 import { JWTPayload } from '@alias/validators'
 
-export function generateToken(payload: JWTPayload): string {
+export function generateToken(payload: JWTPayload, expiresIn: StringValue | number = config.jwtExpiresIn): string {
   try {
     const token = jwt.sign(payload, config.jwtSecret, {
-      expiresIn: config.jwtExpiresIn,
+      expiresIn,
     })
     return token
   } catch (error) {

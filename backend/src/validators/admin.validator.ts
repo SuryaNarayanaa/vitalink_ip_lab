@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
 
 // ─── Param Schemas ───
@@ -171,13 +172,24 @@ export const updateSystemConfigSchema = z.object({
       critical_low: z.number().positive().optional(),
       critical_high: z.number().positive().optional(),
     }).optional(),
-    session_timeout_minutes: z.number().int().positive().optional(),
+    session_timeout_minutes: z.number().int().positive().max(MAX_SESSION_TIMEOUT_MINUTES).optional(),
     rate_limit: z.object({
       max_requests: z.number().int().positive().optional(),
       window_minutes: z.number().int().positive().optional(),
     }).optional(),
     feature_flags: z.record(z.string(), z.boolean()).optional(),
-  }).strict(),
+  }).strict().superRefine((value, ctx) => {
+    const thresholds = value.inr_thresholds
+    if (thresholds?.critical_low !== undefined &&
+      thresholds.critical_high !== undefined &&
+      thresholds.critical_low >= thresholds.critical_high) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['inr_thresholds', 'critical_low'],
+        message: 'Critical low threshold must be less than critical high threshold',
+      })
+    }
+  }),
 })
 
 export const broadcastNotificationSchema = z.object({
