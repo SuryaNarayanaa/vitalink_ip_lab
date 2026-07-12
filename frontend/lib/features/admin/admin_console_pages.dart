@@ -82,12 +82,14 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                   details: [
                     _Detail(Icons.tag_rounded, id),
                     _Detail(Icons.place_rounded, '${h['location'] ?? '--'}'),
-                    _Detail(Icons.mail_outline_rounded, '${h['admin'] ?? '--'}'),
+                    _Detail(
+                        Icons.mail_outline_rounded, '${h['admin'] ?? '--'}'),
                     _Detail(
                       Icons.medical_services_outlined,
                       '${h['doctors'] ?? 0} doctors',
                     ),
-                    _Detail(Icons.people_outline, '${h['patients'] ?? 0} patients'),
+                    _Detail(
+                        Icons.people_outline, '${h['patients'] ?? 0} patients'),
                   ],
                   menu: [
                     PopupMenuItem(
@@ -146,7 +148,8 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
     Map<String, dynamic>? hospital,
   }) async {
     final name = TextEditingController(text: '${hospital?['name'] ?? ''}');
-    final location = TextEditingController(text: '${hospital?['location'] ?? ''}');
+    final location =
+        TextEditingController(text: '${hospital?['location'] ?? ''}');
     final admin = TextEditingController(text: '${hospital?['admin'] ?? ''}');
     var status = '${hospital?['status'] ?? 'active'}';
     final id = '${hospital?['id'] ?? hospital?['_id'] ?? ''}';
@@ -159,18 +162,26 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Hospital name')),
+              TextField(
+                  controller: name,
+                  decoration:
+                      const InputDecoration(labelText: 'Hospital name')),
               const SizedBox(height: 12),
-              TextField(controller: location, decoration: const InputDecoration(labelText: 'Location')),
+              TextField(
+                  controller: location,
+                  decoration: const InputDecoration(labelText: 'Location')),
               const SizedBox(height: 12),
-              TextField(controller: admin, decoration: const InputDecoration(labelText: 'Admin email')),
+              TextField(
+                  controller: admin,
+                  decoration: const InputDecoration(labelText: 'Admin email')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: status,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: const [
                   DropdownMenuItem(value: 'active', child: Text('Active')),
-                  DropdownMenuItem(value: 'suspended', child: Text('Suspended')),
+                  DropdownMenuItem(
+                      value: 'suspended', child: Text('Suspended')),
                 ],
                 onChanged: (value) => status = value ?? status,
               ),
@@ -178,7 +189,9 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
               final data = {
@@ -273,8 +286,10 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                   title: '${u['name'] ?? u['email'] ?? 'User'}',
                   badge: role.replaceAll('_', ' '),
                   details: [
-                    _Detail(Icons.mail_outline_rounded, '${u['email'] ?? '--'}'),
-                    _Detail(Icons.local_hospital_outlined, '${u['hospital'] ?? 'ALL'}'),
+                    _Detail(
+                        Icons.mail_outline_rounded, '${u['email'] ?? '--'}'),
+                    _Detail(Icons.local_hospital_outlined,
+                        '${u['hospital'] ?? 'ALL'}'),
                     _Detail(Icons.verified_user_outlined, status),
                   ],
                   menu: [
@@ -283,7 +298,8 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         value: r,
                         child: Text('Set ${r.replaceAll('_', ' ')}'),
                         onTap: () => Future.microtask(
-                          () => _runAction(() => _repo.updateUser(id, {'role': r})),
+                          () => _runAction(
+                              () => _repo.updateUser(id, {'role': r})),
                         ),
                       ),
                     ),
@@ -294,17 +310,23 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         () => _runAction(
                           () => _repo.updateUser(
                             id,
-                            {'status': status == 'active' ? 'inactive' : 'active'},
+                            {
+                              'status':
+                                  status == 'active' ? 'inactive' : 'active'
+                            },
                           ),
                         ),
                       ),
                     ),
-                    if (role == 'app_admin' || role == 'hospital_admin' || role == 'auditor')
+                    if (role == 'app_admin' ||
+                        role == 'hospital_admin' ||
+                        role == 'auditor')
                       PopupMenuItem(
                         value: 'reset_mfa',
                         child: const Text('Reset authenticator'),
                         onTap: () => Future.microtask(
-                          () => _resetAuthenticator(id, '${u['name'] ?? u['email'] ?? 'this administrator'}'),
+                          () => _resetAuthenticator(id,
+                              '${u['name'] ?? u['email'] ?? 'this administrator'}'),
                         ),
                       ),
                   ],
@@ -328,7 +350,9 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
           'You must give the new QR code only to that administrator.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Reset authenticator'),
@@ -365,14 +389,16 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Have $userName scan this code on their new phone before they sign in.'),
+              Text(
+                  'Have $userName scan this code on their new phone before they sign in.'),
               const SizedBox(height: 16),
               Center(
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: QrImageView(
@@ -390,14 +416,16 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
               Text(
                 'This QR code is shown only now. Do not take a screenshot or send it through email or chat.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
         ),
         actions: [
-          FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done')),
         ],
       ),
     );
@@ -426,39 +454,73 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Full name')),
+              TextField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Full name')),
               const SizedBox(height: 12),
-              TextField(controller: email, decoration: const InputDecoration(labelText: 'Email / login ID')),
+              TextField(
+                  controller: email,
+                  decoration:
+                      const InputDecoration(labelText: 'Email / login ID')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: role,
                 decoration: const InputDecoration(labelText: 'Role'),
                 items: const [
-                  DropdownMenuItem(value: 'hospital_admin', child: Text('Hospital Admin')),
-                  DropdownMenuItem(value: 'auditor', child: Text('System Auditor')),
-                  DropdownMenuItem(value: 'app_admin', child: Text('App Admin')),
+                  DropdownMenuItem(
+                      value: 'hospital_admin', child: Text('Hospital Admin')),
+                  DropdownMenuItem(
+                      value: 'auditor', child: Text('System Auditor')),
+                  DropdownMenuItem(
+                      value: 'app_admin', child: Text('App Admin')),
                 ],
                 onChanged: (value) => role = value ?? role,
               ),
               const SizedBox(height: 12),
-              TextField(controller: hospital, decoration: const InputDecoration(labelText: 'Hospital code or ID')),
+              TextField(
+                  controller: hospital,
+                  decoration:
+                      const InputDecoration(labelText: 'Hospital code or ID')),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
               try {
-                await _repo.inviteUser({
+                final result = await _repo.inviteUser({
                   'name': name.text.trim(),
                   'email': email.text.trim(),
                   'role': role,
-                  if (hospital.text.trim().isNotEmpty) 'hospital_id': hospital.text.trim(),
-                  'password': 'Default@123',
+                  if (hospital.text.trim().isNotEmpty)
+                    'hospital_id': hospital.text.trim(),
                 });
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
                 _refresh();
+                if (context.mounted) {
+                  final temporaryPassword =
+                      result['temporary_password'] as String?;
+                  await showDialog<void>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Admin invited'),
+                      content: Text(
+                        temporaryPassword == null
+                            ? 'The invited admin must change their password on first sign-in.'
+                            : 'Share this temporary password securely. The invited admin must change it on first sign-in:\n\n$temporaryPassword',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Done'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
               } catch (e) {
                 if (dialogContext.mounted) _showError(dialogContext, e);
               }
@@ -496,11 +558,13 @@ class _RolesRbacPageState extends State<RolesRbacPage> {
         queryFn: _repo.getRoles,
       ),
       builder: (context, query) {
-        final roles = (query.data?['roles'] as Map?)?.cast<String, dynamic>() ?? {};
+        final roles =
+            (query.data?['roles'] as Map?)?.cast<String, dynamic>() ?? {};
         final roleKeys = roles.keys.toList();
         final perms = <String>{
           for (final role in roles.values)
-            ...(((role as Map)['permissions'] as Map?)?.keys.cast<String>() ?? const <String>[]),
+            ...(((role as Map)['permissions'] as Map?)?.keys.cast<String>() ??
+                const <String>[]),
         }.toList()
           ..sort();
         final content = _AdminListShell(
@@ -624,10 +688,14 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
                   title: id,
                   badge: status,
                   details: [
-                    _Detail(Icons.local_hospital_outlined, '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}'),
-                    _Detail(Icons.workspace_premium_outlined, '${invoice['plan'] ?? '--'}'),
-                    _Detail(Icons.currency_rupee_rounded, '${invoice['amount'] ?? 0}'),
-                    _Detail(Icons.event_outlined, 'Due ${_date(invoice['due'])}'),
+                    _Detail(Icons.local_hospital_outlined,
+                        '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}'),
+                    _Detail(Icons.workspace_premium_outlined,
+                        '${invoice['plan'] ?? '--'}'),
+                    _Detail(Icons.currency_rupee_rounded,
+                        '${invoice['amount'] ?? 0}'),
+                    _Detail(
+                        Icons.event_outlined, 'Due ${_date(invoice['due'])}'),
                   ],
                   menu: [
                     PopupMenuItem(
@@ -741,7 +809,9 @@ class _QueryBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (query.isLoading) return const Center(child: CircularProgressIndicator());
+    if (query.isLoading){
+      return const Center(child: CircularProgressIndicator());
+    }
     if (query.isError) {
       return ApiErrorState(
         error: query.error,
@@ -807,7 +877,8 @@ class _AdminRecordCard extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(d.icon, size: 15, color: theme.colorScheme.outline),
+                            Icon(d.icon,
+                                size: 15, color: theme.colorScheme.outline),
                             const SizedBox(width: 4),
                             Text(d.text, style: theme.textTheme.bodySmall),
                           ],
@@ -817,7 +888,8 @@ class _AdminRecordCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (menu.isNotEmpty) PopupMenuButton<String>(itemBuilder: (_) => menu),
+            if (menu.isNotEmpty)
+              PopupMenuButton<String>(itemBuilder: (_) => menu),
           ],
         ),
       ),
@@ -853,7 +925,8 @@ class _RoleCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${role['label'] ?? roleKey}', style: Theme.of(context).textTheme.titleMedium),
+            Text('${role['label'] ?? roleKey}',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -882,11 +955,12 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final lower = label.toLowerCase();
     final theme = Theme.of(context);
-    final color = (lower == 'active' || lower.contains(' paid') || lower == 'paid')
-        ? Colors.green
-        : lower.contains('suspend') || lower.contains('overdue')
-            ? Colors.orange
-            : theme.colorScheme.primary;
+    final color =
+        (lower == 'active' || lower.contains(' paid') || lower == 'paid')
+            ? Colors.green
+            : lower.contains('suspend') || lower.contains('overdue')
+                ? Colors.orange
+                : theme.colorScheme.primary;
     return Chip(
       label: Text(label),
       visualDensity: VisualDensity.compact,

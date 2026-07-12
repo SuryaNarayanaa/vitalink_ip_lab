@@ -362,14 +362,20 @@ export async function inviteAdminUser(data: any, actorUserId?: string) {
     permission: data.role === AdminRole.AUDITOR ? 'READ_ONLY' : 'FULL_ACCESS',
     hospital_id: hospitalId,
   })
+  const temporaryPassword = generateTemporaryPassword()
   const user = await User.create({
     login_id: data.email || data.login_id,
-    password: data.password || 'Default@123',
+    password: temporaryPassword,
     user_type: UserType.ADMIN,
     profile_id: profile._id,
     user_type_model: 'AdminProfile',
+    must_change_password: true,
   })
-  return { user: formatUserForAdmin(await user.populate('profile_id')) }
+  return {
+    user: formatUserForAdmin(await user.populate('profile_id')),
+    temporary_password: temporaryPassword,
+    must_change_password: true,
+  }
 }
 
 export async function updateAdminUser(userId: string, data: any, actorUserId?: string) {

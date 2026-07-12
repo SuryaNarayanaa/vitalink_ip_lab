@@ -268,6 +268,46 @@ describe('Admin Routes', () => {
             expect(response.data.message).toContain('read-only');
             expect(await Notification.countDocuments({ title: 'Auditor broadcast attempt' })).toBe(0);
         });
+
+        test('should generate a unique temporary password and require invited admins to change it', async () => {
+            const invite = async (email: string) => api.post('/api/admin/users', {
+                name: `Invited ${email}`,
+                email,
+                role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(),
+                password: 'Default@123',
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+
+            const [firstResponse, secondResponse] = await Promise.all([
+                invite('invited-admin-one@example.com'),
+                invite('invited-admin-two@example.com'),
+            ]);
+
+            expect(firstResponse.status).toBe(201);
+            expect(secondResponse.status).toBe(201);
+            expect(firstResponse.data.data.temporary_password).toBeDefined();
+            expect(firstResponse.data.data.temporary_password).not.toBe('Default@123');
+            expect(firstResponse.data.data.temporary_password).not.toBe(secondResponse.data.data.temporary_password);
+            expect(firstResponse.data.data.must_change_password).toBe(true);
+
+            const invitedUser = await User.findOne({ login_id: 'invited-admin-one@example.com' });
+            expect(invitedUser?.must_change_password).toBe(true);
+
+            const defaultPasswordLogin = await api.post('/api/auth/login', {
+                login_id: 'invited-admin-one@example.com',
+                password: 'Default@123',
+            });
+            expect(defaultPasswordLogin.status).toBe(401);
+
+            const temporaryPasswordLogin = await api.post('/api/auth/login', {
+                login_id: 'invited-admin-one@example.com',
+                password: firstResponse.data.data.temporary_password,
+            });
+            expect(temporaryPasswordLogin.status).toBe(200);
+            expect(temporaryPasswordLogin.data.data.user.must_change_password).toBe(true);
+        });
     });
 
     describe('Doctor Management', () => {
