@@ -100,6 +100,7 @@ export const getSystemConfig = asyncHandler(async (req: Request, res: Response) 
 })
 
 export const updateSystemConfig = asyncHandler(async (req: Request, res: Response) => {
+  adminService.requireCanMutate(await adminService.getAdminContext(req.user?.user_id))
   const config = await configService.updateSystemConfig(req.body)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'System config updated', config))
 })
@@ -107,6 +108,7 @@ export const updateSystemConfig = asyncHandler(async (req: Request, res: Respons
 // ─── Notifications ───
 
 export const broadcastNotification = asyncHandler(async (req: Request, res: Response) => {
+  adminService.requireCanMutate(await adminService.getAdminContext(req.user?.user_id))
   const { title, message, target, user_ids, priority } = req.body
   const result = await notificationService.broadcastNotification(title, message, target, user_ids, priority, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification broadcast successful', result))

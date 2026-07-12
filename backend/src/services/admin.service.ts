@@ -79,7 +79,7 @@ export async function getAdminContext(userId?: string) {
   }
 }
 
-function requireCanMutate(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
+export function requireCanMutate(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
   if (ctx.isAuditor) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Auditors have read-only access')
   }

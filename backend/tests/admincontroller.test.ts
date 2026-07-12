@@ -13,6 +13,7 @@ describe('Admin Routes', () => {
     let api: AxiosInstance;
     let adminToken: string;
     let hospitalAdminToken: string;
+    let auditorToken: string;
     let doctorToken: string;
 
     let adminUser: any;
@@ -77,6 +78,18 @@ describe('Admin Routes', () => {
             user_type: 'ADMIN',
             profile_id: hospitalAdminProfile._id,
             is_active: true
+        });
+
+        const auditorProfile = await AdminProfile.create({
+            name: 'Read-only Auditor',
+            admin_role: AdminRole.AUDITOR,
+        });
+        await User.create({
+            login_id: 'auditor001',
+            password: 'Auditor@123',
+            user_type: 'ADMIN',
+            profile_id: auditorProfile._id,
+            is_active: true,
         });
 
         const doctorProfile = await DoctorProfile.create({
@@ -191,6 +204,12 @@ describe('Admin Routes', () => {
         });
         hospitalAdminToken = hospitalAdminLogin.data.data.token;
 
+        const auditorLogin = await api.post('/api/auth/login', {
+            login_id: 'auditor001',
+            password: 'Auditor@123'
+        });
+        auditorToken = auditorLogin.data.data.token;
+
         const doctorLogin = await api.post('/api/auth/login', {
             login_id: 'doctor_admin_01',
             password: 'Doctor@123'
@@ -220,6 +239,34 @@ describe('Admin Routes', () => {
 
             expect(response.status).toBe(403);
             expect(response.data.success).toBe(false);
+        });
+
+        test('should prevent auditors from updating system configuration', async () => {
+            const response = await api.put('/api/admin/config', {
+                session_timeout_minutes: 120,
+            }, {
+                headers: { Authorization: `Bearer ${auditorToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('read-only');
+        });
+
+        test('should prevent auditors from broadcasting notifications', async () => {
+            const response = await api.post('/api/admin/notifications/broadcast', {
+                title: 'Auditor broadcast attempt',
+                message: 'This must not be delivered.',
+                target: 'PATIENTS',
+                priority: 'MEDIUM',
+            }, {
+                headers: { Authorization: `Bearer ${auditorToken}` }
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.message).toContain('read-only');
+            expect(await Notification.countDocuments({ title: 'Auditor broadcast attempt' })).toBe(0);
         });
     });
 
