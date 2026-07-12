@@ -37,6 +37,7 @@ import {
   revokeAuthSessionById,
   revokeAuthSessionByRefreshToken,
 } from '@alias/services/auth-session.service'
+import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import {
   getPasswordPolicyState,
   setUserPasswordWithPolicy,
@@ -273,6 +274,19 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       loginAttemptMetadata('inactive_account')
     )
     throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive. Please contact support.')
+  }
+
+  if (!await hasActiveHospitalAccess(user)) {
+    await createAuthAuditLog(
+      req,
+      user,
+      AuditAction.LOGIN_FAILED,
+      false,
+      'Login blocked because hospital is suspended or inactive',
+      'Hospital inactive',
+      loginAttemptMetadata('inactive_hospital')
+    )
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
   }
 
   const lockedUntil = user.locked_until ? new Date(user.locked_until) : null

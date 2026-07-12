@@ -3,7 +3,7 @@ import { User, DoctorProfile, PatientProfile, AuditLog, AdminProfile, Hospital, 
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
 import { adminResetPassword, generateTemporaryPassword, setUserPasswordWithPolicy } from './password.service'
-import { revokeActiveAuthSessionsForUser } from './auth-session.service'
+import { revokeActiveAuthSessionsForUser, revokeActiveAuthSessionsForUsers } from './auth-session.service'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
@@ -270,7 +270,34 @@ export async function updateHospital(id: string, data: any, actorUserId?: string
     { new: true }
   )
   if (!hospital) throw new ApiError(StatusCodes.NOT_FOUND, 'Hospital not found')
-  return { hospital: formatHospital(hospital.toObject()) }
+  let usersDeactivated = 0
+  let invalidatedSessions = 0
+  if (hospital.status !== HospitalStatus.ACTIVE) {
+    const [doctorProfiles, patientProfiles, adminProfiles] = await Promise.all([
+      DoctorProfile.find({ hospital_id: hospital._id }).select('_id').lean(),
+      PatientProfile.find({ hospital_id: hospital._id }).select('_id').lean(),
+      AdminProfile.find({ hospital_id: hospital._id }).select('_id').lean(),
+    ])
+    const profileIds = [...doctorProfiles, ...patientProfiles, ...adminProfiles].map(profile => profile._id)
+    const users = profileIds.length
+      ? await User.find({ profile_id: { $in: profileIds } }).select('_id is_active').lean()
+      : []
+    const activeUserIds = users.filter(user => user.is_active).map(user => user._id)
+    if (activeUserIds.length) {
+      const updateResult = await User.updateMany({ _id: { $in: activeUserIds } }, { $set: { is_active: false } })
+      usersDeactivated = updateResult.modifiedCount || 0
+    }
+    const revocationResult = await revokeActiveAuthSessionsForUsers(
+      users.map(user => user._id),
+      AuthSessionRevocationReason.ACCOUNT_DISABLED
+    )
+    invalidatedSessions = revocationResult.modifiedCount || 0
+  }
+  return {
+    hospital: formatHospital(hospital.toObject()),
+    users_deactivated: usersDeactivated,
+    invalidated_sessions: invalidatedSessions,
+  }
 }
 
 export async function setHospitalStatus(id: string, status: string, actorUserId?: string) {

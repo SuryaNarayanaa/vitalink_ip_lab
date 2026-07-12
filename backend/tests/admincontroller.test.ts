@@ -222,7 +222,7 @@ describe('Admin Routes', () => {
         await mongoose.connection.close();
         await mongoContainer.stop();
         server.close();
-    });
+    }, 120000);
 
     describe('Authorization', () => {
         test('should fail without authentication token', async () => {
@@ -869,6 +869,71 @@ describe('Admin Routes', () => {
             const revokedSession = await AuthSession.findById(session._id).lean();
             expect(revokedSession?.revoked_reason).toBe('MFA_RESET');
             expect(revokedSession?.revoked_at).toBeDefined();
+        });
+
+        test('should deactivate hospital users and revoke access when a hospital is suspended', async () => {
+            const suspensionPatientProfile = await PatientProfile.create({
+                assigned_doctor_id: primaryDoctorUser._id,
+                hospital_id: primaryHospital._id,
+                demographics: {
+                    name: 'Suspension Test Patient',
+                    age: 55,
+                    gender: 'Female',
+                    phone: '9222222222',
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date(),
+                    },
+                },
+            });
+            const suspensionPatientUser = await User.create({
+                login_id: 'suspension_test_patient',
+                password: 'Patient@123',
+                user_type: 'PATIENT',
+                profile_id: suspensionPatientProfile._id,
+                is_active: true,
+            });
+            const patientLogin = await api.post('/api/auth/login', {
+                login_id: suspensionPatientUser.login_id,
+                password: 'Patient@123',
+            });
+            expect(patientLogin.status).toBe(200);
+
+            const suspendResponse = await api.patch(
+                `/api/admin/hospitals/${primaryHospital._id}/status`,
+                { status: 'suspended' },
+                { headers: { Authorization: `Bearer ${adminToken}` } }
+            );
+
+            expect(suspendResponse.status).toBe(200);
+            expect(suspendResponse.data.data.hospital.status).toBe('suspended');
+            expect(suspendResponse.data.data.users_deactivated).toBeGreaterThanOrEqual(1);
+            expect(suspendResponse.data.data.invalidated_sessions).toBeGreaterThanOrEqual(2);
+
+            const [patient, hospitalAdmin] = await Promise.all([
+                User.findById(suspensionPatientUser._id).lean(),
+                User.findOne({ login_id: 'hospital_admin_a' }).lean(),
+            ]);
+            expect(patient?.is_active).toBe(false);
+            expect(hospitalAdmin?.is_active).toBe(false);
+
+            const existingPatientSession = await api.get('/api/patient/profile', {
+                headers: { Authorization: `Bearer ${patientLogin.data.data.token}` },
+            });
+            expect([401, 403]).toContain(existingPatientSession.status);
+
+            const existingHospitalAdminSession = await api.get('/api/admin/users', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` },
+            });
+            expect([401, 403]).toContain(existingHospitalAdminSession.status);
+
+            await User.findByIdAndUpdate(suspensionPatientUser._id, { $set: { is_active: true } });
+            const reactivatedUserLogin = await api.post('/api/auth/login', {
+                login_id: suspensionPatientUser.login_id,
+                password: 'Patient@123',
+            });
+            expect(reactivatedUserLogin.status).toBe(403);
+            expect(reactivatedUserLogin.data.message).toContain('Hospital is suspended');
         });
     });
 });

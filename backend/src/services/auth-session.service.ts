@@ -5,6 +5,7 @@ import { AuthSession, User } from '@alias/models'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { generateToken } from '@alias/utils/jwt.utils'
 import { UserType } from '@alias/validators'
+import { hasActiveHospitalAccess } from './hospital-access.service'
 
 const REFRESH_TOKEN_BYTES = 48
 
@@ -105,8 +106,8 @@ export const refreshAuthSession = async ({
     return null
   }
 
-  const user = await User.findById(session.user_id).select('is_active user_type').lean()
-  if (!user || !user.is_active || user.user_type !== session.user_type) {
+  const user = await User.findById(session.user_id).select('is_active user_type profile_id').lean()
+  if (!user || !user.is_active || user.user_type !== session.user_type || !await hasActiveHospitalAccess(user)) {
     return null
   }
 
@@ -189,6 +190,28 @@ export const revokeActiveAuthSessionsForUser = async (
   return AuthSession.updateMany(
     {
       user_id: userId,
+      revoked_at: { $exists: false },
+      expires_at: { $gt: new Date() },
+    },
+    {
+      $set: {
+        revoked_at: new Date(),
+        revoked_reason: reason,
+      },
+    }
+  )
+}
+
+export const revokeActiveAuthSessionsForUsers = async (
+  userIds: Array<string | mongoose.Types.ObjectId>,
+  reason: AuthSessionRevocationReason = AuthSessionRevocationReason.USER_REVOKED
+) => {
+  const validUserIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(String(id)))
+  if (!validUserIds.length) return { modifiedCount: 0 }
+
+  return AuthSession.updateMany(
+    {
+      user_id: { $in: validUserIds },
       revoked_at: { $exists: false },
       expires_at: { $gt: new Date() },
     },
