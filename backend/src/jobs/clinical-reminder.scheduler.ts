@@ -109,7 +109,16 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
       if (missed >= config.missedDoseEscalationThreshold) {
         const recipients = [patientUserId]
         if (patient.assigned_doctor_id) {
-          const doctor = await User.findOne({ profile_id: patient.assigned_doctor_id, user_type: 'DOCTOR', is_active: true }).lean()
+          // Current patient creation/reassignment flows store the doctor User._id.
+          // Keep the profile lookup while legacy records are migrated.
+          const doctor = await User.findOne({
+            user_type: 'DOCTOR',
+            is_active: true,
+            $or: [
+              { _id: patient.assigned_doctor_id },
+              { profile_id: patient.assigned_doctor_id },
+            ],
+          }).lean()
           if (doctor) recipients.push(String(doctor._id))
         }
         for (const userId of recipients) {

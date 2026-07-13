@@ -197,9 +197,10 @@ describe('Notification delivery durability', () => {
   test('clinical reminder pass creates INR, review, and patient/doctor missed-dose reminders once', async () => {
     const now = new Date('2026-07-13T09:00:00.000Z')
     const doctorProfileId = new mongoose.Types.ObjectId()
+    const doctorUserId = new mongoose.Types.ObjectId()
     const profile = await PatientProfile.create({
       demographics: { name: 'Escalation Patient' },
-      assigned_doctor_id: doctorProfileId,
+      assigned_doctor_id: doctorUserId,
       medical_config: {
         therapy_start_date: new Date('2026-05-01T00:00:00.000Z'),
         next_review_date: new Date('2026-07-15T00:00:00.000Z'),
@@ -209,7 +210,6 @@ describe('Notification delivery durability', () => {
       account_status: 'Active',
     })
     const patientUserId = new mongoose.Types.ObjectId()
-    const doctorUserId = new mongoose.Types.ObjectId()
     await User.collection.insertMany([
       { _id: patientUserId, login_id: 'clinical-patient', password: 'x', salt: 'x', user_type: 'PATIENT', user_type_model: 'PatientProfile', profile_id: profile._id, is_active: true },
       { _id: doctorUserId, login_id: 'clinical-doctor', password: 'x', salt: 'x', user_type: 'DOCTOR', user_type_model: 'DoctorProfile', profile_id: doctorProfileId, is_active: true },
@@ -223,6 +223,30 @@ describe('Notification delivery durability', () => {
     expect(await Notification.countDocuments({ user_id: patientUserId })).toBe(3)
     expect(await Notification.countDocuments({ user_id: doctorUserId })).toBe(1)
     expect(await NotificationDelivery.countDocuments()).toBe(4)
+  })
+
+  test('clinical reminder pass supports legacy doctor profile IDs during migration', async () => {
+    const now = new Date('2026-07-13T09:00:00.000Z')
+    const doctorProfileId = new mongoose.Types.ObjectId()
+    const doctorUserId = new mongoose.Types.ObjectId()
+    const profile = await PatientProfile.create({
+      demographics: { name: 'Legacy Assignment Patient' },
+      assigned_doctor_id: doctorProfileId,
+      medical_config: { taken_doses: [] },
+      weekly_dosage: { saturday: 5, sunday: 5 },
+      account_status: 'Active',
+    })
+    const patientUserId = new mongoose.Types.ObjectId()
+    await User.collection.insertMany([
+      { _id: patientUserId, login_id: 'legacy-clinical-patient', password: 'x', salt: 'x', user_type: 'PATIENT', user_type_model: 'PatientProfile', profile_id: profile._id, is_active: true },
+      { _id: doctorUserId, login_id: 'legacy-clinical-doctor', password: 'x', salt: 'x', user_type: 'DOCTOR', user_type_model: 'DoctorProfile', profile_id: doctorProfileId, is_active: true },
+    ] as any)
+
+    const result = await runClinicalReminderPass(now)
+
+    expect(result).toEqual({ created: 2, skipped: 0, failed: 0 })
+    expect(await Notification.countDocuments({ user_id: patientUserId, type: 'CRITICAL_ALERT' })).toBe(1)
+    expect(await Notification.countDocuments({ user_id: doctorUserId, type: 'CRITICAL_ALERT' })).toBe(1)
   })
 
   test('sanitizeDeliveryError redacts long tokens and truncates', () => {
