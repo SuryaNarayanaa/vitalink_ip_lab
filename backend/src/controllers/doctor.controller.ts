@@ -15,6 +15,7 @@ import type {
   UpdateReportInput
 } from '@alias/validators/doctor.validator'
 import mongoose from 'mongoose'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
@@ -312,10 +313,7 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
     if (therapy_start_date instanceof Date) {
       parsedTherapyStartDate = therapy_start_date;
     } else if (typeof therapy_start_date === 'string') {
-      parsedTherapyStartDate = new Date(therapy_start_date);
-      if (isNaN(parsedTherapyStartDate.getTime())) {
-        parsedTherapyStartDate = undefined;
-      }
+      parsedTherapyStartDate = parseStrictDateOnly(therapy_start_date)
     }
   }
 
@@ -516,14 +514,8 @@ export const updateNextReview = asyncHandler(async (
 ) => {
   const { date } = req.body
   const { op_num } = req.params
-  const dateRegex = /^\d{2}-\d{2}-\d{4}$/
-
-  if (typeof date !== 'string' || !dateRegex.test(date)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be in DD-MM-YYYY format')
-  }
-
-  const [day, month, year] = date.split('-').map(Number)
-  const parsedDate = new Date(year, month - 1, day)
+  const parsedDate = typeof date === 'string' ? parseStrictDateOnly(date) : undefined
+  if (!parsedDate) throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be a valid calendar date in DD-MM-YYYY format')
 
   const doctor = await getDoctorUserOrThrow(req.user.user_id)
   const patientUser = await getPatientUserOrThrow(op_num)

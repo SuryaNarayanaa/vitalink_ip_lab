@@ -81,6 +81,9 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
       if (!patientUser) continue
       const patientId = String(patient._id)
       const patientUserId = String(patientUser._id)
+      const therapyStart = patient.medical_config?.therapy_start_date
+      const therapyStartKey = therapyStart ? dateKey(new Date(therapyStart)) : undefined
+      if (therapyStartKey && therapyStartKey > dateKey(now)) continue
       const history = [...(patient.inr_history ?? [])].sort((a: any, b: any) => +new Date(b.test_date) - +new Date(a.test_date))
       const lastInr = history[0]?.test_date ?? patient.medical_config?.therapy_start_date
       if (lastInr && new Date(lastInr) <= inrCutoff) {
@@ -103,6 +106,7 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
       const taken = new Set((patient.medical_config?.taken_doses ?? []).map((d: any) => dateKey(new Date(d))))
       const missed = [...Array(config.missedDoseEscalationWindowDays)].filter((_, index) => {
         const day = new Date(today); day.setUTCDate(day.getUTCDate() - index - 1)
+        if (therapyStartKey && dateKey(day) < therapyStartKey) return false
         const weekday = new Intl.DateTimeFormat('en-US', { timeZone: config.dosageReminderTimezone, weekday: 'long' }).format(day).toLowerCase()
         return Number((patient.weekly_dosage as any)?.[weekday] ?? 0) > 0 && !taken.has(dateKey(day))
       }).length

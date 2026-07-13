@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { therapy_drug } from '.'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 const dosageScheduleBaseSchema = z.object({
   monday: z.number().default(0),
@@ -22,20 +23,7 @@ const ddmmyyyy = z.preprocess((arg) => {
   if (arg === null || arg === undefined || arg === '') return undefined;
   if (arg instanceof Date) return arg;
   if (typeof arg === 'string') {
-    const isoDate = new Date(arg);
-    if (!isNaN(isoDate.getTime())) return isoDate;
-
-    const ddmmyyyyMatch = arg.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (ddmmyyyyMatch) {
-      const [, day, month, year] = ddmmyyyyMatch;
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    }
-
-    const yyyymmddMatch = arg.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (yyyymmddMatch) {
-      const [, year, month, day] = yyyymmddMatch;
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    }
+    return parseStrictDateOnly(arg)
   }
   return undefined;
 }, z.date().optional())

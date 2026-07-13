@@ -1,17 +1,18 @@
 import { z } from 'zod'
 import { HealthLog } from '.'
 import { optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 const ddmmyyyy = z.string('Date should be a string')
     .regex(/^\d{2}-\d{2}-\d{4}$/, 'Date must be in DD-MM-YYYY format')
-    .transform((val) => {
-        const [day, month, year] = val.split('-').map(Number)
-        return new Date(year, month - 1, day)
+    .transform((val, ctx) => {
+        const date = parseStrictDateOnly(val)
+        if (!date) {
+            ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date' })
+            return z.NEVER
+        }
+        return date
     })
-
-const parseableDateString = z.string('Date should be a string')
-    .refine((val) => !Number.isNaN(Date.parse(val)), 'Date must be a valid date string')
-    .transform((val) => new Date(val))
 
 export const reportSchema = z.object({
     body: z.object({
@@ -61,7 +62,6 @@ export const updateProfileSchema = z.object({
             therapy_start_date: z.union([
                 z.date(),
                 ddmmyyyy,
-                parseableDateString
             ]).refine(
                 (date) => date <= new Date(),
                 { message: "Therapy start date cannot be in the future" }

@@ -53,6 +53,8 @@ export async function runDosageReminderPass(
 
     for (const patient of patients) {
       try {
+        const therapyStart = patient.medical_config?.therapy_start_date
+        if (therapyStart && reminderDateParts(new Date(therapyStart), config.dosageReminderTimezone).dueWindow > dueWindow) continue
         const user = await User.findOne({
           profile_id: patient._id,
           user_type: 'PATIENT',

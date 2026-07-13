@@ -23,6 +23,7 @@ import logger from '@alias/utils/logger'
 import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
+import { config } from '@alias/config'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -407,9 +408,9 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 		rangeStart = new Date(rangeEnd)
 		rangeStart.setMonth(rangeStart.getMonth() - months)
 	} else {
-		// Default: from today backwards
-		rangeEnd = new Date()
-		rangeStart = new Date()
+		// Default range is anchored to the configured clinical day, not the host clock.
+		rangeEnd = dateFromClinicalKey(clinicalDateKey(new Date()))
+		rangeStart = new Date(rangeEnd)
 		rangeStart.setMonth(rangeStart.getMonth() - months)
 	}
 
@@ -441,7 +442,7 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 
 		return {
 			date: dateStr,
-			status: isTaken ? 'taken' : (date <= new Date() ? 'missed' : 'scheduled'),
+		status: isTaken ? 'taken' : (dateOnlyKey(date) < clinicalDateKey(new Date()) ? 'missed' : 'scheduled'),
 			dosage: scheduledDosage,
 			day_of_week: dayOfWeek
 		}
@@ -781,6 +782,25 @@ function formatDDMMYYYY(d: Date): string {
 	return `${dd}-${mm}-${yyyy}`
 }
 
+function clinicalDateKey(date: Date): string {
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: config.dosageReminderTimezone,
+		year: 'numeric', month: '2-digit', day: '2-digit',
+	}).formatToParts(date)
+	const part = (type: Intl.DateTimeFormatPartTypes) =>
+		parts.find((item) => item.type === type)?.value ?? ''
+	return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function dateOnlyKey(date: Date): string {
+	return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`
+}
+
+function dateFromClinicalKey(key: string): Date {
+	const [year, month, day] = key.split('-').map(Number)
+	return new Date(year, month - 1, day)
+}
+
 function getMedicationDates(startDate: Date, weeklyDosage: Record<string, number>): string[] {
 	const daysMap: Record<string, number> = {
 		sunday: 0,
@@ -860,7 +880,11 @@ function findMissedDoses(medicationDates: string[], takenDates: Array<Date | str
 		})
 	)
 
-	const missed = medicationDates.filter((d) => !takenFormatted.has(d))
+	const todayKey = clinicalDateKey(new Date())
+	const missed = medicationDates.filter((d) => {
+		const [day, month, year] = d.split('-').map(Number)
+		return `${year}-${`${month}`.padStart(2, '0')}-${`${day}`.padStart(2, '0')}` < todayKey && !takenFormatted.has(d)
+	})
 	missed.sort((a, b) => {
 		const [ad, am, ay] = a.split('-').map(Number)
 		const [bd, bm, by] = b.split('-').map(Number)
