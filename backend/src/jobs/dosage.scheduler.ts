@@ -46,6 +46,10 @@ export async function runDosageReminderPass(
 
   try {
     if (!await isFeatureEnabled('notifications_enabled')) return { created, skipped, failed }
+    // The reminder key is the cross-process idempotency boundary. Do not run
+    // until MongoDB has confirmed the unique index exists (not merely started
+    // building it in the background).
+    await Notification.init()
     logger.info('[DosageScheduler] Running daily dosage reminder...')
     const { dayOfWeek, dueWindow } = reminderDateParts(now, config.dosageReminderTimezone)
     const patients = await PatientProfile.find({

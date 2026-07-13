@@ -255,7 +255,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   const matchedUsers = await User.find({ login_id: normalizedLoginId }).limit(2)
   if (matchedUsers.length === 0) {
     logUnmatchedLoginAttempt(req, normalizedLoginId, 'unknown_login_id')
-    throw new ApiError(StatusCodes.BAD_REQUEST, "User Doesn't exist")
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
   if (matchedUsers.length > 1) {
     logUnmatchedLoginAttempt(req, normalizedLoginId, 'duplicate_login_id')
@@ -310,14 +310,35 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   })
 
   if (!isPasswordValid) {
-    const failedAttempts = (user.failed_login_attempts ?? 0) + 1
+    const failedAt = new Date()
+    const lockedUntil = new Date(failedAt.getTime() + config.accountLockoutMinutes * 60 * 1000)
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: user._id, is_active: true },
+      [
+        {
+          $set: {
+            failed_login_attempts: { $add: [{ $ifNull: ['$failed_login_attempts', 0] }, 1] },
+            last_failed_login_at: failedAt,
+          },
+        },
+        {
+          $set: {
+            locked_until: {
+              $cond: [
+                { $gte: ['$failed_login_attempts', config.maxFailedLoginAttempts] },
+                lockedUntil,
+                '$locked_until',
+              ],
+            },
+          },
+        },
+      ],
+      { new: true, updatePipeline: true },
+    )
+    const failedAttempts = updatedUser?.failed_login_attempts ?? (user.failed_login_attempts ?? 0) + 1
     user.failed_login_attempts = failedAttempts
-    user.last_failed_login_at = new Date()
-
-    if (failedAttempts >= config.maxFailedLoginAttempts) {
-      user.locked_until = new Date(Date.now() + config.accountLockoutMinutes * 60 * 1000)
-    }
-    await user.save()
+    user.last_failed_login_at = failedAt
+    user.locked_until = updatedUser?.locked_until
 
     await createAuthAuditLog(
       req,

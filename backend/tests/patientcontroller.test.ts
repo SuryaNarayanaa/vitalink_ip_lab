@@ -227,7 +227,7 @@ describe('Patient Routes', () => {
     describe('POST /api/patient/dosage', () => {
         test('should log dosage with valid DD-MM-YYYY date', async () => {
             const response = await api.post('/api/patient/dosage', {
-                date: '15-02-2026'
+                date: '11-02-2026'
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
@@ -240,19 +240,30 @@ describe('Patient Routes', () => {
 
         test('should add multiple dosages', async () => {
             await api.post('/api/patient/dosage', {
-                date: '13-02-2026'
+                date: '12-02-2026'
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
 
             const response = await api.post('/api/patient/dosage', {
-                date: '14-02-2026'
+                date: '13-02-2026'
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
 
             expect(response.status).toBe(200);
             expect(response.data.data.patient.medical_config.taken_doses.length).toBeGreaterThanOrEqual(2);
+        });
+
+        test('should reject a date with no scheduled dose', async () => {
+            const response = await api.post('/api/patient/dosage', {
+                date: '15-02-2026'
+            }, {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.data.message).toContain('No dose is scheduled');
         });
 
         test('should fail with invalid date format', async () => {

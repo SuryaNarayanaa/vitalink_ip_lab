@@ -28,9 +28,16 @@ const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response
 
   let error = err;
   if (!(err instanceof ApiError)) {
-    logger.error('Unhandled error', { error })
+    logger.error('Unhandled error', {
+      error,
+      requestId: (req as any).requestId,
+      method: req.method,
+      path: req.originalUrl,
+    })
     const statusCode = error instanceof mongoose.Error ? StatusCodes.BAD_REQUEST : StatusCodes.INTERNAL_SERVER_ERROR
-    const message = error.message || "Something went Wrong"
+    const message = statusCode === StatusCodes.INTERNAL_SERVER_ERROR
+      ? 'The server could not complete the request.'
+      : (error.message || 'Invalid database operation')
     error = new ApiError(statusCode, message)
   }
 

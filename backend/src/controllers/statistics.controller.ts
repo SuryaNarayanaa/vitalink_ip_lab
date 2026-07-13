@@ -9,7 +9,7 @@ export const getAdminStats = asyncHandler(async (req: Request, res: Response) =>
 })
 
 export const getTrends = asyncHandler(async (req: Request, res: Response) => {
-  const { period } = req.query as any
+  const { period } = (req.validatedQuery ?? req.query) as any
   const trends = await statisticsService.getRegistrationTrends(period, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Trends retrieved', trends))
 })
@@ -25,7 +25,7 @@ export const getWorkload = asyncHandler(async (req: Request, res: Response) => {
 })
 
 export const getPeriodStats = asyncHandler(async (req: Request, res: Response) => {
-  const { start_date, end_date } = req.query as any
+  const { start_date, end_date } = (req.validatedQuery ?? req.query) as any
   const stats = await statisticsService.getPeriodStatistics(start_date, end_date, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Period stats retrieved', stats))
 })

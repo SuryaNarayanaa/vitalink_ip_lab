@@ -97,17 +97,16 @@ class ApiException implements Exception {
 /// normalizes the backend's ApiResponse shape.
 class ApiClient {
   ApiClient({Dio? dio, SecureStorage? secureStorage, String? baseUrl})
-    : _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: baseUrl ?? AppStrings.apiBaseUrl,
-              connectTimeout: const Duration(seconds: 15),
-              sendTimeout: const Duration(seconds: 20),
-              receiveTimeout: const Duration(seconds: 20),
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                baseUrl: baseUrl ?? AppStrings.apiBaseUrl,
+                connectTimeout: const Duration(seconds: 15),
+                sendTimeout: const Duration(seconds: 20),
+                receiveTimeout: const Duration(seconds: 20),
+              ),
             ),
-          ),
-      _secureStorage = secureStorage ?? SecureStorage() {
+        _secureStorage = secureStorage ?? SecureStorage() {
     _configureInterceptors();
   }
 
@@ -247,8 +246,7 @@ class ApiClient {
       try {
         return await send();
       } on DioException catch (e) {
-        final shouldRetry =
-            retryOnFailure &&
+        final shouldRetry = retryOnFailure &&
             attempt < _maxGetRetries &&
             _isTransientFailure(e);
         if (!shouldRetry) rethrow;
@@ -310,8 +308,6 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     bool authenticated = true,
   }) async {
-    final hasQueryParams =
-        queryParameters != null && queryParameters.isNotEmpty;
     try {
       final headers = await _buildHeaders(includeAuth: authenticated);
       _logDebug('GET Request to: $path');
@@ -329,25 +325,7 @@ class ApiClient {
       _logDebug('GET Response status: ${response.statusCode}');
       return _normalizeResponse(response);
     } on DioException catch (e) {
-      final message = _extractMessage(e);
-      if (hasQueryParams && _isIncomingMessageQuerySetterError(message)) {
-        _logDebug(
-          'Backend query-parser incompatibility detected. Retrying GET without query parameters: $path',
-        );
-        final headers = await _buildHeaders(includeAuth: authenticated);
-        final retryResponse = await _sendWithRetry(
-          () => _dio.get<Map<String, dynamic>>(
-            path,
-            options: _buildRequestOptions(
-              headers: headers,
-              requiresAuth: authenticated,
-            ),
-          ),
-          retryOnFailure: true,
-        );
-        return _normalizeResponse(retryResponse);
-      }
-      throw _apiExceptionFromDio(e, fallbackMessage: message);
+      throw _apiExceptionFromDio(e, fallbackMessage: _extractMessage(e));
     }
   }
 
@@ -431,8 +409,6 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     bool authenticated = true,
   }) async {
-    final hasQueryParams =
-        queryParameters != null && queryParameters.isNotEmpty;
     try {
       final headers = await _buildHeaders(includeAuth: authenticated);
       final response = await _sendWithRetry(
@@ -453,30 +429,7 @@ class ApiClient {
       }
       return body;
     } on DioException catch (e) {
-      final message = _extractMessage(e);
-      if (hasQueryParams && _isIncomingMessageQuerySetterError(message)) {
-        _logDebug(
-          'Backend query-parser incompatibility detected. Retrying raw GET without query parameters: $path',
-        );
-        final headers = await _buildHeaders(includeAuth: authenticated);
-        final retryResponse = await _sendWithRetry(
-          () => _dio.get<Map<String, dynamic>>(
-            path,
-            options: _buildRequestOptions(
-              headers: headers,
-              requiresAuth: authenticated,
-            ),
-          ),
-          retryOnFailure: true,
-        );
-        final statusCode = retryResponse.statusCode ?? 500;
-        final body = retryResponse.data ?? <String, dynamic>{};
-        if (statusCode >= 400 || body['success'] == false) {
-          throw _apiExceptionFromResponse(retryResponse, body);
-        }
-        return body;
-      }
-      throw _apiExceptionFromDio(e, fallbackMessage: message);
+      throw _apiExceptionFromDio(e, fallbackMessage: _extractMessage(e));
     }
   }
 
@@ -535,8 +488,7 @@ class ApiClient {
     }
 
     final message = fallbackMessage ?? _extractMessage(e);
-    final isTimeout =
-        e.type == DioExceptionType.connectionTimeout ||
+    final isTimeout = e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.sendTimeout ||
         e.type == DioExceptionType.receiveTimeout;
 
@@ -564,8 +516,7 @@ class ApiClient {
       'x-api-supported-versions',
     );
     final retryAfter = _parseRetryAfter(response.headers.value('retry-after'));
-    final hasApiRouteHint =
-        body['data'] is Map &&
+    final hasApiRouteHint = body['data'] is Map &&
         ((body['data'] as Map).containsKey('current_base_path') ||
             (body['data'] as Map).containsKey('current_api_version'));
 
@@ -743,9 +694,8 @@ class ApiClient {
   }
 
   String _sanitizeServerMessage(String? raw) {
-    final message = (raw == null || raw.trim().isEmpty)
-        ? 'Request failed'
-        : raw;
+    final message =
+        (raw == null || raw.trim().isEmpty) ? 'Request failed' : raw;
 
     // Flutter Web often wraps CORS/TLS/DNS failures in this XHR onError text.
     if (_isBrowserXhrNetworkError(message)) {
@@ -760,8 +710,7 @@ class ApiClient {
 
   bool _isConnectionFailure(DioException e) {
     final noResponse = e.response == null;
-    final isConnectionType =
-        e.type == DioExceptionType.connectionError ||
+    final isConnectionType = e.type == DioExceptionType.connectionError ||
         e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.receiveTimeout ||
         e.type == DioExceptionType.sendTimeout;

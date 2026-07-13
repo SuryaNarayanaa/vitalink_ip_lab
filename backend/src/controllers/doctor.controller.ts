@@ -80,6 +80,20 @@ const ensureSameHospital = async (
   }
 }
 
+const doctorOwnedPatientFilter = (
+  patientProfileId: unknown,
+  doctor: { _id: unknown; profile_id?: unknown },
+  hospitalId?: unknown,
+) => ({
+  _id: patientProfileId,
+  assigned_doctor_id: { $in: getDoctorOwnershipIds(doctor) },
+  ...(hospitalId ? { hospital_id: hospitalId } : {}),
+})
+
+const throwOwnershipChanged = (): never => {
+  throw new ApiError(StatusCodes.CONFLICT, 'Patient assignment changed while the request was being processed')
+}
+
 const ensureReassignmentHospitalAccess = async (
   currentDoctor: { profile_id?: unknown },
   patient: { hospital_id?: unknown },
@@ -375,13 +389,14 @@ export const reassignPatient = asyncHandler(async (
   }
   await ensureReassignmentHospitalAccess(currentDoctorUser, existingPatientProfile, doctorUser)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, currentDoctorUser, existingPatientProfile.hospital_id),
     {
       $set: { assigned_doctor_id: doctorUser._id },
     },
     { new: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -410,13 +425,14 @@ export const editPatientDosage = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
     {
       $set: { weekly_dosage: prescription },
     },
     { new: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -480,19 +496,31 @@ export const updateReport = asyncHandler(async (req: Request<UpdateReportInput['
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const report = patientProfile.inr_history.id(report_id)
-  if (!report) {
+  const existingReport = patientProfile.inr_history.id(report_id)
+  if (!existingReport) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Report not found')
   }
-
-  if (notes !== undefined) report.notes = notes;
-  if (is_critical !== undefined) report.is_critical = is_critical;
 
   const changedFields: string[] = []
   if (notes !== undefined) changedFields.push('inr_history.notes')
   if (is_critical !== undefined) changedFields.push('inr_history.is_critical')
 
-  await patientProfile.save()
+  const reportSet: Record<string, unknown> = {}
+  if (notes !== undefined) reportSet['inr_history.$.notes'] = notes
+  if (is_critical !== undefined) reportSet['inr_history.$.is_critical'] = is_critical
+  let report = existingReport
+  if (changedFields.length > 0) {
+    const updatedPatient = await PatientProfile.findOneAndUpdate(
+      {
+        ...doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
+        'inr_history._id': report_id,
+      },
+      { $set: reportSet },
+      { new: true, runValidators: true },
+    )
+    if (!updatedPatient) throwOwnershipChanged()
+    report = updatedPatient.inr_history.id(report_id)!
+  }
 
   if (changedFields.length > 0) {
     await notifyPatientDoctorUpdate(
@@ -525,13 +553,14 @@ export const updateNextReview = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
     {
       $set: { 'medical_config.next_review_date': parsedDate },
     },
     { new: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -560,13 +589,14 @@ export const UpdateInstructions = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
     {
       $set: { 'medical_config.instructions': instructions },
     },
     { new: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -750,11 +780,12 @@ export const getDoctorNotifications = asyncHandler(async (
 ) => {
   const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
 
-  const parsedPage = req.query.page ? parseInt(req.query.page, 10) : 1
-  const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+  const query = (req.validatedQuery ?? req.query) as NotificationsQueryInput['query']
+  const parsedPage = query.page ? parseInt(query.page, 10) : 1
+  const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
   const page = Number.isFinite(parsedPage) ? Math.max(parsedPage, 1) : 1
   const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
-  const isReadFilter = req.query.is_read === undefined ? undefined : req.query.is_read === 'true'
+  const isReadFilter = query.is_read === undefined ? undefined : query.is_read === 'true'
 
   const { notifications, pagination } = await notificationService.getUserNotifications(
     String(doctorUser._id),

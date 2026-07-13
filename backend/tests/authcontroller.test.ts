@@ -577,9 +577,9 @@ describe('Auth Routes', () => {
                 password: 'testpassword123'
             });
 
-            expect(response.status).toBe(400);
+            expect(response.status).toBe(401);
             expect(response.data.success).toBe(false);
-            expect(response.data.message).toBe("User Doesn't exist");
+            expect(response.data.message).toBe('Invalid credentials');
         });
 
         test('should fail with invalid password', async () => {

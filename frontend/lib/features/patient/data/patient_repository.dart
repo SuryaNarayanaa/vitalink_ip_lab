@@ -12,6 +12,20 @@ class PatientRepository {
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
 
+  Future<void> updateProfile({
+    required Map<String, dynamic> demographics,
+    Map<String, dynamic>? medicalConfig,
+  }) async {
+    await _apiClient.put(
+      '$_patientBasePath/profile',
+      data: <String, dynamic>{
+        'demographics': demographics,
+        if (medicalConfig != null && medicalConfig.isNotEmpty)
+          'medical_config': medicalConfig,
+      },
+    );
+  }
+
   static const String _patientBasePath = '${AppStrings.apiPathPrefix}/patient';
 
   Future<Map<String, dynamic>> getProfile() async {
@@ -281,12 +295,22 @@ class PatientRepository {
     final response = await _apiClient.get('$_patientBasePath/reports');
     final report = response['report'];
     if (report is! Map<String, dynamic>) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     final inrHistory = report['inr_history'];
     if (inrHistory is! List || inrHistory.isEmpty) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     Map<String, dynamic>? latestEntry;
@@ -310,7 +334,12 @@ class PatientRepository {
     }
 
     if (latestEntry == null) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     return {
@@ -356,7 +385,8 @@ class PatientRepository {
   }
 
   Future<Map<String, dynamic>> getDoctorUpdatesSummary() async {
-    final response = await _apiClient.get('$_patientBasePath/doctor-updates/summary');
+    final response =
+        await _apiClient.get('$_patientBasePath/doctor-updates/summary');
     return {
       'unread_count': (response['unread_count'] as num?)?.toInt() ?? 0,
       'latest': response['latest'],

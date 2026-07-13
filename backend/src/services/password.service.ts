@@ -13,6 +13,20 @@ type PasswordHistoryEntry = {
   changed_at: Date
 }
 
+export function assertStrongPassword(password: string) {
+  const failures = [
+    password.length < 8 && 'Password must be at least 8 characters',
+    !/[A-Z]/.test(password) && 'Password must contain at least one uppercase letter',
+    !/[a-z]/.test(password) && 'Password must contain at least one lowercase letter',
+    !/[0-9]/.test(password) && 'Password must contain at least one digit',
+    !/[^A-Za-z0-9]/.test(password) && 'Password must contain at least one special character',
+  ].filter(Boolean) as string[]
+
+  if (failures.length > 0) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, failures[0])
+  }
+}
+
 export function getPasswordPolicy() {
   return {
     expiry_days: config.passwordExpiryDays,
@@ -115,6 +129,7 @@ export async function setUserPasswordWithPolicy(
   newPassword: string,
   options: { mustChangePassword?: boolean } = {}
 ) {
+  assertStrongPassword(newPassword)
   await ensurePasswordCanBeUsed(user, newPassword)
 
   const existingHistory = ((user.password_history || []) as PasswordHistoryEntry[])

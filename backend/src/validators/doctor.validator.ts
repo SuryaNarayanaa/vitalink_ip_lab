@@ -13,14 +13,16 @@ const opNumParamsSchema = z.object({
   op_num: z.string("Op num should be a String").nonempty("op_num should not be empty")
 })
 
-const ddmmyyyy = z.preprocess((arg) => {
-  if (arg === null || arg === undefined || arg === '') return undefined;
-  if (arg instanceof Date) return arg;
-  if (typeof arg === 'string') {
-    return parseStrictDateOnly(arg)
-  }
-  return undefined;
-}, z.date().optional())
+const optionalDateOnly = z.union([z.string(), z.date()])
+  .transform((value, ctx) => {
+    const parsed = value instanceof Date ? value : parseStrictDateOnly(value)
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format' })
+      return z.NEVER
+    }
+    return parsed
+  })
+  .optional()
 
 const medicalHistorySchema = z.object({
   diagnosis: z.string().optional(),
@@ -32,13 +34,13 @@ export const createPatient = z.object({
   body: z.object({
     name: z.string("Name should be a String").nonempty("Name Should Not be Empty"),
     op_num: z.string("Op num should be a String").nonempty("op_num should not be nonempty"),
-    age: z.number("age should be a number").max(100, "Age cannot exceed 100").optional(),
+    age: z.number("age should be a number").int().positive().max(120, "Age cannot exceed 120").optional(),
     gender: z.enum(["Male", "Female", "Other"], "The gender should be a valid option"),
     contact_no: primaryPhoneNumberSchema,
     target_inr_min: z.number().finite().positive().optional(),
     target_inr_max: z.number().finite().positive().optional(),
     therapy: z.enum(therapy_drug, "Therapy Drug Should only Take The given Drug Values").optional(),
-    therapy_start_date: ddmmyyyy.optional(),
+    therapy_start_date: optionalDateOnly,
     prescription: dosageScheduleSchema,
     medical_history: z.array(medicalHistorySchema).optional(),
     kin_name: z.string("kin_name should be string").optional(),

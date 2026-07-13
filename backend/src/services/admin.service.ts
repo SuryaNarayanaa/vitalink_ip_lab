@@ -813,7 +813,7 @@ export async function onboardPatient(data: {
   medical_config?: {
     diagnosis?: string
     therapy_drug?: string
-    therapy_start_date?: string
+    therapy_start_date?: Date
     target_inr?: { min: number; max: number }
   }
   hospital_id?: string
@@ -864,9 +864,7 @@ export async function onboardPatient(data: {
       medical_config: data.medical_config
         ? {
             ...data.medical_config,
-            therapy_start_date: data.medical_config.therapy_start_date
-              ? new Date(data.medical_config.therapy_start_date)
-              : undefined,
+            therapy_start_date: data.medical_config.therapy_start_date,
           }
         : undefined,
     }], session ? { session } : undefined).then(([profile]) => profile),

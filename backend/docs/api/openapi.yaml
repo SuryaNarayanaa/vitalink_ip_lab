@@ -312,6 +312,7 @@ paths:
     post:
       tags: [Patient]
       summary: Mark dosage as taken
+      description: Records a dose only for a scheduled date on or after therapy start and not later than the current clinical date.
       requestBody:
         required: true
         content:

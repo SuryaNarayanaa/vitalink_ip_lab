@@ -69,6 +69,7 @@ async function createReminder(input: {
 export async function runClinicalReminderPass(now = new Date()): Promise<ReminderResult> {
   const result: ReminderResult = { created: 0, skipped: 0, failed: 0 }
   if (!await isFeatureEnabled('notifications_enabled')) return result
+  await Notification.init()
   const today = startOfLocalDay(now)
   const dueWindow = dateKey(now)
   const inrCutoff = new Date(today)

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { calendarDateKeyInTimeZone, dateOnlyStringKey, parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { config } from '@alias/config'
 
 const adminRoleSchema = z.enum(['app_admin', 'hospital_admin', 'auditor'])
 const roleKeySchema = z.enum(['app_admin', 'hospital_admin', 'doctor', 'patient', 'auditor'])
@@ -17,6 +19,19 @@ const rolePermissionsSchema = z.object({
 }).strict().refine(value => Object.keys(value).length > 0, {
   message: 'At least one permission is required',
 })
+
+const dateOnlySchema = z.string().transform((value, ctx) => {
+  const parsed = parseStrictDateOnly(value)
+  const key = dateOnlyStringKey(value)
+  if (!parsed || !key) {
+    ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format' })
+    return z.NEVER
+  }
+  return { parsed, key }
+}).refine(
+  value => value.key <= calendarDateKeyInTimeZone(new Date(), config.dosageReminderTimezone),
+  'Therapy start date cannot be in the future'
+).transform(value => value.parsed)
 
 // ─── Param Schemas ───
 
@@ -108,7 +123,7 @@ export const createPatientSchema = z.object({
       .object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
-        therapy_start_date: z.string().optional(),
+        therapy_start_date: dateOnlySchema.optional(),
         target_inr: targetInrSchema.optional(),
       })
       .optional(),
@@ -142,7 +157,7 @@ export const updatePatientSchema = z.object({
       .object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
-        therapy_start_date: z.string().optional(),
+        therapy_start_date: dateOnlySchema.optional(),
         target_inr: targetInrSchema.optional(),
       })
       .optional(),

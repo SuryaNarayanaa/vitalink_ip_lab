@@ -302,7 +302,6 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
 })
 
-// TODO: Need to Review The Routes and Logic After This Later
 export const missedDoses = asyncHandler(async (req: Request<{}, {}, {}>, res: Response) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 	const patient = await getPatientProfileOrThrow(patientUser.profile_id)
@@ -354,6 +353,22 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 
 	// Get the patient profile
 	const patient = await getPatientProfileOrThrow(patientUser.profile_id)
+	const therapyStart = patient.medical_config?.therapy_start_date
+	const weeklyDosage = patient.weekly_dosage as any
+	if (!therapyStart || !weeklyDosage) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'Therapy start date or dosage schedule is missing')
+	}
+	if (dateOnlyKey(normalizedDate) < dateOnlyKey(new Date(therapyStart))) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'A dose cannot be recorded before therapy started')
+	}
+	if (dateOnlyKey(normalizedDate) > clinicalDateKey(new Date())) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'A future dose cannot be marked as taken')
+	}
+	const dayName = normalizedDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
+	const scheduledDose = Number(weeklyDosage[dayName] ?? 0)
+	if (!Number.isFinite(scheduledDose) || scheduledDose <= 0) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'No dose is scheduled for this date')
+	}
 
 	// Check if this date is already marked as taken
 	const takenDoses = patient.medical_config?.taken_doses || []
@@ -367,8 +382,11 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 	}
 
 	// Add the dose to taken_doses using $addToSet to prevent duplicates
-	const updatedPatient = await PatientProfile.findByIdAndUpdate(
-		patientUser.profile_id,
+	const updatedPatient = await PatientProfile.findOneAndUpdate(
+		{
+			_id: patientUser.profile_id,
+			'medical_config.taken_doses': { $ne: normalizedDate },
+		},
 		{
 			$addToSet: {
 				'medical_config.taken_doses': normalizedDate,
@@ -376,6 +394,9 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 		},
 		{ new: true }
 	)
+	if (!updatedPatient) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'This dose has already been marked as taken')
+	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Dosage logged successfully', { patient: updatedPatient }))
 })
@@ -602,8 +623,9 @@ export const getDoctorUpdates = asyncHandler(async (
 ) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 
-	const unreadOnly = req.query.unread_only === 'true'
-	const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+	const query = (req.validatedQuery ?? req.query) as DoctorUpdatesQueryInput['query']
+	const unreadOnly = query.unread_only === 'true'
+	const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
 	const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
 
 	const doctorNotifications = await getDoctorUpdateNotifications(patientUser._id, unreadOnly, limit)
@@ -694,11 +716,12 @@ export const getNotifications = asyncHandler(async (
 ) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 
-	const parsedPage = req.query.page ? parseInt(req.query.page, 10) : 1
-	const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+	const query = (req.validatedQuery ?? req.query) as NotificationsQueryInput['query']
+	const parsedPage = query.page ? parseInt(query.page, 10) : 1
+	const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
 	const page = Number.isFinite(parsedPage) ? Math.max(parsedPage, 1) : 1
 	const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
-	const isReadFilter = req.query.is_read === undefined ? undefined : req.query.is_read === 'true'
+	const isReadFilter = query.is_read === undefined ? undefined : query.is_read === 'true'
 
 	const { notifications, pagination } = await notificationService.getUserNotifications(
 		String(patientUser._id),

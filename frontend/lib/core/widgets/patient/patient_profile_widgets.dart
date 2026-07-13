@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/app/routers.dart';
-import 'package:frontend/services/patient_service.dart';
 import 'package:frontend/core/widgets/index.dart';
 import 'package:intl/intl.dart';
 
@@ -733,7 +732,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
             _therapyStartController.text.trim();
       }
 
-      await PatientService.updateProfile(
+      await AppDependencies.patientRepository.updateProfile(
         demographics: demographics,
         medicalConfig: medicalConfig.isNotEmpty ? medicalConfig : null,
       );

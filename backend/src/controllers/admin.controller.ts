@@ -16,7 +16,7 @@ export const createDoctor = asyncHandler(async (req: Request, res: Response) => 
 })
 
 export const getAllDoctors = asyncHandler(async (req: Request, res: Response) => {
-  const { page, limit, department, is_active, search, hospital_id } = req.query as any
+  const { page, limit, department, is_active, search, hospital_id } = (req.validatedQuery ?? req.query) as any
   const filters: any = {}
   if (department) filters.department = department
   if (is_active !== undefined) filters.is_active = is_active === 'true'
@@ -47,7 +47,7 @@ export const createPatient = asyncHandler(async (req: Request, res: Response) =>
 })
 
 export const getAllPatients = asyncHandler(async (req: Request, res: Response) => {
-  const { page, limit, assigned_doctor_id, account_status, search, hospital_id } = req.query as any
+  const { page, limit, assigned_doctor_id, account_status, search, hospital_id } = (req.validatedQuery ?? req.query) as any
   const filters: any = {}
   if (assigned_doctor_id) filters.assigned_doctor_id = assigned_doctor_id
   if (account_status) filters.account_status = account_status
