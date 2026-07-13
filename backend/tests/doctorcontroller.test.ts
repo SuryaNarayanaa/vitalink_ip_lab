@@ -633,6 +633,7 @@ describe('Doctor Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
+
         });
 
         test('should fail with non-existent patient', async () => {
@@ -955,6 +956,15 @@ describe('Doctor Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
+
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, {
+                $set: {
+                    phone_verification: {
+                        status: 'VERIFIED',
+                        verified_at: new Date(),
+                    },
+                },
+            });
         });
 
         test('should fail with invalid contact_number length', async () => {

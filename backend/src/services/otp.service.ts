@@ -334,44 +334,36 @@ export async function resendPhoneVerificationOtp(
       phone_hash: phoneHash,
       status: OtpChallengeStatus.PENDING,
       expires_at: { $gt: now },
-      $and: [
-        {
-          $or: [
-            { resend_available_at: { $exists: false } },
-            { resend_available_at: { $lte: now } },
-          ],
-        },
-        {
-          $or: [
-            { provider_reservation_expires_at: { $exists: false } },
-            { provider_reservation_expires_at: { $lte: now } },
-          ],
-        },
-        {
-          $or: [
-            {
-              $expr: {
-                $and: [
-                  { $lt: ['$resend_count', '$max_resends'] },
-                  { $lt: ['$attempt_count', '$max_attempts'] },
-                ],
-              },
-            },
-            {
-              provider_reservation_id: { $exists: true },
-              provider_reservation_expires_at: { $lte: now },
-              provider_reservation_operation: OTP_RESERVATION_OPERATION.RESEND,
-              $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-            },
-            {
-              provider_reservation_id: { $exists: true },
-              provider_reservation_expires_at: { $lte: now },
-              provider_reservation_operation: OTP_RESERVATION_OPERATION.VERIFY,
-              $expr: { $lt: ['$resend_count', '$max_resends'] },
-            },
-          ],
-        },
-      ],
+      $expr: {
+        $and: [
+          { $or: [
+            { $eq: [{ $ifNull: ['$resend_available_at', null] }, null] },
+            { $lte: ['$resend_available_at', now] },
+          ] },
+          { $or: [
+            { $eq: [{ $ifNull: ['$provider_reservation_expires_at', null] }, null] },
+            { $lte: ['$provider_reservation_expires_at', now] },
+          ] },
+          { $or: [
+            { $and: [
+              { $lt: ['$resend_count', '$max_resends'] },
+              { $lt: ['$attempt_count', '$max_attempts'] },
+            ] },
+            { $and: [
+              { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+              { $lte: ['$provider_reservation_expires_at', now] },
+              { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.RESEND] },
+              { $lt: ['$attempt_count', '$max_attempts'] },
+            ] },
+            { $and: [
+              { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+              { $lte: ['$provider_reservation_expires_at', now] },
+              { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.VERIFY] },
+              { $lt: ['$resend_count', '$max_resends'] },
+            ] },
+          ] },
+        ],
+      },
     },
     [
       {
@@ -500,30 +492,28 @@ export async function verifyOtpChallenge(
       phone_hash: phoneHash,
       status: OtpChallengeStatus.PENDING,
       expires_at: { $gt: now },
-      $and: [
-        {
-        $or: [
-            { provider_reservation_expires_at: { $exists: false } },
-            { provider_reservation_expires_at: { $lte: now } },
-          ],
-        },
-        {
-          $or: [
-            { $expr: { $lt: ['$attempt_count', '$max_attempts'] } },
-            {
-              provider_reservation_id: { $exists: true },
-              provider_reservation_expires_at: { $lte: now },
-              provider_reservation_operation: OTP_RESERVATION_OPERATION.VERIFY,
-            },
-            {
-              provider_reservation_id: { $exists: true },
-              provider_reservation_expires_at: { $lte: now },
-              provider_reservation_operation: OTP_RESERVATION_OPERATION.RESEND,
-              $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-            },
-          ],
-        },
-      ],
+      $expr: {
+        $and: [
+          { $or: [
+            { $eq: [{ $ifNull: ['$provider_reservation_expires_at', null] }, null] },
+            { $lte: ['$provider_reservation_expires_at', now] },
+          ] },
+          { $or: [
+            { $lt: ['$attempt_count', '$max_attempts'] },
+            { $and: [
+              { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+              { $lte: ['$provider_reservation_expires_at', now] },
+              { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.VERIFY] },
+            ] },
+            { $and: [
+              { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+              { $lte: ['$provider_reservation_expires_at', now] },
+              { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.RESEND] },
+              { $lt: ['$attempt_count', '$max_attempts'] },
+            ] },
+          ] },
+        ],
+      },
     },
     [
       {

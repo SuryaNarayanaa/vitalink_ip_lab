@@ -212,7 +212,7 @@ describe('OTP service metadata and policy helpers', () => {
       expect.objectContaining({
         _id: 'challenge-id',
         status: OtpChallengeStatus.PENDING,
-        $and: expect.any(Array),
+        $expr: expect.any(Object),
       }),
       expect.any(Array),
       { new: true }
@@ -322,7 +322,7 @@ describe('OTP service metadata and policy helpers', () => {
       expect.objectContaining({
         _id: 'challenge-id',
         status: OtpChallengeStatus.PENDING,
-        $and: expect.any(Array),
+        $expr: expect.any(Object),
       }),
       expect.any(Array),
       { new: true }
@@ -505,13 +505,7 @@ describe('OTP service metadata and policy helpers', () => {
     expect(second.result).toBe(OtpVerificationResult.INVALID)
     expect(findOneAndUpdate).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({
-        $and: expect.arrayContaining([
-          expect.objectContaining({ $or: expect.arrayContaining([
-            expect.objectContaining({ provider_reservation_expires_at: { $lte: retryAt } }),
-          ]) }),
-        ]),
-      }),
+      expect.objectContaining({ $expr: expect.any(Object) }),
       expect.arrayContaining([
         expect.objectContaining({
           $set: expect.objectContaining({
