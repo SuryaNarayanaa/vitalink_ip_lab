@@ -50,6 +50,7 @@ interface Config {
   notificationDeliveryBaseBackoffMs: number
   notificationDeliveryRetentionDays: number
   notificationDeliveryRecoveryIntervalMs: number
+  notificationDeliveryProcessingLeaseMs: number
   notificationDeliveryWorkerConcurrency: number
   dosageReminderCron: string
   dosageReminderTimezone: string
@@ -266,6 +267,7 @@ export const config: Config = {
   notificationDeliveryBaseBackoffMs: getIntEnv('NOTIFICATION_DELIVERY_BASE_BACKOFF_MS', 2_000),
   notificationDeliveryRetentionDays: getIntEnv('NOTIFICATION_DELIVERY_RETENTION_DAYS', 30),
   notificationDeliveryRecoveryIntervalMs: getIntEnv('NOTIFICATION_DELIVERY_RECOVERY_INTERVAL_MS', 30_000),
+  notificationDeliveryProcessingLeaseMs: getIntEnv('NOTIFICATION_DELIVERY_PROCESSING_LEASE_MS', 5 * 60_000),
   notificationDeliveryWorkerConcurrency: getIntEnv('NOTIFICATION_DELIVERY_WORKER_CONCURRENCY', 5),
   // Keep the reminder window explicit and independent of the host/container timezone.
   dosageReminderCron: getEnv('DOSAGE_REMINDER_CRON', { defaultValue: '0 9 * * *' }),

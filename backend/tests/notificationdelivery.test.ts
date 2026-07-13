@@ -9,8 +9,10 @@ import * as firebaseConfig from '@alias/config/firebase.config'
 import {
   buildIdempotencyKey,
   createPushDeliveryOutbox,
+  claimDeliveryForProcessing,
   enqueueNotificationPush,
   processNotificationDelivery,
+  recoverDueDeliveries,
   sanitizeDeliveryError,
 } from '@alias/services/notification-delivery.service'
 import {
@@ -40,6 +42,7 @@ describe('Notification delivery durability', () => {
   const originalDeliveryEnabled = config.notificationDeliveryEnabled
   const originalMaxAttempts = config.notificationDeliveryMaxAttempts
   const originalBackoff = config.notificationDeliveryBaseBackoffMs
+  const originalProcessingLeaseMs = config.notificationDeliveryProcessingLeaseMs
 
   beforeAll(async () => {
     mongoContainer = await new GenericContainer('mongo:7.0')
@@ -72,6 +75,7 @@ describe('Notification delivery durability', () => {
     ;(config as any).notificationDeliveryEnabled = originalDeliveryEnabled
     ;(config as any).notificationDeliveryMaxAttempts = originalMaxAttempts
     ;(config as any).notificationDeliveryBaseBackoffMs = originalBackoff
+    ;(config as any).notificationDeliveryProcessingLeaseMs = originalProcessingLeaseMs
 
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close()
@@ -84,6 +88,7 @@ describe('Notification delivery durability', () => {
     resetDeliveryMetrics()
     ;(config as any).notificationDeliveryMaxAttempts = 5
     ;(config as any).notificationDeliveryBaseBackoffMs = 10
+    ;(config as any).notificationDeliveryProcessingLeaseMs = 60_000
     await Promise.all([
       Notification.deleteMany({}),
       NotificationDelivery.deleteMany({}),
@@ -286,6 +291,54 @@ describe('Notification delivery durability', () => {
     expect(updated?.attempts).toBe(1)
     expect(updated?.completed_at).toBeTruthy()
     expect(getDeliveryMetrics().succeeded).toBe(1)
+  })
+
+  test('reports a stale lease when recovery reassigns a delivery before its result is persisted', async () => {
+    const notification = await seedNotification()
+    await DeviceToken.create({
+      user_id: notification.user_id,
+      fcm_token: 'stale-lease-token',
+      platform: 'android',
+      is_active: true,
+    })
+
+    let releaseSend: (() => void) | undefined
+    let signalSendStarted: (() => void) | undefined
+    const sendStarted = new Promise<void>(resolve => { signalSendStarted = resolve })
+    const sendRelease = new Promise<void>(resolve => { releaseSend = resolve })
+    jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({
+      sendEachForMulticast: jest.fn(async () => {
+        signalSendStarted?.()
+        await sendRelease
+        return {
+          responses: [{ success: true, messageId: 'stale-lease-message' }],
+          successCount: 1,
+          failureCount: 0,
+        }
+      }),
+    } as any)
+
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+
+    const processing = processNotificationDelivery(String(delivery._id))
+    await sendStarted
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_lease_id: 'reclaimed-by-recovery' } }
+    )
+    releaseSend?.()
+
+    expect((await processing).outcome).toBe('stale_lease')
+    const row = await NotificationDelivery.findById(delivery._id).lean()
+    expect(row?.status).toBe(NotificationDeliveryStatus.PROCESSING)
+    expect(row?.processing_lease_id).toBe('reclaimed-by-recovery')
+    expect(getDeliveryMetrics().succeeded).toBe(0)
+    expect(getDeliveryMetrics().stale_lease).toBe(1)
   })
 
   test('transient provider failure retries without creating duplicate in-app notifications', async () => {
@@ -494,6 +547,73 @@ describe('Notification delivery durability', () => {
     const second = await processNotificationDelivery(String(delivery._id))
     expect(second.outcome).toBe('already_terminal')
     expect((await NotificationDelivery.findById(delivery._id))?.attempts).toBe(1)
+  })
+
+  test('recovery reclaims an expired processing lease', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_started_at: new Date(Date.now() - 61_000) } }
+    )
+
+    const queue = await import('@alias/jobs/notification-delivery.queue')
+    jest.spyOn(queue, 'isNotificationQueueAvailable').mockReturnValue(true)
+    jest.spyOn(queue, 'publishDeliveryJob').mockResolvedValue(true)
+
+    expect(await recoverDueDeliveries()).toBe(1)
+    const recovered = await NotificationDelivery.findById(delivery._id).lean()
+    expect(recovered?.status).toBe(NotificationDeliveryStatus.QUEUED)
+    expect(recovered?.last_error).toBe('processing_lease_expired')
+    expect(recovered?.processing_started_at).toBeUndefined()
+    expect(recovered?.processing_lease_id).toBeUndefined()
+  })
+
+  test('recovery does not steal a recently claimed delivery', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+
+    expect(await recoverDueDeliveries()).toBe(0)
+    const unchanged = await NotificationDelivery.findById(delivery._id).lean()
+    expect(unchanged?.status).toBe(NotificationDeliveryStatus.PROCESSING)
+    expect(unchanged?.processing_started_at).toBeTruthy()
+  })
+
+  test('concurrent recovery workers reclaim an expired processing lease only once', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_started_at: new Date(Date.now() - 61_000) } }
+    )
+
+    const queue = await import('@alias/jobs/notification-delivery.queue')
+    jest.spyOn(queue, 'isNotificationQueueAvailable').mockReturnValue(true)
+    const publish = jest.spyOn(queue, 'publishDeliveryJob').mockResolvedValue(true)
+
+    const recovered = await Promise.all([recoverDueDeliveries(), recoverDueDeliveries()])
+    expect(recovered[0] + recovered[1]).toBe(1)
+    expect(publish).toHaveBeenCalledTimes(1)
+    const row = await NotificationDelivery.findById(delivery._id).lean()
+    expect(row?.status).toBe(NotificationDeliveryStatus.QUEUED)
   })
 
   test('BullMQ worker processes a published delivery when Redis is available', async () => {

@@ -12,6 +12,7 @@ export type DeliveryMetricName =
   | 'skipped'
   | 'retryable'
   | 'dead_letter'
+  | 'stale_lease'
   | 'queue_publish'
   | 'queue_publish_failed'
   | 'recovery_claimed'
@@ -27,6 +28,7 @@ const metrics: MetricStore = {
   skipped: 0,
   retryable: 0,
   dead_letter: 0,
+  stale_lease: 0,
   queue_publish: 0,
   queue_publish_failed: 0,
   recovery_claimed: 0,
