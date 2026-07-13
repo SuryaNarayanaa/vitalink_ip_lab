@@ -447,6 +447,74 @@ describe('Admin Routes', () => {
             expect(temporaryPasswordLogin.status).toBe(200);
             expect(temporaryPasswordLogin.data.data.user.must_change_password).toBe(true);
         });
+
+        test('should require an active, existing hospital when inviting a Hospital Admin', async () => {
+            const headers = { Authorization: `Bearer ${adminToken}` };
+            const missingHospital = await api.post('/api/admin/users', {
+                name: 'Unknown Hospital Admin',
+                email: 'unknown-hospital-admin@example.com',
+                role: 'hospital_admin',
+                hospital_id: new mongoose.Types.ObjectId().toString(),
+            }, { headers });
+            expect(missingHospital.status).toBe(400);
+            expect(missingHospital.data.message).toMatch(/hospital not found/i);
+
+            const noHospital = await api.post('/api/admin/users', {
+                name: 'Unassigned Hospital Admin',
+                email: 'unassigned-hospital-admin@example.com',
+                role: 'hospital_admin',
+            }, { headers });
+            expect(noHospital.status).toBe(400);
+            expect(noHospital.data.message).toMatch(/assigned to an active hospital/i);
+
+            const roleChangeWithoutHospital = await api.put(`/api/admin/users/${adminUser._id}`, {
+                role: 'hospital_admin',
+            }, { headers });
+            expect(roleChangeWithoutHospital.status).toBe(400);
+            expect(roleChangeWithoutHospital.data.message).toMatch(/assigned to an active hospital/i);
+
+            const roleChangeProfile = await AdminProfile.create({ name: 'Role Change Candidate' });
+            const roleChangeUser = await User.create({
+                login_id: 'role-change-candidate@example.com',
+                password: 'RoleChange@123',
+                user_type: 'ADMIN',
+                profile_id: roleChangeProfile._id,
+                is_active: true,
+            });
+            const successfulRoleChange = await api.put(`/api/admin/users/${roleChangeUser._id}`, {
+                role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(),
+            }, { headers });
+            expect(successfulRoleChange.status).toBe(200);
+            const updatedRoleProfile = await AdminProfile.findById(roleChangeProfile._id).lean();
+            expect(updatedRoleProfile?.admin_role).toBe(AdminRole.HOSPITAL_ADMIN);
+            expect(String(updatedRoleProfile?.hospital_id)).toBe(primaryHospital._id.toString());
+
+            const unknownUpdateHospital = await api.put(`/api/admin/users/${roleChangeUser._id}`, {
+                role: 'hospital_admin',
+                hospital_id: new mongoose.Types.ObjectId().toString(),
+            }, { headers });
+            expect(unknownUpdateHospital.status).toBe(400);
+            expect(unknownUpdateHospital.data.message).toMatch(/hospital not found/i);
+
+            await Hospital.findByIdAndUpdate(secondaryHospital._id, { status: 'suspended' });
+            const inactiveHospital = await api.post('/api/admin/users', {
+                name: 'Suspended Hospital Admin',
+                email: 'suspended-hospital-admin@example.com',
+                role: 'hospital_admin',
+                hospital_id: secondaryHospital._id.toString(),
+            }, { headers });
+            expect(inactiveHospital.status).toBe(400);
+            expect(inactiveHospital.data.message).toMatch(/hospital must be active/i);
+
+            const inactiveUpdateHospital = await api.put(`/api/admin/users/${roleChangeUser._id}`, {
+                role: 'hospital_admin',
+                hospital_id: secondaryHospital._id.toString(),
+            }, { headers });
+            expect(inactiveUpdateHospital.status).toBe(400);
+            expect(inactiveUpdateHospital.data.message).toMatch(/hospital must be active/i);
+            await Hospital.findByIdAndUpdate(secondaryHospital._id, { status: 'active' });
+        });
     });
 
     describe('Doctor Management', () => {

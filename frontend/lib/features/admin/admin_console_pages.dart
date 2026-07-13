@@ -341,8 +341,11 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         value: r,
                         child: Text('Set ${r.replaceAll('_', ' ')}'),
                         onTap: () => Future.microtask(
-                          () => _runAction(
-                              () => _repo.updateUser(id, {'role': r})),
+                          () => r == 'hospital_admin'
+                              ? _showHospitalAdminRoleDialog(id,
+                                  '${u['name'] ?? u['email'] ?? 'this user'}')
+                              : _runAction(
+                                  () => _repo.updateUser(id, {'role': r})),
                         ),
                       ),
                     ),
@@ -380,6 +383,105 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
         );
         return _pageScaffold(context, 'Users', content);
       },
+    );
+  }
+
+  Future<void> _showHospitalAdminRoleDialog(
+    String userId,
+    String userName,
+  ) async {
+    final hospitalsRequest = _repo.getHospitals(status: 'active');
+    String? selectedHospitalId;
+    String? selectionError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => FutureBuilder<Map<String, dynamic>>(
+        future: hospitalsRequest,
+        builder: (context, snapshot) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hospitals = snapshot.data?['hospitals'] as List? ?? const [];
+            final hospitalsReady =
+                snapshot.connectionState == ConnectionState.done &&
+                    !snapshot.hasError;
+            return AlertDialog(
+              title: const Text('Assign Hospital Admin'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$userName will be able to manage users and clinical operations only for the hospital selected below.',
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedHospitalId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'Active hospital',
+                        errorText: snapshot.hasError
+                            ? 'Could not load hospitals. Close this dialog and try again.'
+                            : selectionError,
+                      ),
+                      items: hospitals.map((item) {
+                        final hospital = item as Map<String, dynamic>;
+                        final id =
+                            (hospital['_id'] ?? hospital['id']).toString();
+                        final label =
+                            '${hospital['name'] ?? hospital['code'] ?? 'Hospital'} (${hospital['id'] ?? ''})';
+                        return DropdownMenuItem(
+                          value: id,
+                          child: Text(label, overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: hospitalsReady
+                          ? (value) => setDialogState(() {
+                                selectedHospitalId = value;
+                                selectionError = null;
+                              })
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: hospitalsReady
+                      ? () async {
+                          if (selectedHospitalId == null) {
+                            setDialogState(() {
+                              selectionError = 'Select an active hospital.';
+                            });
+                            return;
+                          }
+                          try {
+                            await _repo.updateUser(userId, {
+                              'role': 'hospital_admin',
+                              'hospital_id': selectedHospitalId,
+                            });
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            _refresh();
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              _showError(dialogContext, e);
+                            }
+                          }
+                        }
+                      : null,
+                  child: const Text('Assign role'),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -486,93 +588,160 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
   Future<void> _showInviteDialog(BuildContext context) async {
     final name = TextEditingController();
     final email = TextEditingController();
-    final hospital = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final hospitalsRequest = _repo.getHospitals(status: 'active');
     var role = 'hospital_admin';
+    String? selectedHospitalId;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Invite User'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Full name')),
-              const SizedBox(height: 12),
-              TextField(
-                  controller: email,
-                  decoration:
-                      const InputDecoration(labelText: 'Email / login ID')),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: role,
-                decoration: const InputDecoration(labelText: 'Role'),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'hospital_admin', child: Text('Hospital Admin')),
-                  DropdownMenuItem(
-                      value: 'auditor', child: Text('System Auditor')),
-                  DropdownMenuItem(
-                      value: 'app_admin', child: Text('App Admin')),
-                ],
-                onChanged: (value) => role = value ?? role,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                  controller: hospital,
-                  decoration:
-                      const InputDecoration(labelText: 'Hospital code or ID')),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              try {
-                final result = await _repo.inviteUser({
-                  'name': name.text.trim(),
-                  'email': email.text.trim(),
-                  'role': role,
-                  if (hospital.text.trim().isNotEmpty)
-                    'hospital_id': hospital.text.trim(),
-                });
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                _refresh();
-                if (context.mounted) {
-                  final temporaryPassword =
-                      result['temporary_password'] as String?;
-                  await showDialog<void>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Admin invited'),
-                      content: Text(
-                        temporaryPassword == null
-                            ? 'The invited admin must change their password on first sign-in.'
-                            : 'Share this temporary password securely. The invited admin must change it on first sign-in:\n\n$temporaryPassword',
+      builder: (dialogContext) => FutureBuilder<Map<String, dynamic>>(
+        future: hospitalsRequest,
+        builder: (context, snapshot) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hospitals = snapshot.data?['hospitals'] as List? ?? const [];
+            final hospitalSelectionReady =
+                snapshot.connectionState == ConnectionState.done &&
+                    !snapshot.hasError;
+            return AlertDialog(
+              title: const Text('Invite User'),
+              content: SizedBox(
+                width: 420,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: name,
+                        decoration:
+                            const InputDecoration(labelText: 'Full name'),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                                ? 'Enter the admin\'s name.'
+                                : null,
                       ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Done'),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: email,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                            labelText: 'Email / login ID'),
+                        validator: (value) => value == null ||
+                                !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                    .hasMatch(value.trim())
+                            ? 'Enter a valid email address.'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: role,
+                        decoration: const InputDecoration(labelText: 'Role'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'hospital_admin',
+                              child: Text('Hospital Admin')),
+                          DropdownMenuItem(
+                              value: 'auditor', child: Text('System Auditor')),
+                          DropdownMenuItem(
+                              value: 'app_admin', child: Text('App Admin')),
+                        ],
+                        onChanged: (value) =>
+                            setDialogState(() => role = value ?? role),
+                      ),
+                      if (role == 'hospital_admin') ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedHospitalId,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Hospital',
+                            helperText: hospitalSelectionReady
+                                ? 'This admin can manage only this active hospital.'
+                                : null,
+                            errorText: snapshot.hasError
+                                ? 'Could not load hospitals. Close this dialog and try again.'
+                                : null,
+                          ),
+                          items: hospitals.map((item) {
+                            final hospital = item as Map<String, dynamic>;
+                            final id =
+                                (hospital['_id'] ?? hospital['id']).toString();
+                            final label =
+                                '${hospital['name'] ?? hospital['code'] ?? 'Hospital'} (${hospital['id'] ?? ''})';
+                            return DropdownMenuItem(
+                                value: id,
+                                child: Text(label,
+                                    overflow: TextOverflow.ellipsis));
+                          }).toList(),
+                          onChanged: hospitalSelectionReady
+                              ? (value) => setDialogState(
+                                  () => selectedHospitalId = value)
+                              : null,
+                          validator: (value) => role == 'hospital_admin' &&
+                                  (value == null || value.isEmpty)
+                              ? 'Select an active hospital.'
+                              : null,
                         ),
                       ],
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (dialogContext.mounted) _showError(dialogContext, e);
-              }
-            },
-            child: const Text('Invite'),
-          ),
-        ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: role == 'hospital_admin' && !hospitalSelectionReady
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          try {
+                            final result = await _repo.inviteUser({
+                              'name': name.text.trim(),
+                              'email': email.text.trim(),
+                              'role': role,
+                              if (role == 'hospital_admin')
+                                'hospital_id': selectedHospitalId,
+                            });
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            _refresh();
+                            if (context.mounted) {
+                              final temporaryPassword =
+                                  result['temporary_password'] as String?;
+                              await showDialog<void>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Admin invited'),
+                                  content: Text(temporaryPassword == null
+                                      ? 'The invited admin must change their password on first sign-in.'
+                                      : 'Share this temporary password securely. The invited admin must change it on first sign-in:\n\n$temporaryPassword'),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Done'))
+                                  ],
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              _showError(dialogContext, e);
+                            }
+                          }
+                        },
+                  child: const Text('Invite'),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
+    name.dispose();
+    email.dispose();
   }
 }
 
@@ -835,7 +1004,6 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
       if (mounted) _showError(context, e);
     }
   }
-
 }
 
 class _AdminListShell extends StatelessWidget {

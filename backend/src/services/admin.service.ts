@@ -137,10 +137,19 @@ async function resolveHospitalId(input?: string, ctx?: Awaited<ReturnType<typeof
   if (!input) return undefined
   if (mongoose.Types.ObjectId.isValid(input)) {
     const byId = await Hospital.findById(input)
-    if (byId) return String(byId._id)
+    if (byId) {
+      if (byId.status !== HospitalStatus.ACTIVE) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital must be active')
+      }
+      return String(byId._id)
+    }
   }
   const byCode = await Hospital.findOne({ code: input.toUpperCase() })
-  return byCode ? String(byCode._id) : undefined
+  if (!byCode) throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital not found')
+  if (byCode.status !== HospitalStatus.ACTIVE) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital must be active')
+  }
+  return String(byCode._id)
 }
 
 function formatHospital(hospital: any, counts: { doctors?: number; patients?: number } = {}) {
@@ -478,7 +487,12 @@ export async function inviteAdminUser(data: any, actorUserId?: string) {
   }
   if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
   const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
-  if (data.role === AdminRole.HOSPITAL_ADMIN) ensureTenantAccess(ctx, hospitalId)
+  if (data.role === AdminRole.HOSPITAL_ADMIN) {
+    if (!hospitalId) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital Admin must be assigned to an active hospital')
+    }
+    ensureTenantAccess(ctx, hospitalId)
+  }
   const existing = await User.findOne({ login_id: data.email || data.login_id })
   if (existing) throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
   const temporaryPassword = generateTemporaryPassword()
@@ -522,6 +536,17 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
   if (data.hospital_id || data.hospital) {
     updates.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
     ensureTenantAccess(ctx, updates.hospital_id)
+  }
+  if (updates.admin_role === AdminRole.HOSPITAL_ADMIN) {
+    const hospitalId = updates.hospital_id || getProfileHospitalId(user)
+    if (!hospitalId) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital Admin must be assigned to an active hospital')
+    }
+    const hospital = await Hospital.findById(hospitalId).select('status').lean()
+    if (!hospital) throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital not found')
+    if (hospital.status !== HospitalStatus.ACTIVE) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital must be active')
+    }
   }
   if (Object.keys(updates).length && user.user_type === UserType.ADMIN) {
     await AdminProfile.findByIdAndUpdate(profile._id, updates, { runValidators: true })
