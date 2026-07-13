@@ -215,7 +215,7 @@ describe('OTP service metadata and policy helpers', () => {
         $expr: expect.any(Object),
       }),
       expect.any(Array),
-      { new: true }
+      { new: true, updatePipeline: true }
     )
     expect(provider.startVerification).toHaveBeenCalledTimes(1)
     expect(findOneAndUpdate).toHaveBeenNthCalledWith(
@@ -325,7 +325,7 @@ describe('OTP service metadata and policy helpers', () => {
         $expr: expect.any(Object),
       }),
       expect.any(Array),
-      { new: true }
+      { new: true, updatePipeline: true }
     )
     expect(provider.checkVerification).toHaveBeenCalledTimes(1)
     expect(findOneAndUpdate).toHaveBeenNthCalledWith(
@@ -513,7 +513,7 @@ describe('OTP service metadata and policy helpers', () => {
           }),
         }),
       ]),
-      { new: true }
+      { new: true, updatePipeline: true }
     )
 
     findOneAndUpdate.mockRestore()

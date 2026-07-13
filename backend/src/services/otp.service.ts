@@ -402,7 +402,7 @@ export async function resendPhoneVerificationOtp(
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   )
 
   if (!reservedChallenge) {
@@ -550,7 +550,7 @@ export async function verifyOtpChallenge(
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   )
 
   if (!reservedChallenge) {
