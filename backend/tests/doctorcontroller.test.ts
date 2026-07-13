@@ -476,6 +476,57 @@ describe('Doctor Routes', () => {
             expect(response.data.message).toContain('Cross-tenant');
         });
 
+        test('should reject an inactive target doctor', async () => {
+            await User.findByIdAndUpdate(secondDoctorUser._id, { is_active: false });
+            const response = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                new_doctor_id: 'doctor002'
+            }, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+            await User.findByIdAndUpdate(secondDoctorUser._id, { is_active: true });
+
+            expect(response.status).toBe(400);
+            expect(response.data.message).toContain('inactive');
+            expect((await PatientProfile.findById(patientProfile._id))?.assigned_doctor_id.toString())
+                .toBe(doctorProfile._id.toString());
+        });
+
+        test('should reject a target doctor without a hospital', async () => {
+            await DoctorProfile.findByIdAndUpdate(secondDoctorUser.profile_id, { $unset: { hospital_id: 1 } });
+            const response = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                new_doctor_id: 'doctor002'
+            }, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+            await DoctorProfile.findByIdAndUpdate(secondDoctorUser.profile_id, { hospital_id: primaryHospital._id });
+
+            expect(response.status).toBe(403);
+            expect(response.data.message).toContain('assigned to a hospital');
+        });
+
+        test('should reject reassignment when the patient or current doctor lacks hospital ownership', async () => {
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, { $unset: { hospital_id: 1 } });
+            const missingPatientHospital = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                new_doctor_id: 'doctor002'
+            }, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+            await PatientProfile.findByIdAndUpdate(patientProfile._id, { hospital_id: primaryHospital._id });
+
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, { $unset: { hospital_id: 1 } });
+            const missingCurrentDoctorHospital = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                new_doctor_id: 'doctor002'
+            }, {
+                headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+            await DoctorProfile.findByIdAndUpdate(doctorProfile._id, { hospital_id: primaryHospital._id });
+
+            expect(missingPatientHospital.status).toBe(403);
+            expect(missingCurrentDoctorHospital.status).toBe(403);
+            expect(missingPatientHospital.data.message).toContain('assigned to a hospital');
+            expect(missingCurrentDoctorHospital.data.message).toContain('assigned to a hospital');
+        });
+
         test('should fail with non-existent patient', async () => {
             const response = await api.patch('/api/doctors/patients/INVALID001/reassign', {
                 new_doctor_id: 'doctor002'

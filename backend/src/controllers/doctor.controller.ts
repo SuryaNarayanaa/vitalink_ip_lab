@@ -79,6 +79,25 @@ const ensureSameHospital = async (
   }
 }
 
+const ensureReassignmentHospitalAccess = async (
+  currentDoctor: { profile_id?: unknown },
+  patient: { hospital_id?: unknown },
+  targetDoctor: { profile_id?: unknown }
+) => {
+  const [currentHospitalId, targetHospitalId] = await Promise.all([
+    getDoctorHospitalId(currentDoctor),
+    getDoctorHospitalId(targetDoctor),
+  ])
+  const patientHospitalId = patient.hospital_id ? String(patient.hospital_id) : undefined
+
+  if (!currentHospitalId || !patientHospitalId || !targetHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'All doctors and the patient must be assigned to a hospital before reassignment')
+  }
+  if (currentHospitalId !== patientHospitalId || targetHospitalId !== patientHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor reassignment is not allowed')
+  }
+}
+
 const getDoctorUserOrThrow = async (userId: string) => {
   const doctor = await User.findById(userId)
   if (!doctor || doctor.user_type !== UserType.DOCTOR) {
@@ -316,7 +335,10 @@ export const reassignPatient = asyncHandler(async (
   if (!doctorUser) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Target doctor not found')
   }
-  await ensureSameHospital(currentDoctorUser, existingPatientProfile, doctorUser)
+  if (!doctorUser.is_active) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Target doctor is inactive')
+  }
+  await ensureReassignmentHospitalAccess(currentDoctorUser, existingPatientProfile, doctorUser)
 
   const patient = await PatientProfile.findByIdAndUpdate(
     patientUser.profile_id,
