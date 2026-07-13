@@ -14,6 +14,10 @@ const ddmmyyyy = z.string('Date should be a string')
         return date
     })
 
+const isoDateTime = z.string('Date should be a string')
+    .datetime({ offset: true, message: 'Date must be a valid ISO-8601 timestamp' })
+    .transform((value) => new Date(value))
+
 export const reportSchema = z.object({
     body: z.object({
         inr_value: z.string().regex(/^\d+(?:\.\d+)?$/, 'INR value must be a positive decimal').transform(Number).refine(value => Number.isFinite(value) && value > 0 && value <= 20, 'INR value must be between 0 and 20'),
@@ -62,6 +66,7 @@ export const updateProfileSchema = z.object({
             therapy_start_date: z.union([
                 z.date(),
                 ddmmyyyy,
+                isoDateTime,
             ]).refine(
                 (date) => date <= new Date(),
                 { message: "Therapy start date cannot be in the future" }
