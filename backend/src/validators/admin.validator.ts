@@ -74,6 +74,11 @@ export const getDoctorsSchema = z.object({
 
 // ─── Patient Schemas ───
 
+const targetInrSchema = z.object({
+  min: z.number().finite().positive(),
+  max: z.number().finite().positive(),
+}).refine(value => value.min < value.max, 'Target INR minimum must be less than maximum')
+
 export const createPatientSchema = z.object({
   body: z.object({
     login_id: z.string().min(3, 'Login ID must be at least 3 characters'),
@@ -104,12 +109,7 @@ export const createPatientSchema = z.object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
         therapy_start_date: z.string().optional(),
-        target_inr: z
-          .object({
-            min: z.number().positive(),
-            max: z.number().positive(),
-          })
-          .optional(),
+        target_inr: targetInrSchema.optional(),
       })
       .optional(),
     hospital_id: z.string().optional(),
@@ -143,12 +143,7 @@ export const updatePatientSchema = z.object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
         therapy_start_date: z.string().optional(),
-        target_inr: z
-          .object({
-            min: z.number().positive(),
-            max: z.number().positive(),
-          })
-          .optional(),
+        target_inr: targetInrSchema.optional(),
       })
       .optional(),
     assigned_doctor_id: z.string().optional(),

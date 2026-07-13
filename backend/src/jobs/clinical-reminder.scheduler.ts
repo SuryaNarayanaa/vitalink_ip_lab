@@ -5,6 +5,7 @@ import { config } from '@alias/config'
 import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
 import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
 import logger from '@alias/utils/logger'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 type ReminderResult = { created: number; skipped: number; failed: number }
 
@@ -67,6 +68,7 @@ async function createReminder(input: {
 /** Daily INR/review reminders and missed-dose escalation. All reminders are idempotent per recipient and local day. */
 export async function runClinicalReminderPass(now = new Date()): Promise<ReminderResult> {
   const result: ReminderResult = { created: 0, skipped: 0, failed: 0 }
+  if (!await isFeatureEnabled('notifications_enabled')) return result
   const today = startOfLocalDay(now)
   const dueWindow = dateKey(now)
   const inrCutoff = new Date(today)

@@ -8,6 +8,7 @@ import { publishNotificationToUser } from '@alias/services/realtime-notification
 import { config } from '@alias/config'
 import { runClinicalReminderPass } from '@alias/jobs/clinical-reminder.scheduler'
 import logger from '@alias/utils/logger'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 type PushEnqueuer = (input: Parameters<typeof enqueueNotificationPush>[0]) => Promise<boolean>
 type NotificationPublisher = typeof publishNotificationToUser
@@ -44,6 +45,7 @@ export async function runDosageReminderPass(
   let failed = 0
 
   try {
+    if (!await isFeatureEnabled('notifications_enabled')) return { created, skipped, failed }
     logger.info('[DosageScheduler] Running daily dosage reminder...')
     const { dayOfWeek, dueWindow } = reminderDateParts(now, config.dosageReminderTimezone)
     const patients = await PatientProfile.find({

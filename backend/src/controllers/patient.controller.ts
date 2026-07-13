@@ -232,10 +232,8 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
 
 	const { inr_value, test_date } = req.body
-	const parsed_inr_value = parseFloat(inr_value)
-	if (isNaN(parsed_inr_value)) {
-		throw new ApiError(StatusCodes.BAD_REQUEST, 'INR value should be a valid number')
-	}
+	const parsed_inr_value = typeof inr_value === 'number' ? inr_value : Number(inr_value)
+	if (!Number.isFinite(parsed_inr_value) || parsed_inr_value <= 0 || parsed_inr_value > 20) throw new ApiError(StatusCodes.BAD_REQUEST, 'INR value must be between 0 and 20')
 
 	// Parse the test_date if it's a string (Zod transformation doesn't mutate req.body)
 	const parsedTestDate = test_date instanceof Date ? test_date : parseDDMMYYYY(test_date)

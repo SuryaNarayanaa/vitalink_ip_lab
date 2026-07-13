@@ -16,7 +16,7 @@ const ddmmyyyy = z.string('Date should be a string')
 
 export const reportSchema = z.object({
     body: z.object({
-        inr_value: z.string('INR value should be a string').nonempty("Inr Value Should not be empty"),
+        inr_value: z.string().regex(/^\d+(?:\.\d+)?$/, 'INR value must be a positive decimal').transform(Number).refine(value => Number.isFinite(value) && value > 0 && value <= 20, 'INR value must be between 0 and 20'),
         test_date: ddmmyyyy,
     })
 })
