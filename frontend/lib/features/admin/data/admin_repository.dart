@@ -165,7 +165,9 @@ class AdminRepository {
   Future<Map<String, dynamic>> updateRole(
     String roleKey,
     Map<String, dynamic> permissions,
-  ) => _apiClient.put('${AppStrings.adminRolesPath}/$roleKey', data: {'permissions': permissions});
+  ) =>
+      _apiClient.put('${AppStrings.adminRolesPath}/$roleKey',
+          data: {'permissions': permissions});
 
   Future<Map<String, dynamic>> getInvoices() async {
     final response = await _apiClient.getRaw(AppStrings.adminInvoicesPath);
@@ -173,12 +175,14 @@ class AdminRepository {
   }
 
   Future<Map<String, dynamic>> generateInvoices({
+    required String billingPeriod,
     String? plan,
     num? amount,
   }) async {
     return _apiClient.post(
       AppStrings.adminInvoicesPath,
       data: {
+        'billing_period': billingPeriod,
         if (plan != null) 'plan': plan,
         if (amount != null) 'amount': amount,
       },

@@ -208,6 +208,45 @@ export const updateSystemConfigSchema = z.object({
   }),
 })
 
+const hospitalStatusSchema = z.enum(['active', 'suspended', 'inactive'])
+const hospitalBodySchema = z.object({
+  code: z.string().min(1).max(32).optional(),
+  name: z.string().min(1).max(200),
+  location: z.string().min(1).max(200),
+  admin_email: z.string().email(),
+  status: hospitalStatusSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict()
+
+export const createHospitalSchema = z.object({ body: hospitalBodySchema })
+export const updateHospitalSchema = z.object({
+  params: z.object({ id: z.string().min(1) }),
+  body: hospitalBodySchema.partial().refine(value => Object.keys(value).length > 0, 'At least one field is required'),
+})
+export const updateHospitalStatusSchema = z.object({
+  params: z.object({ id: z.string().min(1) }),
+  body: z.object({ status: hospitalStatusSchema }).strict(),
+})
+
+export const inviteAdminUserSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(200),
+    email: z.string().email(),
+    role: adminRoleSchema,
+    hospital_id: z.string().min(1).optional(),
+  }).strict(),
+})
+
+export const generateInvoicesSchema = z.object({
+  body: z.object({
+    billing_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'billing_period must be YYYY-MM'),
+    plan: z.string().min(1).max(200).optional(),
+    amount: z.number().finite().nonnegative().optional(),
+  }).strict(),
+})
+
+export const invoiceIdParamSchema = z.object({ params: z.object({ invoiceId: z.string().min(1) }) })
+
 export const updateAdminUserSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'User ID is required'),

@@ -819,12 +819,6 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                     Icons.access_time,
                     Colors.blue,
                   ),
-                  _HealthMetric(
-                    'Memory',
-                    h.memory.heapUsed,
-                    Icons.memory,
-                    Colors.orange,
-                  ),
                 ],
               )
             else if (_healthUnavailable)

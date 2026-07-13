@@ -20,7 +20,8 @@ import {
   createPatientSchema, updatePatientSchema, getUsersSchema,
   reassignPatientSchema, userIdParamSchema, updateSystemConfigSchema,
   broadcastNotificationSchema, batchOperationSchema, resetPasswordSchema,
-  updateAdminUserSchema, updateRoleSchema,
+  updateAdminUserSchema, updateRoleSchema, createHospitalSchema, updateHospitalSchema,
+  updateHospitalStatusSchema, inviteAdminUserSchema, generateInvoicesSchema, invoiceIdParamSchema,
 } from '@alias/validators/admin.validator'
 
 const router = Router()
@@ -36,18 +37,18 @@ router.get('/roles', getRoles)
 router.put('/roles/:roleKey', requireAdminPermission('manage_roles'), validate(updateRoleSchema), updateRole)
 
 router.get('/hospitals', requireAdminPermission('manage_hospitals'), listHospitals)
-router.post('/hospitals', requireAdminPermission('manage_hospitals'), createHospital)
+router.post('/hospitals', requireAdminPermission('manage_hospitals'), validate(createHospitalSchema), createHospital)
 router.get('/hospitals/:id', requireAdminPermission('manage_hospitals'), getHospital)
-router.put('/hospitals/:id', requireAdminPermission('manage_hospitals'), updateHospital)
-router.patch('/hospitals/:id/status', requireAdminPermission('manage_hospitals'), updateHospitalStatus)
-router.delete('/hospitals/:id', requireAdminPermission('manage_hospitals'), deleteHospital)
+router.put('/hospitals/:id', requireAdminPermission('manage_hospitals'), validate(updateHospitalSchema), updateHospital)
+router.patch('/hospitals/:id/status', requireAdminPermission('manage_hospitals'), validate(updateHospitalStatusSchema), updateHospitalStatus)
+router.delete('/hospitals/:id', requireAdminPermission('manage_hospitals'), validate(userIdParamSchema), deleteHospital)
 
 router.get('/billing/invoices', requireAdminPermission('manage_billing'), listInvoices)
-router.post('/billing/invoices', requireAdminPermission('manage_billing'), generateInvoices)
-router.post('/billing/checkout/:invoiceId', requireAdminPermission('manage_billing'), createInvoiceCheckout)
+router.post('/billing/invoices', requireAdminPermission('manage_billing'), validate(generateInvoicesSchema), generateInvoices)
+router.post('/billing/checkout/:invoiceId', requireAdminPermission('manage_billing'), validate(invoiceIdParamSchema), createInvoiceCheckout)
 
 router.get('/users', requireAdminPermission('manage_users'), listUsers)
-router.post('/users', requireAdminPermission('manage_users'), inviteUser)
+router.post('/users', requireAdminPermission('manage_users'), validate(inviteAdminUserSchema), inviteUser)
 router.post('/users/:id/mfa/reset', requireAdminPermission('manage_users'), validate(userIdParamSchema), resetUserAuthenticator)
 router.put('/users/:id', requireAdminPermission('manage_users'), validate(updateAdminUserSchema), updateUser)
 

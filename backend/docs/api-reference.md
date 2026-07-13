@@ -808,6 +808,8 @@ The admin router also applies audit middleware to all routes under `/api/v1/admi
 - `POST /api/v1/admin/billing/invoices`
 - `POST /api/v1/admin/billing/checkout/:invoiceId`
 
+Invoice generation requires a `billing_period` in `YYYY-MM` form. It is idempotent for each active hospital and period; the response reports `created`, `already_existing`, and per-invoice details. Checkout uses a provider-hosted URL configured through `PAYMENT_CHECKOUT_BASE_URL` (HTTPS). The application appends the invoice number and amount as query parameters; deployers must configure that URL to a provider endpoint that validates those values and creates the actual payment session. Without this external provider configuration, checkout returns `503` rather than a placeholder payment link.
+
 ### User management
 
 - `GET /api/v1/admin/users`

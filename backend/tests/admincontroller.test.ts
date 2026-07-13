@@ -382,6 +382,25 @@ describe('Admin Routes', () => {
             expect(invalidPermission.data.success).toBe(false);
         });
 
+        test('should reject unknown fields on sensitive admin mutations', async () => {
+            const headers = { Authorization: `Bearer ${adminToken}` };
+            const hospital = await api.post('/api/admin/hospitals', {
+                name: 'Strict Schema Hospital', location: 'Chennai', admin_email: 'strict@example.com', unexpected: true,
+            }, { headers });
+            expect(hospital.status).toBe(400);
+
+            const invitation = await api.post('/api/admin/users', {
+                name: 'Strict Invite', email: 'strict-invite@example.com', role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(), password: 'not-accepted',
+            }, { headers });
+            expect(invitation.status).toBe(400);
+
+            const invoice = await api.post('/api/admin/billing/invoices', {
+                billing_period: '2031-01', force: true,
+            }, { headers });
+            expect(invoice.status).toBe(400);
+        });
+
         test('should let auditors read billing when manage_billing is granted', async () => {
             const response = await api.get('/api/admin/billing/invoices', {
                 headers: { Authorization: `Bearer ${auditorToken}` },
@@ -397,7 +416,6 @@ describe('Admin Routes', () => {
                 email,
                 role: 'hospital_admin',
                 hospital_id: primaryHospital._id.toString(),
-                password: 'Default@123',
             }, {
                 headers: { Authorization: `Bearer ${adminToken}` }
             });
@@ -410,7 +428,6 @@ describe('Admin Routes', () => {
             expect(firstResponse.status).toBe(201);
             expect(secondResponse.status).toBe(201);
             expect(firstResponse.data.data.temporary_password).toBeDefined();
-            expect(firstResponse.data.data.temporary_password).not.toBe('Default@123');
             expect(firstResponse.data.data.temporary_password).not.toBe(secondResponse.data.data.temporary_password);
             expect(firstResponse.data.data.must_change_password).toBe(true);
 
@@ -890,7 +907,7 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(true);
             expect(response.data.data.status).toBe('healthy');
             expect(response.data.data.database).toBeDefined();
-            expect(response.data.data.memory).toBeDefined();
+            expect(response.data.data.memory).toBeUndefined();
             expect(response.data.data.database.host).toBeUndefined();
             expect(response.data.data.database.name).toBeUndefined();
         });
@@ -903,6 +920,7 @@ describe('Admin Routes', () => {
             expect(response.status).toBe(200);
             expect(response.data.data.database.host).toBeUndefined();
             expect(response.data.data.database.name).toBeUndefined();
+            expect(response.data.data.memory).toBeUndefined();
         });
 
         test('should return aggregated hospital user counts and support status changes', async () => {
@@ -931,15 +949,27 @@ describe('Admin Routes', () => {
             expect(deactivate.data.data.hospital.status).toBe('inactive');
         });
 
-        test('should report the generated invoice count', async () => {
+        test('should require a billing period and generate each period only once', async () => {
             const before = await Invoice.countDocuments();
-            const response = await api.post('/api/admin/billing/invoices', {}, {
+            const missingPeriod = await api.post('/api/admin/billing/invoices', {}, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            expect(missingPeriod.status).toBe(400);
+
+            const response = await api.post('/api/admin/billing/invoices', { billing_period: '2030-01' }, {
                 headers: { Authorization: `Bearer ${adminToken}` }
             });
 
             expect(response.status).toBe(201);
-            expect(response.data.data.generated).toBeGreaterThan(0);
-            expect(await Invoice.countDocuments()).toBe(before + response.data.data.generated);
+            expect(response.data.data.created).toBeGreaterThan(0);
+            expect(await Invoice.countDocuments()).toBe(before + response.data.data.created);
+
+            const retry = await api.post('/api/admin/billing/invoices', { billing_period: '2030-01' }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
+            });
+            expect(retry.status).toBe(201);
+            expect(retry.data.data.created).toBe(0);
+            expect(retry.data.data.already_existing).toBe(response.data.data.created);
         });
 
         test('should support patient search listing', async () => {

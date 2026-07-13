@@ -392,20 +392,45 @@ export async function generateInvoices(data: any = {}, actorUserId?: string) {
   const now = new Date()
   const due = new Date(now)
   due.setDate(due.getDate() + 15)
-  const created = []
+  const created: any[] = []
+  const existing: any[] = []
   for (const hospital of hospitals) {
-    const invoice = await Invoice.create({
-      invoice_number: `INV-${Date.now()}-${hospital.code}`,
-      hospital_id: hospital._id,
-      plan: data.plan || 'Standard Tier (B2B)',
-      amount: data.amount || 25000,
-      status: InvoiceStatus.PENDING,
-      issued_date: now,
-      due_date: due,
-    })
-    created.push(invoice)
+    const existingInvoice = await Invoice.findOne({ hospital_id: hospital._id, billing_period: data.billing_period }).lean()
+    if (existingInvoice) {
+      existing.push(existingInvoice)
+      continue
+    }
+    try {
+      const invoice = await Invoice.findOneAndUpdate(
+        { hospital_id: hospital._id, billing_period: data.billing_period },
+        { $setOnInsert: {
+          invoice_number: `INV-${data.billing_period.replace('-', '')}-${hospital.code}`,
+          hospital_id: hospital._id,
+          billing_period: data.billing_period,
+          plan: data.plan || 'Standard Tier (B2B)',
+          amount: data.amount ?? 25000,
+          status: InvoiceStatus.PENDING,
+          issued_date: now,
+          due_date: due,
+        } },
+        { new: true, upsert: true },
+      )
+      created.push(invoice)
+    } catch (error: any) {
+      // The unique index makes concurrent generation idempotent.
+      if (error?.code !== 11000) throw error
+      const invoice = await Invoice.findOne({ hospital_id: hospital._id, billing_period: data.billing_period }).lean()
+      if (!invoice) throw error
+      existing.push(invoice)
+    }
   }
-  return { generated: created.length }
+  return {
+    billing_period: data.billing_period,
+    created: created.length,
+    already_existing: existing.length,
+    invoices: [...created.map(invoice => ({ invoice_id: invoice.invoice_number, hospital_id: String(invoice.hospital_id), created: true })),
+      ...existing.map(invoice => ({ invoice_id: invoice.invoice_number, hospital_id: String(invoice.hospital_id), created: false }))],
+  }
 }
 
 export async function createCheckout(invoiceId: string, actorUserId?: string) {
@@ -413,10 +438,23 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
   const invoice = await Invoice.findOne(mongoose.Types.ObjectId.isValid(invoiceId) ? { _id: invoiceId } : { invoice_number: invoiceId })
   if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
   ensureTenantAccess(ctx, invoice.hospital_id)
+  const checkoutBaseUrl = process.env.PAYMENT_CHECKOUT_BASE_URL
+  if (!checkoutBaseUrl) {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout is not configured. Set PAYMENT_CHECKOUT_BASE_URL to the provider-hosted checkout base URL.')
+  }
+  let checkoutUrl: URL
+  try {
+    checkoutUrl = new URL(checkoutBaseUrl)
+    if (checkoutUrl.protocol !== 'https:') throw new Error('HTTPS is required')
+  } catch {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout configuration must be an HTTPS provider URL')
+  }
+  checkoutUrl.searchParams.set('invoice', invoice.invoice_number)
+  checkoutUrl.searchParams.set('amount', String(invoice.amount))
   return {
     invoice_id: invoice.invoice_number,
-    checkout_url: `https://payments.example.local/checkout/${invoice.invoice_number}`,
-    provider: 'placeholder',
+    checkout_url: checkoutUrl.toString(),
+    provider: 'configured_hosted_checkout',
   }
 }
 
@@ -1201,11 +1239,6 @@ export async function getSystemHealth() {
     uptime: process.uptime(),
     database: {
       state: databaseState,
-    },
-    memory: {
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + ' MB',
-      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + ' MB',
-      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
     },
     timestamp: new Date().toISOString(),
   }

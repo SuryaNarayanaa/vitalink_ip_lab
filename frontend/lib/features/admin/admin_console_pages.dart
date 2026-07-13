@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_action_confirmation.dart';
@@ -153,11 +154,13 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
     );
   }
 
-  Future<void> _confirmHospitalDeactivation(String hospitalName, String id) async {
+  Future<void> _confirmHospitalDeactivation(
+      String hospitalName, String id) async {
     final confirmed = await showAdminActionConfirmation(
       context,
       title: 'Deactivate $hospitalName?',
-      message: 'This removes platform access for the hospital. You can reactivate it later.',
+      message:
+          'This removes platform access for the hospital. You can reactivate it later.',
       confirmLabel: 'Deactivate',
     );
     if (!confirmed || !mounted) return;
@@ -745,7 +748,7 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
                       value: 'checkout',
                       child: const Text('Create checkout'),
                       onTap: () => Future.microtask(
-                        () => _runAction(() => _repo.createInvoiceCheckout(id)),
+                        () => _startInvoiceCheckout(id),
                       ),
                     ),
                   ],
@@ -760,25 +763,57 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
   }
 
   Future<void> _confirmInvoiceGeneration() async {
-    final confirmed = await showAdminActionConfirmation(
-      context,
-      title: 'Generate invoices?',
-      message: 'Invoices will be created for every active hospital using the current plan and amount.',
-      confirmLabel: 'Generate',
+    final period = TextEditingController(
+      text:
+          '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}',
     );
-    if (!confirmed || !mounted) return;
+    final billingPeriod = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Generate invoices?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+                'This creates invoices for every active hospital. Existing invoices for the same billing period will be kept.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: period,
+              decoration: const InputDecoration(
+                  labelText: 'Billing period (YYYY-MM)', hintText: '2026-07'),
+              keyboardType: TextInputType.datetime,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final value = period.text.trim();
+              if (RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(value)) {
+                Navigator.pop(dialogContext, value);
+              }
+            },
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+    period.dispose();
+    if (billingPeriod == null || !mounted) return;
 
     try {
-      final result = await _repo.generateInvoices();
+      final result = await _repo.generateInvoices(billingPeriod: billingPeriod);
       if (!mounted) return;
       _refresh();
-      final generated = result['generated'] as num? ?? 0;
+      final created = result['created'] as num? ?? 0;
+      final existing = result['already_existing'] as num? ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            generated == 0
-                ? 'No active hospitals required invoices.'
-                : '$generated invoice${generated == 1 ? '' : 's'} generated successfully.',
+            '$created created; $existing already existed for $billingPeriod.',
           ),
         ),
       );
@@ -787,14 +822,20 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
     }
   }
 
-  Future<void> _runAction(Future<dynamic> Function() action) async {
+  Future<void> _startInvoiceCheckout(String invoiceId) async {
     try {
-      await action();
-      _refresh();
+      final result = await _repo.createInvoiceCheckout(invoiceId);
+      final checkoutUrl = result['checkout_url'] as String?;
+      if (checkoutUrl == null ||
+          !await launchUrl(Uri.parse(checkoutUrl),
+              mode: LaunchMode.externalApplication)) {
+        throw StateError('Unable to open the configured payment checkout.');
+      }
     } catch (e) {
       if (mounted) _showError(context, e);
     }
   }
+
 }
 
 class _AdminListShell extends StatelessWidget {
@@ -1007,9 +1048,10 @@ class _RoleCard extends StatelessWidget {
                     label: Text(permission.replaceAll('_', ' ')),
                     selected: values[permission] == true,
                     // Backend always retains app_admin.manage_roles so role policy cannot be locked out.
-                    onSelected: roleKey == 'app_admin' && permission == 'manage_roles'
-                        ? null
-                        : (value) => onChanged(permission, value),
+                    onSelected:
+                        roleKey == 'app_admin' && permission == 'manage_roles'
+                            ? null
+                            : (value) => onChanged(permission, value),
                   ),
               ],
             ),

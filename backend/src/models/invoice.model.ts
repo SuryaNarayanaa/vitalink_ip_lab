@@ -19,6 +19,11 @@ const InvoiceSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  billing_period: {
+    type: String,
+    required: true,
+    match: /^\d{4}-(0[1-9]|1[0-2])$/,
+  },
   plan: {
     type: String,
     required: true,
@@ -48,6 +53,16 @@ const InvoiceSchema = new mongoose.Schema({
 }, { timestamps: true })
 
 InvoiceSchema.index({ status: 1, due_date: 1 })
+// Prevent duplicate generation for a tenant/month even when two requests race.
+// Legacy invoices have no billing period; exclude them so their null values do
+// not prevent this index from being created on an existing deployment.
+InvoiceSchema.index(
+  { hospital_id: 1, billing_period: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { billing_period: { $type: 'string' } },
+  },
+)
 
 export interface InvoiceDocument extends mongoose.InferSchemaType<typeof InvoiceSchema> {}
 
