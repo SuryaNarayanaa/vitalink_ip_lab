@@ -36,3 +36,24 @@ export function initializeFirebaseMessaging(): Messaging | null {
 export function getFirebaseMessaging(): Messaging | null {
   return initializeFirebaseMessaging()
 }
+
+export function getFirebaseMessagingHealth(): {
+  enabled: boolean
+  state: 'disabled' | 'initialized' | 'failed'
+  error?: string
+} {
+  if (!isFirebaseMessagingEnabled()) {
+    return { enabled: false, state: 'disabled' }
+  }
+
+  try {
+    initializeFirebaseMessaging()
+    return { enabled: true, state: 'initialized' }
+  } catch (error) {
+    return {
+      enabled: true,
+      state: 'failed',
+      error: error instanceof Error ? error.message : 'Firebase initialization failed',
+    }
+  }
+}

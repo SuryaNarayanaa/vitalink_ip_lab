@@ -5,7 +5,8 @@ flutter build web --dart-define=API_BASE_URL=https://vitalink-uimf.onrender.com 
 cd build/web
 vercel --prod
 
-  
+flutter build apk --release --dart-define=API_BASE_URL=https://vitalink-uimf.onrender.com --dart-define=API_PATH_PREFIX=/api/v1
+
 # frontend
 
 A new Flutter project.

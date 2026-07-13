@@ -4,6 +4,7 @@ import {
   buildVerificationAttemptUpdate,
   getVerificationPreflightBlock,
   getResendAvailability,
+  hashPhoneNumber,
   isOtpExpired,
   OtpResendBlockReason,
   OtpVerificationResult,
@@ -213,10 +214,8 @@ describe('OTP service metadata and policy helpers', () => {
         status: OtpChallengeStatus.PENDING,
         $expr: expect.any(Object),
       }),
-      expect.objectContaining({
-        $inc: { resend_count: 1 },
-      }),
-      { new: true }
+      expect.any(Array),
+      { new: true, updatePipeline: true }
     )
     expect(provider.startVerification).toHaveBeenCalledTimes(1)
     expect(findOneAndUpdate).toHaveBeenNthCalledWith(
@@ -224,7 +223,7 @@ describe('OTP service metadata and policy helpers', () => {
       expect.objectContaining({
         _id: 'challenge-id',
         status: OtpChallengeStatus.PENDING,
-        provider_status: expect.stringMatching(/^send_reserved:/),
+        provider_reservation_id: expect.any(String),
       }),
       expect.objectContaining({ $set: expect.objectContaining({ provider_status: 'pending' }) }),
       { new: true }
@@ -248,6 +247,10 @@ describe('OTP service metadata and policy helpers', () => {
     const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
       .mockResolvedValueOnce(reservedChallenge as any)
       .mockResolvedValueOnce(null)
+    const findById = jest.spyOn(OtpChallenge, 'findById').mockResolvedValue({
+      ...reservedChallenge,
+      provider_reservation_expires_at: new Date('2026-07-06T10:01:00.000Z'),
+    } as any)
     const provider = {
       startVerification: jest.fn().mockResolvedValue({
         sid: 'test-verification-id',
@@ -268,9 +271,12 @@ describe('OTP service metadata and policy helpers', () => {
       expect.objectContaining({
         _id: 'challenge-id',
         status: OtpChallengeStatus.PENDING,
-        provider_status: expect.stringMatching(/^send_reserved:/),
+        provider_reservation_id: expect.any(String),
       }),
-      expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.PENDING }) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: OtpChallengeStatus.PENDING }),
+        $unset: expect.objectContaining({ provider_reservation_operation: 1 }),
+      }),
       { new: true }
     )
     expect(result?.allowed).toBe(false)
@@ -318,10 +324,8 @@ describe('OTP service metadata and policy helpers', () => {
         status: OtpChallengeStatus.PENDING,
         $expr: expect.any(Object),
       }),
-      expect.objectContaining({
-        $inc: { attempt_count: 1 },
-      }),
-      { new: true }
+      expect.any(Array),
+      { new: true, updatePipeline: true }
     )
     expect(provider.checkVerification).toHaveBeenCalledTimes(1)
     expect(findOneAndUpdate).toHaveBeenNthCalledWith(
@@ -373,15 +377,240 @@ describe('OTP service metadata and policy helpers', () => {
       expect.objectContaining({
         _id: 'challenge-id',
         status: OtpChallengeStatus.PENDING,
-        provider_status: expect.stringMatching(/^check_reserved:/),
+        provider_reservation_id: expect.any(String),
       }),
       expect.objectContaining({ $set: expect.objectContaining({ status: OtpChallengeStatus.PENDING }) }),
       { new: true }
     )
     expect(result?.verified).toBe(false)
-    expect(result?.result).toBe(OtpVerificationResult.ALREADY_VERIFIED)
+    expect(result?.result).toBe(OtpVerificationResult.IN_PROGRESS)
     expect(result?.update).toEqual({})
 
+    findOneAndUpdate.mockRestore()
+  })
+
+  test('releases the resend reservation when Twilio fails to start verification', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      resend_count: 1,
+      attempt_count: 0,
+      max_attempts: 3,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const findById = jest.spyOn(OtpChallenge, 'findById').mockResolvedValue({
+      ...reservedChallenge,
+      provider_reservation_expires_at: new Date('2026-07-06T10:01:00.000Z'),
+    } as any)
+    const providerError = new Error('Twilio unavailable')
+    const provider = {
+      startVerification: jest.fn().mockRejectedValue(providerError),
+      checkVerification: jest.fn(),
+    }
+
+    await expect(resendPhoneVerificationOtp(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      provider,
+      now
+    )).rejects.toBe(providerError)
+
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ provider_reservation_id: expect.any(String) }),
+      expect.objectContaining({
+        $inc: { resend_count: -1 },
+        $set: { resend_available_at: now },
+        $unset: expect.objectContaining({ provider_reservation_id: 1 }),
+      })
+    )
+
+    findOneAndUpdate.mockRestore()
+    findById.mockRestore()
+  })
+
+  test('releases the verification reservation when Twilio fails to check a code', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id',
+      attempt_count: 1,
+      max_attempts: 3,
+      resend_count: 0,
+      max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'),
+      status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const providerError = new Error('Twilio unavailable')
+    const provider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockRejectedValue(providerError),
+    }
+
+    await expect(verifyOtpChallenge(
+      'challenge-id',
+      'patient-channel-ending-3210',
+      'candidate-code',
+      provider,
+      now
+    )).rejects.toBe(providerError)
+
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ provider_reservation_id: expect.any(String) }),
+      expect.objectContaining({
+        $inc: { attempt_count: -1 },
+        $unset: expect.objectContaining({ provider_reservation_id: 1 }),
+      })
+    )
+
+    findOneAndUpdate.mockRestore()
+  })
+
+  test('reclaims an expired verification lease without charging a second attempt', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const retryAt = new Date('2026-07-06T10:01:01.000Z')
+    const firstReserved = {
+      _id: 'challenge-id', attempt_count: 1, max_attempts: 3, resend_count: 0, max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'), status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(firstReserved as any)
+      .mockResolvedValueOnce({ ...firstReserved } as any)
+      .mockResolvedValueOnce({ ...firstReserved, status: OtpChallengeStatus.PENDING } as any)
+      .mockResolvedValueOnce(null)
+    let rejectFirst!: (error: Error) => void
+    const firstProvider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockReturnValue(new Promise<never>((_, reject) => { rejectFirst = reject })),
+    }
+    const secondProvider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockResolvedValue({ status: 'pending', valid: false }),
+    }
+
+    const first = verifyOtpChallenge('challenge-id', 'patient-channel-ending-3210', 'candidate-code', firstProvider, now)
+    await Promise.resolve()
+    const second = await verifyOtpChallenge('challenge-id', 'patient-channel-ending-3210', 'candidate-code', secondProvider, retryAt)
+    rejectFirst(new Error('Twilio unavailable'))
+    await expect(first).rejects.toThrow('Twilio unavailable')
+
+    expect(second.result).toBe(OtpVerificationResult.INVALID)
+    expect(findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ $expr: expect.any(Object) }),
+      expect.arrayContaining([
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            attempt_count: expect.objectContaining({ $cond: expect.any(Array) }),
+          }),
+        }),
+      ]),
+      { new: true, updatePipeline: true }
+    )
+
+    findOneAndUpdate.mockRestore()
+  })
+
+  test('reports in progress when a stale approved verification loses its lease', async () => {
+    const now = new Date('2026-07-06T10:01:01.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id', attempt_count: 1, max_attempts: 3, resend_count: 0, max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'), status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const findById = jest.spyOn(OtpChallenge, 'findById').mockResolvedValue({
+      ...reservedChallenge,
+      provider_reservation_expires_at: new Date('2026-07-06T10:02:01.000Z'),
+    } as any)
+    const provider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockResolvedValue({ status: 'approved', valid: true }),
+    }
+
+    const result = await verifyOtpChallenge('challenge-id', 'patient-channel-ending-3210', 'candidate-code', provider, now)
+
+    expect(result?.verified).toBe(false)
+    expect(result?.result).toBe(OtpVerificationResult.IN_PROGRESS)
+    findOneAndUpdate.mockRestore()
+    findById.mockRestore()
+  })
+
+  test('reports in progress while another verification reservation is live', async () => {
+    const now = new Date('2026-07-06T10:00:00.000Z')
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate').mockResolvedValue(null)
+    const findById = jest.spyOn(OtpChallenge, 'findById').mockResolvedValue({
+      _id: 'challenge-id', attempt_count: 1, max_attempts: 3, resend_count: 0, max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'), status: OtpChallengeStatus.PENDING,
+      phone_hash: hashPhoneNumber('patient-channel-ending-3210'),
+      provider_reservation_expires_at: new Date('2026-07-06T10:01:00.000Z'),
+    } as any)
+
+    const result = await verifyOtpChallenge('challenge-id', 'patient-channel-ending-3210', 'candidate-code', {
+      startVerification: jest.fn(), checkVerification: jest.fn(),
+    }, now)
+
+    expect(result?.result).toBe(OtpVerificationResult.IN_PROGRESS)
+    findOneAndUpdate.mockRestore()
+    findById.mockRestore()
+  })
+
+  test('charges resend and releases an expired verification reservation atomically', async () => {
+    const now = new Date('2026-07-06T10:01:01.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id', attempt_count: 1, max_attempts: 3, resend_count: 0, max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'), status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const provider = {
+      startVerification: jest.fn().mockRejectedValue(new Error('Twilio unavailable')),
+      checkVerification: jest.fn(),
+    }
+
+    await expect(resendPhoneVerificationOtp(
+      'challenge-id', 'patient-channel-ending-3210', provider, now
+    )).rejects.toThrow('Twilio unavailable')
+
+    const pipeline = findOneAndUpdate.mock.calls[0][1] as any[]
+    expect(pipeline[0].$set.resend_count.$cond).toEqual(expect.any(Array))
+    expect(pipeline[0].$set.attempt_count.$cond).toEqual(expect.any(Array))
+    expect(pipeline[0].$set.provider_reservation_operation).toBe('resend')
+    findOneAndUpdate.mockRestore()
+  })
+
+  test('charges verification and releases an expired resend reservation atomically', async () => {
+    const now = new Date('2026-07-06T10:01:01.000Z')
+    const reservedChallenge = {
+      _id: 'challenge-id', attempt_count: 0, max_attempts: 3, resend_count: 1, max_resends: 2,
+      expires_at: new Date('2026-07-06T10:10:00.000Z'), status: OtpChallengeStatus.PENDING,
+    }
+    const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
+      .mockResolvedValueOnce(reservedChallenge as any)
+      .mockResolvedValueOnce(null)
+    const provider = {
+      startVerification: jest.fn(),
+      checkVerification: jest.fn().mockRejectedValue(new Error('Twilio unavailable')),
+    }
+
+    await expect(verifyOtpChallenge(
+      'challenge-id', 'patient-channel-ending-3210', 'candidate-code', provider, now
+    )).rejects.toThrow('Twilio unavailable')
+
+    const pipeline = findOneAndUpdate.mock.calls[0][1] as any[]
+    expect(pipeline[0].$set.attempt_count.$cond).toEqual(expect.any(Array))
+    expect(pipeline[0].$set.resend_count.$cond).toEqual(expect.any(Array))
+    expect(pipeline[0].$set.provider_reservation_operation).toBe('verify')
     findOneAndUpdate.mockRestore()
   })
 })

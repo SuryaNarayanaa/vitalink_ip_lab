@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
@@ -35,12 +36,13 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   bool _isActivatingTotp = false;
 
   Map<String, bool> _featureFlags = {
-    'enable_notifications': true,
-    'enable_pdf_export': true,
-    'enable_patient_self_registration': false,
+    'maintenance_mode': false,
+    'patient_registration_enabled': true,
+    'notifications_enabled': true,
   };
 
   SystemHealthModel? _health;
+  bool _healthUnavailable = false;
 
   @override
   void initState() {
@@ -80,19 +82,23 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
               4.5)
           .toString();
 
-      final session = config['session_settings'] ?? {};
-      _sessionTimeoutCtrl.text = (session['timeout_minutes'] ?? 30).toString();
+      _sessionTimeoutCtrl.text =
+          (config['session_timeout_minutes'] ?? 30).toString();
 
       final rateLimit = config['rate_limiting'] ?? config['rate_limit'] ?? {};
       _maxRequestsCtrl.text = (rateLimit['max_requests'] ?? 100).toString();
       _windowDurationCtrl.text =
-          (rateLimit['window_seconds'] ?? rateLimit['window_ms'] != null
-                  ? ((rateLimit['window_ms'] as int) / 1000).round()
-                  : 60)
-              .toString();
+          (rateLimit['window_minutes'] ?? 15).toString();
 
       if (config['feature_flags'] != null) {
-        _featureFlags = Map<String, bool>.from(config['feature_flags']);
+        final savedFlags = Map<String, dynamic>.from(config['feature_flags']);
+        _featureFlags = {
+          'maintenance_mode': savedFlags['maintenance_mode'] as bool? ?? false,
+          'patient_registration_enabled':
+              savedFlags['patient_registration_enabled'] as bool? ?? true,
+          'notifications_enabled':
+              savedFlags['notifications_enabled'] as bool? ?? true,
+        };
       }
       setState(() => _hasUnsavedChanges = false);
     } catch (e) {
@@ -112,8 +118,15 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   Future<void> _loadHealth() async {
     try {
       final health = await _repo.getSystemHealth();
-      if (mounted) setState(() => _health = health);
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _health = health;
+          _healthUnavailable = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _healthUnavailable = true);
+    }
   }
 
   Future<void> _saveConfig() async {
@@ -147,12 +160,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
           'critical_low': double.parse(_inrLowCtrl.text),
           'critical_high': double.parse(_inrHighCtrl.text),
         },
-        'session_settings': {
-          'timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
-        },
+        'session_timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
         'rate_limit': {
           'max_requests': int.parse(_maxRequestsCtrl.text),
-          'window_ms': int.parse(_windowDurationCtrl.text) * 1000,
+          'window_minutes': int.parse(_windowDurationCtrl.text),
         },
         'feature_flags': _featureFlags,
       });
@@ -365,6 +376,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
                             }
+                            final high = double.tryParse(_inrHighCtrl.text);
+                            if (high != null && n >= high) {
+                              return 'Must be below critical high';
+                            }
                             return null;
                           },
                         ),
@@ -386,6 +401,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             final n = double.tryParse(v);
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
+                            }
+                            final low = double.tryParse(_inrLowCtrl.text);
+                            if (low != null && n <= low) {
+                              return 'Must be above critical low';
                             }
                             return null;
                           },
@@ -448,7 +467,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                           controller: _windowDurationCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Window Duration',
-                            suffixText: 'sec',
+                            suffixText: 'min',
                           ),
                           keyboardType: TextInputType.number,
                           onChanged: _onFieldChanged,
@@ -626,6 +645,45 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                   label: const Text('Start authenticator setup'),
                 ),
               if (hasPendingSetup) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Scan this QR code with your authenticator app.',
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: QrImageView(
+                      data: enrollment.otpauthUrl,
+                      version: QrVersions.auto,
+                      size: 208,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.square,
+                        color: Colors.black,
+                      ),
+                      dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: Colors.black,
+                      ),
+                      semanticsLabel: 'Authenticator app setup QR code',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'If your app cannot scan a code, use the setup key below instead.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 _SetupValueTile(
                   label: 'Setup key',
                   value: enrollment.secret,
@@ -733,7 +791,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                   label: Text(
                     h != null
                         ? (isHealthy ? 'Healthy' : 'Issues')
-                        : 'Loading...',
+                        : (_healthUnavailable ? 'Unavailable' : 'Loading...'),
                   ),
                   backgroundColor: h == null
                       ? Colors.grey.withValues(alpha: 0.1)
@@ -761,13 +819,11 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                     Icons.access_time,
                     Colors.blue,
                   ),
-                  _HealthMetric(
-                    'Memory',
-                    h.memory.heapUsed,
-                    Icons.memory,
-                    Colors.orange,
-                  ),
                 ],
+              )
+            else if (_healthUnavailable)
+              const Text(
+                'System health is unavailable or restricted for this account.',
               ),
           ],
         ),

@@ -1,18 +1,20 @@
 import crypto from 'crypto'
 import mongoose from 'mongoose'
-import { config } from '@alias/config'
 import { AuthSession, User } from '@alias/models'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { generateToken } from '@alias/utils/jwt.utils'
 import { UserType } from '@alias/validators'
+import { hasActiveHospitalAccess } from './hospital-access.service'
+import { getSessionTimeoutMinutes, MAX_SESSION_TIMEOUT_MINUTES } from './config.service'
 
 const REFRESH_TOKEN_BYTES = 48
+export const SESSION_ACCESS_TOKEN_LIFETIME_SECONDS = MAX_SESSION_TIMEOUT_MINUTES * 60
 
 const hashRefreshToken = (refreshToken: string) =>
   crypto.createHash('sha256').update(refreshToken).digest('hex')
 
-const getRefreshTokenExpiry = () =>
-  new Date(Date.now() + config.refreshTokenExpiryDays * 24 * 60 * 60 * 1000)
+export const getSessionExpiry = (timeoutMinutes: number) =>
+  new Date(Date.now() + timeoutMinutes * 60 * 1000)
 
 export const createAuthSession = async ({
   user,
@@ -25,7 +27,8 @@ export const createAuthSession = async ({
 }) => {
   const accessTokenId = crypto.randomUUID()
   const refreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url')
-  const expiresAt = getRefreshTokenExpiry()
+  const timeoutMinutes = await getSessionTimeoutMinutes()
+  const expiresAt = getSessionExpiry(timeoutMinutes)
 
   const session = await AuthSession.create({
     user_id: user._id,
@@ -42,7 +45,10 @@ export const createAuthSession = async ({
     user_type: user.user_type as UserType,
     session_id: session._id.toString(),
     token_id: accessTokenId,
-  })
+  // Session validation is authoritative and checked on every request. Keep the
+  // JWT valid for the largest allowed session duration so increasing the admin
+  // setting can extend an existing session immediately as well.
+  }, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS)
 
   return {
     token: accessToken,
@@ -95,8 +101,9 @@ export const refreshAuthSession = async ({
   ipAddress?: string
   userAgent?: string | string[]
 }) => {
+  const refreshTokenHash = hashRefreshToken(refreshToken)
   const session = await AuthSession.findOne({
-    refresh_token_hash: hashRefreshToken(refreshToken),
+    refresh_token_hash: refreshTokenHash,
     revoked_at: { $exists: false },
     expires_at: { $gt: new Date() },
   })
@@ -105,33 +112,53 @@ export const refreshAuthSession = async ({
     return null
   }
 
-  const user = await User.findById(session.user_id).select('is_active user_type').lean()
-  if (!user || !user.is_active || user.user_type !== session.user_type) {
+  const user = await User.findById(session.user_id).select('is_active user_type profile_id').lean()
+  if (!user || !user.is_active || user.user_type !== session.user_type || !await hasActiveHospitalAccess(user)) {
     return null
   }
 
-  session.access_token_id = crypto.randomUUID()
+  const accessTokenId = crypto.randomUUID()
   const replacementRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url')
-  session.refresh_token_hash = hashRefreshToken(replacementRefreshToken)
-  session.expires_at = getRefreshTokenExpiry()
-  session.last_used_at = new Date()
-  session.ip_address = ipAddress
-  session.user_agent = Array.isArray(userAgent) ? userAgent.join(', ') : userAgent
-  await session.save()
+  const replacementRefreshTokenHash = hashRefreshToken(replacementRefreshToken)
+  const timeoutMinutes = await getSessionTimeoutMinutes()
+  const expiresAt = getSessionExpiry(timeoutMinutes)
+  const rotatedSession = await AuthSession.findOneAndUpdate(
+    {
+      _id: session._id,
+      refresh_token_hash: refreshTokenHash,
+      revoked_at: { $exists: false },
+      expires_at: { $gt: new Date() },
+    },
+    {
+      $set: {
+        access_token_id: accessTokenId,
+        refresh_token_hash: replacementRefreshTokenHash,
+        expires_at: expiresAt,
+        last_used_at: new Date(),
+        ip_address: ipAddress,
+        user_agent: Array.isArray(userAgent) ? userAgent.join(', ') : userAgent,
+      },
+    },
+    { new: true }
+  )
+
+  if (!rotatedSession) {
+    return null
+  }
 
   const accessToken = generateToken({
-    user_id: session.user_id.toString(),
-    user_type: session.user_type as UserType,
-    session_id: session._id.toString(),
-    token_id: session.access_token_id,
-  })
+    user_id: rotatedSession.user_id.toString(),
+    user_type: rotatedSession.user_type as UserType,
+    session_id: rotatedSession._id.toString(),
+    token_id: accessTokenId,
+  }, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS)
 
   return {
     token: accessToken,
     refresh_token: replacementRefreshToken,
     session: {
-      session_id: session._id.toString(),
-      refresh_expires_at: session.expires_at,
+      session_id: rotatedSession._id.toString(),
+      refresh_expires_at: rotatedSession.expires_at,
     },
   }
 }
@@ -189,6 +216,28 @@ export const revokeActiveAuthSessionsForUser = async (
   return AuthSession.updateMany(
     {
       user_id: userId,
+      revoked_at: { $exists: false },
+      expires_at: { $gt: new Date() },
+    },
+    {
+      $set: {
+        revoked_at: new Date(),
+        revoked_reason: reason,
+      },
+    }
+  )
+}
+
+export const revokeActiveAuthSessionsForUsers = async (
+  userIds: Array<string | mongoose.Types.ObjectId>,
+  reason: AuthSessionRevocationReason = AuthSessionRevocationReason.USER_REVOKED
+) => {
+  const validUserIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(String(id)))
+  if (!validUserIds.length) return { modifiedCount: 0 }
+
+  return AuthSession.updateMany(
+    {
+      user_id: { $in: validUserIds },
       revoked_at: { $exists: false },
       expires_at: { $gt: new Date() },
     },

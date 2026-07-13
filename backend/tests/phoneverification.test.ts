@@ -3,6 +3,7 @@ import { createPatient as doctorCreatePatientSchema } from '@alias/validators/do
 import { updateProfileSchema as patientUpdateProfileSchema } from '@alias/validators/patient.validator'
 import { DoctorProfile, PatientProfile, User } from '@alias/models'
 import { updatePatient } from '@alias/services/admin.service'
+import * as rolePolicyService from '@alias/services/role-policy.service'
 
 describe('phone verification groundwork', () => {
   afterEach(() => {
@@ -91,6 +92,9 @@ describe('phone verification groundwork', () => {
   })
 
   test('admin patient demographics updates preserve phone verification when phone is omitted', async () => {
+    // updatePatient resolves admin permissions; isolate that dependency and let
+    // the suite-level afterEach restore this spy even when the test fails.
+    jest.spyOn(rolePolicyService, 'getRolePermissions').mockResolvedValue({} as any)
     const profileId = 'patient-profile-id'
     const patientUser: any = {
       _id: 'patient-user-id',

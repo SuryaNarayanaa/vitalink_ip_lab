@@ -50,7 +50,14 @@ interface Config {
   notificationDeliveryBaseBackoffMs: number
   notificationDeliveryRetentionDays: number
   notificationDeliveryRecoveryIntervalMs: number
+  notificationDeliveryProcessingLeaseMs: number
   notificationDeliveryWorkerConcurrency: number
+  dosageReminderCron: string
+  dosageReminderTimezone: string
+  inrReminderIntervalDays: number
+  nextReviewReminderLeadDays: number
+  missedDoseEscalationWindowDays: number
+  missedDoseEscalationThreshold: number
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -173,6 +180,36 @@ const defaultJwtSecret = isTest
 
 const apiDocsEnabled = getBoolEnv('API_DOCS_ENABLED', !isProduction)
 
+/** Returns required runtime keys without exposing any configured values. */
+export function getMissingEnvironmentVariables(): string[] {
+  if (!isProduction && !isStaging) {
+    return []
+  }
+
+  const required = [
+    'MONGO_URI',
+    'JWT_SECRET',
+    'ACCESS_KEY_ID',
+    'SECRET_ACCESS_KEY',
+    'S3_BUCKET_NAME',
+    'FILE_ASSET_LEGACY_CUTOFF_AT',
+    'ADMIN_TOTP_ENCRYPTION_KEY',
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_VERIFY_SERVICE_SID',
+  ]
+
+  if (apiDocsEnabled) {
+    required.push('API_DOCS_USERNAME', 'API_DOCS_PASSWORD')
+  }
+
+  if (getBoolEnv('FCM_ENABLED', false)) {
+    required.push('FIREBASE_SERVICE_ACCOUNT')
+  }
+
+  return required.filter((key) => !(process.env[key] || '').trim())
+}
+
 export const config: Config = {
   port: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
   databaseUrl: getEnv('MONGO_URI', { requiredInProduction: true, defaultValue: defaultDatabaseUrl }),
@@ -230,6 +267,14 @@ export const config: Config = {
   notificationDeliveryBaseBackoffMs: getIntEnv('NOTIFICATION_DELIVERY_BASE_BACKOFF_MS', 2_000),
   notificationDeliveryRetentionDays: getIntEnv('NOTIFICATION_DELIVERY_RETENTION_DAYS', 30),
   notificationDeliveryRecoveryIntervalMs: getIntEnv('NOTIFICATION_DELIVERY_RECOVERY_INTERVAL_MS', 30_000),
+  notificationDeliveryProcessingLeaseMs: getIntEnv('NOTIFICATION_DELIVERY_PROCESSING_LEASE_MS', 5 * 60_000),
   notificationDeliveryWorkerConcurrency: getIntEnv('NOTIFICATION_DELIVERY_WORKER_CONCURRENCY', 5),
+  // Keep the reminder window explicit and independent of the host/container timezone.
+  dosageReminderCron: getEnv('DOSAGE_REMINDER_CRON', { defaultValue: '0 9 * * *' }),
+  dosageReminderTimezone: getEnv('DOSAGE_REMINDER_TIMEZONE', { defaultValue: 'Asia/Kolkata' }),
+  inrReminderIntervalDays: getIntEnv('INR_REMINDER_INTERVAL_DAYS', 30),
+  nextReviewReminderLeadDays: getIntEnv('NEXT_REVIEW_REMINDER_LEAD_DAYS', 7),
+  missedDoseEscalationWindowDays: getIntEnv('MISSED_DOSE_ESCALATION_WINDOW_DAYS', 7),
+  missedDoseEscalationThreshold: getIntEnv('MISSED_DOSE_ESCALATION_THRESHOLD', 2),
 }
 

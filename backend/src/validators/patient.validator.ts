@@ -1,21 +1,26 @@
 import { z } from 'zod'
 import { HealthLog } from '.'
 import { optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 const ddmmyyyy = z.string('Date should be a string')
     .regex(/^\d{2}-\d{2}-\d{4}$/, 'Date must be in DD-MM-YYYY format')
-    .transform((val) => {
-        const [day, month, year] = val.split('-').map(Number)
-        return new Date(year, month - 1, day)
+    .transform((val, ctx) => {
+        const date = parseStrictDateOnly(val)
+        if (!date) {
+            ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date' })
+            return z.NEVER
+        }
+        return date
     })
 
-const parseableDateString = z.string('Date should be a string')
-    .refine((val) => !Number.isNaN(Date.parse(val)), 'Date must be a valid date string')
-    .transform((val) => new Date(val))
+const isoDateTime = z.string('Date should be a string')
+    .datetime({ offset: true, message: 'Date must be a valid ISO-8601 timestamp' })
+    .transform((value) => new Date(value))
 
 export const reportSchema = z.object({
     body: z.object({
-        inr_value: z.string('INR value should be a string').nonempty("Inr Value Should not be empty"),
+        inr_value: z.string().regex(/^\d+(?:\.\d+)?$/, 'INR value must be a positive decimal').transform(Number).refine(value => Number.isFinite(value) && value > 0 && value <= 20, 'INR value must be between 0 and 20'),
         test_date: ddmmyyyy,
     })
 })
@@ -61,7 +66,7 @@ export const updateProfileSchema = z.object({
             therapy_start_date: z.union([
                 z.date(),
                 ddmmyyyy,
-                parseableDateString
+                isoDateTime,
             ]).refine(
                 (date) => date <= new Date(),
                 { message: "Therapy start date cannot be in the future" }

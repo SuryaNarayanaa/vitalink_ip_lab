@@ -15,6 +15,7 @@ import type {
   UpdateReportInput
 } from '@alias/validators/doctor.validator'
 import mongoose from 'mongoose'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
@@ -79,12 +80,61 @@ const ensureSameHospital = async (
   }
 }
 
+const ensureReassignmentHospitalAccess = async (
+  currentDoctor: { profile_id?: unknown },
+  patient: { hospital_id?: unknown },
+  targetDoctor: { profile_id?: unknown }
+) => {
+  const [currentHospitalId, targetHospitalId] = await Promise.all([
+    getDoctorHospitalId(currentDoctor),
+    getDoctorHospitalId(targetDoctor),
+  ])
+  const patientHospitalId = patient.hospital_id ? String(patient.hospital_id) : undefined
+
+  if (!currentHospitalId || !patientHospitalId || !targetHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'All doctors and the patient must be assigned to a hospital before reassignment')
+  }
+  if (currentHospitalId !== patientHospitalId || targetHospitalId !== patientHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor reassignment is not allowed')
+  }
+}
+
 const getDoctorUserOrThrow = async (userId: string) => {
   const doctor = await User.findById(userId)
   if (!doctor || doctor.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
   }
   return doctor
+}
+
+async function createPatientProfileAndUser(
+  createProfile: (session?: mongoose.ClientSession) => Promise<any>,
+  createUser: (profileId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) => Promise<any>,
+) {
+  const session = await mongoose.startSession()
+  let profile: any
+  try {
+    await session.withTransaction(async () => {
+      profile = await createProfile(session)
+      await createUser(profile._id, session)
+    })
+    return profile
+  } catch (error: any) {
+    if (!/Transaction numbers are only allowed|replica set member|Transaction support/i.test(String(error?.message))) {
+      throw error
+    }
+    profile = undefined
+    try {
+      profile = await createProfile()
+      await createUser(profile._id)
+      return profile
+    } catch (fallbackError) {
+      if (profile?._id) await profile.deleteOne()
+      throw fallbackError
+    }
+  } finally {
+    await session.endSession()
+  }
 }
 
 const getPatientUserOrThrow = async (op_num: string) => {
@@ -263,37 +313,41 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
     if (therapy_start_date instanceof Date) {
       parsedTherapyStartDate = therapy_start_date;
     } else if (typeof therapy_start_date === 'string') {
-      parsedTherapyStartDate = new Date(therapy_start_date);
-      if (isNaN(parsedTherapyStartDate.getTime())) {
-        parsedTherapyStartDate = undefined;
-      }
+      parsedTherapyStartDate = parseStrictDateOnly(therapy_start_date)
     }
   }
 
-  const patientProfile = await PatientProfile.create({
-    assigned_doctor_id: doctorUser._id,
-    hospital_id: hospitalId,
-    demographics: {
-      name,
-      age,
-      gender,
-      phone: contact_no,
-      next_of_kin: { name: kin_name, relation: kin_relation, phone: kin_contact_number },
-    },
-    medical_config: {
-      therapy_drug: therapy,
-      therapy_start_date: parsedTherapyStartDate,
-      target_inr: {
-        min: target_inr_min ?? 2.0,
-        max: target_inr_max ?? 3.0,
-      },
-    },
-    medical_history: medical_history ?? undefined,
-    weekly_dosage: prescription ?? undefined,
-  })
-
   const tempPassword = contact_no
-  await User.create({ login_id: normalizedOpNum, password: tempPassword, user_type: UserType.PATIENT, profile_id: patientProfile._id })
+  const patientProfile = await createPatientProfileAndUser(
+    session => PatientProfile.create([{
+      assigned_doctor_id: doctorUser._id,
+      hospital_id: hospitalId,
+      demographics: {
+        name,
+        age,
+        gender,
+        phone: contact_no,
+        next_of_kin: { name: kin_name, relation: kin_relation, phone: kin_contact_number },
+      },
+      medical_config: {
+        therapy_drug: therapy,
+        therapy_start_date: parsedTherapyStartDate,
+        target_inr: {
+          min: target_inr_min ?? 2.0,
+          max: target_inr_max ?? 3.0,
+        },
+      },
+      medical_history: medical_history ?? undefined,
+      weekly_dosage: prescription ?? undefined,
+    }], session ? { session } : undefined).then(([profile]) => profile),
+    (profileId, session) => User.create([{
+      login_id: normalizedOpNum,
+      password: tempPassword,
+      user_type: UserType.PATIENT,
+      profile_id: profileId,
+      user_type_model: 'PatientProfile',
+    }], session ? { session } : undefined).then(([user]) => user),
+  )
 
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Patient created successfully', { patient: patientProfile }))
 })
@@ -316,7 +370,10 @@ export const reassignPatient = asyncHandler(async (
   if (!doctorUser) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Target doctor not found')
   }
-  await ensureSameHospital(currentDoctorUser, existingPatientProfile, doctorUser)
+  if (!doctorUser.is_active) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Target doctor is inactive')
+  }
+  await ensureReassignmentHospitalAccess(currentDoctorUser, existingPatientProfile, doctorUser)
 
   const patient = await PatientProfile.findByIdAndUpdate(
     patientUser.profile_id,
@@ -457,14 +514,8 @@ export const updateNextReview = asyncHandler(async (
 ) => {
   const { date } = req.body
   const { op_num } = req.params
-  const dateRegex = /^\d{2}-\d{2}-\d{4}$/
-
-  if (typeof date !== 'string' || !dateRegex.test(date)) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be in DD-MM-YYYY format')
-  }
-
-  const [day, month, year] = date.split('-').map(Number)
-  const parsedDate = new Date(year, month - 1, day)
+  const parsedDate = typeof date === 'string' ? parseStrictDateOnly(date) : undefined
+  if (!parsedDate) throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be a valid calendar date in DD-MM-YYYY format')
 
   const doctor = await getDoctorUserOrThrow(req.user.user_id)
   const patientUser = await getPatientUserOrThrow(op_num)

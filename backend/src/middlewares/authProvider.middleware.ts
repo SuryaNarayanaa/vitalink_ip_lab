@@ -5,6 +5,7 @@ import { verifyToken, extractTokenFromHeader } from '@alias/utils/jwt.utils'
 import { JWTPayload, UserType } from '@alias/validators'
 import { User } from '@alias/models'
 import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
+import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import { ApiError } from '@alias/utils'
 
 /**
@@ -29,7 +30,7 @@ export const validateAuthToken = async (token: string, expectedUserType?: UserTy
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token.')
   }
 
-  const user = await User.findById(payload.user_id).select('is_active user_type').lean()
+  const user = await User.findById(payload.user_id).select('is_active user_type profile_id').lean()
   if (!user || !user.is_active || user.user_type !== payload.user_type) {
     throw new ApiError(
       !user || user.user_type !== payload.user_type ? StatusCodes.UNAUTHORIZED : StatusCodes.FORBIDDEN,
@@ -37,6 +38,10 @@ export const validateAuthToken = async (token: string, expectedUserType?: UserTy
         ? 'Invalid or expired authentication token.'
         : 'Account is inactive. Please contact support.'
     )
+  }
+
+  if (!await hasActiveHospitalAccess(user)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
   }
 
   const session = await findActiveSessionForAccessToken({

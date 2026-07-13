@@ -927,7 +927,7 @@ paths:
   /admin/roles:
     get:
       tags: [Admin]
-      summary: List role settings
+      summary: List persisted role policy definitions
       responses:
         "200":
           description: Roles retrieved
@@ -943,7 +943,7 @@ paths:
   /admin/roles/{roleKey}:
     put:
       tags: [Admin]
-      summary: Update role settings
+      summary: Update persisted role permissions
       parameters:
         - in: path
           name: roleKey
@@ -3067,6 +3067,8 @@ components:
           type: boolean
         manage_billing:
           type: boolean
+        manage_system:
+          type: boolean
       additionalProperties:
         type: boolean
 
@@ -3290,10 +3292,6 @@ components:
           description: Used as login_id when provided.
         login_id:
           type: string
-        password:
-          type: string
-          format: password
-          default: Default@123
         role:
           type: string
           enum: [app_admin, hospital_admin, auditor]
@@ -3334,6 +3332,12 @@ components:
               properties:
                 user:
                   $ref: "#/components/schemas/AdminConsoleUser"
+                temporary_password:
+                  type: string
+                  description: Generated per invite; share securely with the invited admin.
+                must_change_password:
+                  type: boolean
+                  description: Always true for invited admin accounts.
 
     AdminUserEntityResponse:
       allOf:

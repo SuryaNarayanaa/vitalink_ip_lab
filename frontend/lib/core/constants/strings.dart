@@ -30,6 +30,7 @@ class AppStrings {
   static const String authRefreshPath = '$apiPathPrefix/auth/refresh';
   static const String authRevokePath = '$apiPathPrefix/auth/revoke';
   static const String logoutPath = '$apiPathPrefix/auth/logout';
+  static const String deviceRegisterPath = '$apiPathPrefix/devices/register';
   static const String adminTotpSetupPath =
       '$apiPathPrefix/auth/admin/mfa/totp/setup';
   static const String adminTotpStatusPath =
@@ -68,6 +69,8 @@ class AppStrings {
       '$apiPathPrefix/admin/notifications/broadcast';
   static const String adminBatchPath = '$apiPathPrefix/admin/users/batch';
   static const String adminHealthPath = '$apiPathPrefix/admin/system/health';
+  static const String adminReminderDeliveryHealthPath =
+      '$apiPathPrefix/admin/system/reminder-delivery-health';
   static const String adminResetPasswordPath = '$apiPathPrefix/admin/users';
 
   /// Statistics endpoints.

@@ -72,6 +72,10 @@ describe('Patient File Upload Routes', () => {
                 age: 45,
                 gender: 'Male',
                 phone: '9876543210',
+                phone_verification: {
+                    status: 'VERIFIED',
+                    verified_at: new Date(),
+                },
                 next_of_kin: {
                     name: 'Emergency Contact',
                     relation: 'Spouse',

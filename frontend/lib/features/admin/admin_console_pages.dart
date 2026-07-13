@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
+import 'package:frontend/core/widgets/admin/admin_action_confirmation.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
 
@@ -81,12 +84,14 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                   details: [
                     _Detail(Icons.tag_rounded, id),
                     _Detail(Icons.place_rounded, '${h['location'] ?? '--'}'),
-                    _Detail(Icons.mail_outline_rounded, '${h['admin'] ?? '--'}'),
+                    _Detail(
+                        Icons.mail_outline_rounded, '${h['admin'] ?? '--'}'),
                     _Detail(
                       Icons.medical_services_outlined,
                       '${h['doctors'] ?? 0} doctors',
                     ),
-                    _Detail(Icons.people_outline, '${h['patients'] ?? 0} patients'),
+                    _Detail(
+                        Icons.people_outline, '${h['patients'] ?? 0} patients'),
                   ],
                   menu: [
                     PopupMenuItem(
@@ -101,7 +106,8 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                       value: 'status',
                       child: Text(status == 'active' ? 'Suspend' : 'Activate'),
                       onTap: () => Future.microtask(
-                        () => _setHospitalStatus(
+                        () => _confirmHospitalStatus(
+                          name,
                           id,
                           status == 'active' ? 'suspended' : 'active',
                         ),
@@ -110,7 +116,9 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                     PopupMenuItem(
                       value: 'delete',
                       child: const Text('Deactivate'),
-                      onTap: () => Future.microtask(() => _deleteHospital(id)),
+                      onTap: () => Future.microtask(
+                        () => _confirmHospitalDeactivation(name, id),
+                      ),
                     ),
                   ],
                 );
@@ -123,18 +131,56 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
     );
   }
 
-  Future<void> _setHospitalStatus(String id, String status) async {
-    await _runAction(() => _repo.updateHospitalStatus(id, status));
+  Future<void> _confirmHospitalStatus(
+    String hospitalName,
+    String id,
+    String status,
+  ) async {
+    final action = status == 'suspended' ? 'Suspend' : 'Activate';
+    final confirmed = await showAdminActionConfirmation(
+      context,
+      title: '$action $hospitalName?',
+      message: status == 'suspended'
+          ? 'Staff and patients will lose access until this hospital is reactivated.'
+          : 'This restores hospital access. Deactivated user accounts must be reactivated separately.',
+      confirmLabel: action,
+    );
+    if (!confirmed || !mounted) return;
+    await _runAction(
+      () => _repo.updateHospitalStatus(id, status),
+      status == 'suspended'
+          ? '$hospitalName suspended successfully.'
+          : '$hospitalName activated. Deactivated user accounts remain inactive until reactivated.',
+    );
   }
 
-  Future<void> _deleteHospital(String id) async {
-    await _runAction(() => _repo.deleteHospital(id));
+  Future<void> _confirmHospitalDeactivation(
+      String hospitalName, String id) async {
+    final confirmed = await showAdminActionConfirmation(
+      context,
+      title: 'Deactivate $hospitalName?',
+      message:
+          'This removes platform access for the hospital. You can reactivate it later.',
+      confirmLabel: 'Deactivate',
+    );
+    if (!confirmed || !mounted) return;
+    await _runAction(
+      () => _repo.deleteHospital(id),
+      '$hospitalName deactivated successfully.',
+    );
   }
 
-  Future<void> _runAction(Future<dynamic> Function() action) async {
+  Future<void> _runAction(
+    Future<dynamic> Function() action,
+    String successMessage,
+  ) async {
     try {
       await action();
+      if (!mounted) return;
       _refresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
     } catch (e) {
       if (mounted) _showError(context, e);
     }
@@ -145,7 +191,8 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
     Map<String, dynamic>? hospital,
   }) async {
     final name = TextEditingController(text: '${hospital?['name'] ?? ''}');
-    final location = TextEditingController(text: '${hospital?['location'] ?? ''}');
+    final location =
+        TextEditingController(text: '${hospital?['location'] ?? ''}');
     final admin = TextEditingController(text: '${hospital?['admin'] ?? ''}');
     var status = '${hospital?['status'] ?? 'active'}';
     final id = '${hospital?['id'] ?? hospital?['_id'] ?? ''}';
@@ -158,18 +205,26 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Hospital name')),
+              TextField(
+                  controller: name,
+                  decoration:
+                      const InputDecoration(labelText: 'Hospital name')),
               const SizedBox(height: 12),
-              TextField(controller: location, decoration: const InputDecoration(labelText: 'Location')),
+              TextField(
+                  controller: location,
+                  decoration: const InputDecoration(labelText: 'Location')),
               const SizedBox(height: 12),
-              TextField(controller: admin, decoration: const InputDecoration(labelText: 'Admin email')),
+              TextField(
+                  controller: admin,
+                  decoration: const InputDecoration(labelText: 'Admin email')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: status,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: const [
                   DropdownMenuItem(value: 'active', child: Text('Active')),
-                  DropdownMenuItem(value: 'suspended', child: Text('Suspended')),
+                  DropdownMenuItem(
+                      value: 'suspended', child: Text('Suspended')),
                 ],
                 onChanged: (value) => status = value ?? status,
               ),
@@ -177,7 +232,9 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
               final data = {
@@ -272,8 +329,10 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                   title: '${u['name'] ?? u['email'] ?? 'User'}',
                   badge: role.replaceAll('_', ' '),
                   details: [
-                    _Detail(Icons.mail_outline_rounded, '${u['email'] ?? '--'}'),
-                    _Detail(Icons.local_hospital_outlined, '${u['hospital'] ?? 'ALL'}'),
+                    _Detail(
+                        Icons.mail_outline_rounded, '${u['email'] ?? '--'}'),
+                    _Detail(Icons.local_hospital_outlined,
+                        '${u['hospital'] ?? 'ALL'}'),
                     _Detail(Icons.verified_user_outlined, status),
                   ],
                   menu: [
@@ -282,7 +341,11 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         value: r,
                         child: Text('Set ${r.replaceAll('_', ' ')}'),
                         onTap: () => Future.microtask(
-                          () => _runAction(() => _repo.updateUser(id, {'role': r})),
+                          () => r == 'hospital_admin'
+                              ? _showHospitalAdminRoleDialog(id,
+                                  '${u['name'] ?? u['email'] ?? 'this user'}')
+                              : _runAction(
+                                  () => _repo.updateUser(id, {'role': r})),
                         ),
                       ),
                     ),
@@ -293,11 +356,25 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         () => _runAction(
                           () => _repo.updateUser(
                             id,
-                            {'status': status == 'active' ? 'inactive' : 'active'},
+                            {
+                              'status':
+                                  status == 'active' ? 'inactive' : 'active'
+                            },
                           ),
                         ),
                       ),
                     ),
+                    if (role == 'app_admin' ||
+                        role == 'hospital_admin' ||
+                        role == 'auditor')
+                      PopupMenuItem(
+                        value: 'reset_mfa',
+                        child: const Text('Reset authenticator'),
+                        onTap: () => Future.microtask(
+                          () => _resetAuthenticator(id,
+                              '${u['name'] ?? u['email'] ?? 'this administrator'}'),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -306,6 +383,196 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
         );
         return _pageScaffold(context, 'Users', content);
       },
+    );
+  }
+
+  Future<void> _showHospitalAdminRoleDialog(
+    String userId,
+    String userName,
+  ) async {
+    final hospitalsRequest = _repo.getHospitals(status: 'active');
+    String? selectedHospitalId;
+    String? selectionError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => FutureBuilder<Map<String, dynamic>>(
+        future: hospitalsRequest,
+        builder: (context, snapshot) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hospitals = snapshot.data?['hospitals'] as List? ?? const [];
+            final hospitalsReady =
+                snapshot.connectionState == ConnectionState.done &&
+                    !snapshot.hasError;
+            return AlertDialog(
+              title: const Text('Assign Hospital Admin'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$userName will be able to manage users and clinical operations only for the hospital selected below.',
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedHospitalId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'Active hospital',
+                        errorText: snapshot.hasError
+                            ? 'Could not load hospitals. Close this dialog and try again.'
+                            : selectionError,
+                      ),
+                      items: hospitals.map((item) {
+                        final hospital = item as Map<String, dynamic>;
+                        final id =
+                            (hospital['_id'] ?? hospital['id']).toString();
+                        final label =
+                            '${hospital['name'] ?? hospital['code'] ?? 'Hospital'} (${hospital['id'] ?? ''})';
+                        return DropdownMenuItem(
+                          value: id,
+                          child: Text(label, overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: hospitalsReady
+                          ? (value) => setDialogState(() {
+                                selectedHospitalId = value;
+                                selectionError = null;
+                              })
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: hospitalsReady
+                      ? () async {
+                          if (selectedHospitalId == null) {
+                            setDialogState(() {
+                              selectionError = 'Select an active hospital.';
+                            });
+                            return;
+                          }
+                          try {
+                            await _repo.updateUser(userId, {
+                              'role': 'hospital_admin',
+                              'hospital_id': selectedHospitalId,
+                            });
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            _refresh();
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              _showError(dialogContext, e);
+                            }
+                          }
+                        }
+                      : null,
+                  child: const Text('Assign role'),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _resetAuthenticator(String userId, String userName) async {
+    final shouldReset = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset authenticator?'),
+        content: Text(
+          'This replaces $userName\'s existing authenticator setup and signs them out on every device. '
+          'You must give the new QR code only to that administrator.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reset authenticator'),
+          ),
+        ],
+      ),
+    );
+    if (shouldReset != true || !mounted) return;
+
+    try {
+      final result = await _repo.resetUserAuthenticator(userId);
+      if (!mounted) return;
+      _refresh();
+      await _showReplacementQr(
+        userName,
+        (result['setup'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    }
+  }
+
+  Future<void> _showReplacementQr(String userName, Map<String, dynamic> setup) {
+    final otpauthUrl = '${setup['otpauth_url'] ?? ''}';
+    final secret = '${setup['secret'] ?? ''}';
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New authenticator setup'),
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                  'Have $userName scan this code on their new phone before they sign in.'),
+              const SizedBox(height: 16),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: QrImageView(
+                    data: otpauthUrl,
+                    version: QrVersions.auto,
+                    size: 208,
+                    backgroundColor: Colors.white,
+                    semanticsLabel: 'Replacement authenticator setup QR code',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SelectableText('Manual setup key: $secret'),
+              const SizedBox(height: 12),
+              Text(
+                'This QR code is shown only now. Do not take a screenshot or send it through email or chat.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done')),
+        ],
+      ),
     );
   }
 
@@ -321,59 +588,160 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
   Future<void> _showInviteDialog(BuildContext context) async {
     final name = TextEditingController();
     final email = TextEditingController();
-    final hospital = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final hospitalsRequest = _repo.getHospitals(status: 'active');
     var role = 'hospital_admin';
+    String? selectedHospitalId;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Invite User'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Full name')),
-              const SizedBox(height: 12),
-              TextField(controller: email, decoration: const InputDecoration(labelText: 'Email / login ID')),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: role,
-                decoration: const InputDecoration(labelText: 'Role'),
-                items: const [
-                  DropdownMenuItem(value: 'hospital_admin', child: Text('Hospital Admin')),
-                  DropdownMenuItem(value: 'auditor', child: Text('System Auditor')),
-                  DropdownMenuItem(value: 'app_admin', child: Text('App Admin')),
-                ],
-                onChanged: (value) => role = value ?? role,
+      builder: (dialogContext) => FutureBuilder<Map<String, dynamic>>(
+        future: hospitalsRequest,
+        builder: (context, snapshot) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hospitals = snapshot.data?['hospitals'] as List? ?? const [];
+            final hospitalSelectionReady =
+                snapshot.connectionState == ConnectionState.done &&
+                    !snapshot.hasError;
+            return AlertDialog(
+              title: const Text('Invite User'),
+              content: SizedBox(
+                width: 420,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: name,
+                        decoration:
+                            const InputDecoration(labelText: 'Full name'),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                                ? 'Enter the admin\'s name.'
+                                : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: email,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                            labelText: 'Email / login ID'),
+                        validator: (value) => value == null ||
+                                !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                    .hasMatch(value.trim())
+                            ? 'Enter a valid email address.'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: role,
+                        decoration: const InputDecoration(labelText: 'Role'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'hospital_admin',
+                              child: Text('Hospital Admin')),
+                          DropdownMenuItem(
+                              value: 'auditor', child: Text('System Auditor')),
+                          DropdownMenuItem(
+                              value: 'app_admin', child: Text('App Admin')),
+                        ],
+                        onChanged: (value) =>
+                            setDialogState(() => role = value ?? role),
+                      ),
+                      if (role == 'hospital_admin') ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedHospitalId,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Hospital',
+                            helperText: hospitalSelectionReady
+                                ? 'This admin can manage only this active hospital.'
+                                : null,
+                            errorText: snapshot.hasError
+                                ? 'Could not load hospitals. Close this dialog and try again.'
+                                : null,
+                          ),
+                          items: hospitals.map((item) {
+                            final hospital = item as Map<String, dynamic>;
+                            final id =
+                                (hospital['_id'] ?? hospital['id']).toString();
+                            final label =
+                                '${hospital['name'] ?? hospital['code'] ?? 'Hospital'} (${hospital['id'] ?? ''})';
+                            return DropdownMenuItem(
+                                value: id,
+                                child: Text(label,
+                                    overflow: TextOverflow.ellipsis));
+                          }).toList(),
+                          onChanged: hospitalSelectionReady
+                              ? (value) => setDialogState(
+                                  () => selectedHospitalId = value)
+                              : null,
+                          validator: (value) => role == 'hospital_admin' &&
+                                  (value == null || value.isEmpty)
+                              ? 'Select an active hospital.'
+                              : null,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 12),
-              TextField(controller: hospital, decoration: const InputDecoration(labelText: 'Hospital code or ID')),
-            ],
-          ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: role == 'hospital_admin' && !hospitalSelectionReady
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          try {
+                            final result = await _repo.inviteUser({
+                              'name': name.text.trim(),
+                              'email': email.text.trim(),
+                              'role': role,
+                              if (role == 'hospital_admin')
+                                'hospital_id': selectedHospitalId,
+                            });
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            _refresh();
+                            if (context.mounted) {
+                              final temporaryPassword =
+                                  result['temporary_password'] as String?;
+                              await showDialog<void>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Admin invited'),
+                                  content: Text(temporaryPassword == null
+                                      ? 'The invited admin must change their password on first sign-in.'
+                                      : 'Share this temporary password securely. The invited admin must change it on first sign-in:\n\n$temporaryPassword'),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Done'))
+                                  ],
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              _showError(dialogContext, e);
+                            }
+                          }
+                        },
+                  child: const Text('Invite'),
+                ),
+              ],
+            );
+          },
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              try {
-                await _repo.inviteUser({
-                  'name': name.text.trim(),
-                  'email': email.text.trim(),
-                  'role': role,
-                  if (hospital.text.trim().isNotEmpty) 'hospital_id': hospital.text.trim(),
-                  'password': 'Default@123',
-                });
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                _refresh();
-              } catch (e) {
-                if (dialogContext.mounted) _showError(dialogContext, e);
-              }
-            },
-            child: const Text('Invite'),
-          ),
-        ],
       ),
     );
+    name.dispose();
+    email.dispose();
   }
 }
 
@@ -402,16 +770,19 @@ class _RolesRbacPageState extends State<RolesRbacPage> {
         queryFn: _repo.getRoles,
       ),
       builder: (context, query) {
-        final roles = (query.data?['roles'] as Map?)?.cast<String, dynamic>() ?? {};
+        final roles =
+            (query.data?['roles'] as Map?)?.cast<String, dynamic>() ?? {};
         final roleKeys = roles.keys.toList();
         final perms = <String>{
           for (final role in roles.values)
-            ...(((role as Map)['permissions'] as Map?)?.keys.cast<String>() ?? const <String>[]),
+            ...(((role as Map)['permissions'] as Map?)?.keys.cast<String>() ??
+                const <String>[]),
         }.toList()
           ..sort();
         final content = _AdminListShell(
           title: 'Roles & RBAC',
-          subtitle: 'Review and update platform permission mappings.',
+          subtitle:
+              'Role permissions are enforced across administrative routes.',
           actions: [
             FilledButton.icon(
               onPressed: _draft.isEmpty ? null : () => _saveRoles(roleKeys),
@@ -432,16 +803,17 @@ class _RolesRbacPageState extends State<RolesRbacPage> {
                     role: roles[roleKey] as Map<String, dynamic>,
                     permissions: perms,
                     draft: _draft[roleKey],
-                    onChanged: (perm, value) {
-                      setState(() {
-                        final current = Map<String, dynamic>.from(
-                          ((roles[roleKey] as Map)['permissions'] as Map)
-                              .cast<String, dynamic>(),
-                        );
-                        _draft[roleKey] = {...current, ...?_draft[roleKey]};
-                        _draft[roleKey]![perm] = value;
-                      });
-                    },
+                    onChanged: (permission, value) => setState(() {
+                      final current = Map<String, dynamic>.from(
+                        ((roles[roleKey] as Map)['permissions'] as Map)
+                            .cast<String, dynamic>(),
+                      );
+                      _draft[roleKey] = {
+                        ...current,
+                        ...?_draft[roleKey],
+                        permission: value
+                      };
+                    }),
                   ),
               ],
             ),
@@ -509,7 +881,7 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
           onSearch: () => setState(() {}),
           actions: [
             FilledButton.icon(
-              onPressed: () => _runAction(() => _repo.generateInvoices()),
+              onPressed: _confirmInvoiceGeneration,
               icon: const Icon(Icons.receipt_long_rounded),
               label: const Text('Generate'),
             ),
@@ -530,10 +902,14 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
                   title: id,
                   badge: status,
                   details: [
-                    _Detail(Icons.local_hospital_outlined, '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}'),
-                    _Detail(Icons.workspace_premium_outlined, '${invoice['plan'] ?? '--'}'),
-                    _Detail(Icons.currency_rupee_rounded, '${invoice['amount'] ?? 0}'),
-                    _Detail(Icons.event_outlined, 'Due ${_date(invoice['due'])}'),
+                    _Detail(Icons.local_hospital_outlined,
+                        '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}'),
+                    _Detail(Icons.workspace_premium_outlined,
+                        '${invoice['plan'] ?? '--'}'),
+                    _Detail(Icons.currency_rupee_rounded,
+                        '${invoice['amount'] ?? 0}'),
+                    _Detail(
+                        Icons.event_outlined, 'Due ${_date(invoice['due'])}'),
                   ],
                   menu: [
                     PopupMenuItem(
@@ -541,7 +917,7 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
                       value: 'checkout',
                       child: const Text('Create checkout'),
                       onTap: () => Future.microtask(
-                        () => _runAction(() => _repo.createInvoiceCheckout(id)),
+                        () => _startInvoiceCheckout(id),
                       ),
                     ),
                   ],
@@ -555,10 +931,75 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
     );
   }
 
-  Future<void> _runAction(Future<dynamic> Function() action) async {
+  Future<void> _confirmInvoiceGeneration() async {
+    final period = TextEditingController(
+      text:
+          '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}',
+    );
+    final billingPeriod = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Generate invoices?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+                'This creates invoices for every active hospital. Existing invoices for the same billing period will be kept.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: period,
+              decoration: const InputDecoration(
+                  labelText: 'Billing period (YYYY-MM)', hintText: '2026-07'),
+              keyboardType: TextInputType.datetime,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final value = period.text.trim();
+              if (RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(value)) {
+                Navigator.pop(dialogContext, value);
+              }
+            },
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+    period.dispose();
+    if (billingPeriod == null || !mounted) return;
+
     try {
-      await action();
+      final result = await _repo.generateInvoices(billingPeriod: billingPeriod);
+      if (!mounted) return;
       _refresh();
+      final created = result['created'] as num? ?? 0;
+      final existing = result['already_existing'] as num? ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$created created; $existing already existed for $billingPeriod.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    }
+  }
+
+  Future<void> _startInvoiceCheckout(String invoiceId) async {
+    try {
+      final result = await _repo.createInvoiceCheckout(invoiceId);
+      final checkoutUrl = result['checkout_url'] as String?;
+      if (checkoutUrl == null ||
+          !await launchUrl(Uri.parse(checkoutUrl),
+              mode: LaunchMode.externalApplication)) {
+        throw StateError('Unable to open the configured payment checkout.');
+      }
     } catch (e) {
       if (mounted) _showError(context, e);
     }
@@ -647,7 +1088,9 @@ class _QueryBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (query.isLoading) return const Center(child: CircularProgressIndicator());
+    if (query.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (query.isError) {
       return ApiErrorState(
         error: query.error,
@@ -713,7 +1156,8 @@ class _AdminRecordCard extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(d.icon, size: 15, color: theme.colorScheme.outline),
+                            Icon(d.icon,
+                                size: 15, color: theme.colorScheme.outline),
                             const SizedBox(width: 4),
                             Text(d.text, style: theme.textTheme.bodySmall),
                           ],
@@ -723,7 +1167,8 @@ class _AdminRecordCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (menu.isNotEmpty) PopupMenuButton<String>(itemBuilder: (_) => menu),
+            if (menu.isNotEmpty)
+              PopupMenuButton<String>(itemBuilder: (_) => menu),
           ],
         ),
       ),
@@ -759,7 +1204,8 @@ class _RoleCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${role['label'] ?? roleKey}', style: Theme.of(context).textTheme.titleMedium),
+            Text('${role['label'] ?? roleKey}',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -769,7 +1215,11 @@ class _RoleCard extends StatelessWidget {
                   FilterChip(
                     label: Text(permission.replaceAll('_', ' ')),
                     selected: values[permission] == true,
-                    onSelected: (value) => onChanged(permission, value),
+                    // Backend always retains app_admin.manage_roles so role policy cannot be locked out.
+                    onSelected:
+                        roleKey == 'app_admin' && permission == 'manage_roles'
+                            ? null
+                            : (value) => onChanged(permission, value),
                   ),
               ],
             ),
@@ -788,11 +1238,12 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final lower = label.toLowerCase();
     final theme = Theme.of(context);
-    final color = (lower == 'active' || lower.contains(' paid') || lower == 'paid')
-        ? Colors.green
-        : lower.contains('suspend') || lower.contains('overdue')
-            ? Colors.orange
-            : theme.colorScheme.primary;
+    final color =
+        (lower == 'active' || lower.contains(' paid') || lower == 'paid')
+            ? Colors.green
+            : lower.contains('suspend') || lower.contains('overdue')
+                ? Colors.orange
+                : theme.colorScheme.primary;
     return Chip(
       label: Text(label),
       visualDensity: VisualDensity.compact,

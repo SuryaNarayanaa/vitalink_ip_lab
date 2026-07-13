@@ -1,5 +1,22 @@
 import { z } from 'zod'
+import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
+
+const adminRoleSchema = z.enum(['app_admin', 'hospital_admin', 'auditor'])
+const roleKeySchema = z.enum(['app_admin', 'hospital_admin', 'doctor', 'patient', 'auditor'])
+const rolePermissionsSchema = z.object({
+  manage_hospitals: z.boolean().optional(),
+  manage_users: z.boolean().optional(),
+  manage_roles: z.boolean().optional(),
+  view_audit: z.boolean().optional(),
+  manage_doctors: z.boolean().optional(),
+  manage_patients: z.boolean().optional(),
+  export_data: z.boolean().optional(),
+  manage_billing: z.boolean().optional(),
+  manage_system: z.boolean().optional(),
+}).strict().refine(value => Object.keys(value).length > 0, {
+  message: 'At least one permission is required',
+})
 
 // ─── Param Schemas ───
 
@@ -57,6 +74,11 @@ export const getDoctorsSchema = z.object({
 
 // ─── Patient Schemas ───
 
+const targetInrSchema = z.object({
+  min: z.number().finite().positive(),
+  max: z.number().finite().positive(),
+}).refine(value => value.min < value.max, 'Target INR minimum must be less than maximum')
+
 export const createPatientSchema = z.object({
   body: z.object({
     login_id: z.string().min(3, 'Login ID must be at least 3 characters'),
@@ -87,12 +109,7 @@ export const createPatientSchema = z.object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
         therapy_start_date: z.string().optional(),
-        target_inr: z
-          .object({
-            min: z.number().positive(),
-            max: z.number().positive(),
-          })
-          .optional(),
+        target_inr: targetInrSchema.optional(),
       })
       .optional(),
     hospital_id: z.string().optional(),
@@ -126,12 +143,7 @@ export const updatePatientSchema = z.object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
         therapy_start_date: z.string().optional(),
-        target_inr: z
-          .object({
-            min: z.number().positive(),
-            max: z.number().positive(),
-          })
-          .optional(),
+        target_inr: targetInrSchema.optional(),
       })
       .optional(),
     assigned_doctor_id: z.string().optional(),
@@ -171,12 +183,85 @@ export const updateSystemConfigSchema = z.object({
       critical_low: z.number().positive().optional(),
       critical_high: z.number().positive().optional(),
     }).optional(),
-    session_timeout_minutes: z.number().int().positive().optional(),
+    session_timeout_minutes: z.number().int().positive().max(MAX_SESSION_TIMEOUT_MINUTES).optional(),
     rate_limit: z.object({
       max_requests: z.number().int().positive().optional(),
       window_minutes: z.number().int().positive().optional(),
     }).optional(),
     feature_flags: z.record(z.string(), z.boolean()).optional(),
+  }).strict().superRefine((value, ctx) => {
+    const thresholds = value.inr_thresholds
+    if (thresholds?.critical_low !== undefined &&
+      thresholds.critical_high !== undefined &&
+      thresholds.critical_low >= thresholds.critical_high) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['inr_thresholds', 'critical_low'],
+        message: 'Critical low threshold must be less than critical high threshold',
+      })
+    }
+  }),
+})
+
+const hospitalStatusSchema = z.enum(['active', 'suspended', 'inactive'])
+const hospitalBodySchema = z.object({
+  code: z.string().min(1).max(32).optional(),
+  name: z.string().min(1).max(200),
+  location: z.string().min(1).max(200),
+  admin_email: z.string().email(),
+  status: hospitalStatusSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict()
+
+export const createHospitalSchema = z.object({ body: hospitalBodySchema })
+export const updateHospitalSchema = z.object({
+  params: z.object({ id: z.string().min(1) }),
+  body: hospitalBodySchema.partial().refine(value => Object.keys(value).length > 0, 'At least one field is required'),
+})
+export const updateHospitalStatusSchema = z.object({
+  params: z.object({ id: z.string().min(1) }),
+  body: z.object({ status: hospitalStatusSchema }).strict(),
+})
+
+export const inviteAdminUserSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(200),
+    email: z.string().email(),
+    role: adminRoleSchema,
+    hospital_id: z.string().min(1).optional(),
+  }).strict(),
+})
+
+export const generateInvoicesSchema = z.object({
+  body: z.object({
+    billing_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'billing_period must be YYYY-MM'),
+    plan: z.string().min(1).max(200).optional(),
+    amount: z.number().finite().nonnegative().optional(),
+  }).strict(),
+})
+
+export const invoiceIdParamSchema = z.object({ params: z.object({ invoiceId: z.string().min(1) }) })
+
+export const updateAdminUserSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'User ID is required'),
+  }),
+  body: z.object({
+    role: adminRoleSchema.optional(),
+    name: z.string().min(1).optional(),
+    hospital_id: z.string().min(1).optional(),
+    hospital: z.string().min(1).optional(),
+    is_active: z.boolean().optional(),
+    status: z.enum(['active', 'inactive']).optional(),
+  }).strict(),
+})
+
+export const updateRoleSchema = z.object({
+  params: z.object({
+    roleKey: roleKeySchema,
+  }),
+  body: z.object({
+    permissions: rolePermissionsSchema,
   }).strict(),
 })
 

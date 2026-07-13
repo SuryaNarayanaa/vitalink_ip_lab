@@ -75,7 +75,8 @@ describe('Statistics Routes', () => {
             name: 'Dr. Workload One',
             department: 'Cardiology',
             contact_number: '9555555551',
-            hospital_id: primaryHospital._id
+            hospital_id: primaryHospital._id,
+            phone_verification: { status: 'VERIFIED', verified_at: new Date() },
         });
 
         doctorOneUser = await User.create({
@@ -91,7 +92,8 @@ describe('Statistics Routes', () => {
             name: 'Dr. Workload Two',
             department: 'Neurology',
             contact_number: '9555555552',
-            hospital_id: secondaryHospital._id
+            hospital_id: secondaryHospital._id,
+            phone_verification: { status: 'VERIFIED', verified_at: new Date() },
         });
 
         doctorTwoUser = await User.create({

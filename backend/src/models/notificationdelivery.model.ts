@@ -65,6 +65,13 @@ const NotificationDeliverySchema = new mongoose.Schema({
     default: () => new Date(),
     index: true,
   },
+  /** Lease metadata for a worker that has claimed this row. */
+  processing_started_at: {
+    type: Date,
+  },
+  processing_lease_id: {
+    type: String,
+  },
   provider_message_id: {
     type: String,
   },
@@ -104,6 +111,7 @@ const NotificationDeliverySchema = new mongoose.Schema({
 
 NotificationDeliverySchema.index({ idempotency_key: 1 }, { unique: true })
 NotificationDeliverySchema.index({ status: 1, next_attempt_at: 1 })
+NotificationDeliverySchema.index({ status: 1, processing_started_at: 1 })
 NotificationDeliverySchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
 NotificationDeliverySchema.index({ user_id: 1, createdAt: -1 })
 

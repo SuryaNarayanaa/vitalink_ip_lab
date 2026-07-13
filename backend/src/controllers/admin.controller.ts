@@ -4,6 +4,9 @@ import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
+import { Notification, NotificationDelivery } from '@alias/models'
+import { getTenantUserIdsForAdmin } from '@alias/services/admin.service'
+import { getDeliveryMetrics } from '@alias/services/notification-delivery.metrics'
 
 // ─── Doctor Management ───
 
@@ -97,6 +100,7 @@ export const getSystemConfig = asyncHandler(async (req: Request, res: Response) 
 })
 
 export const updateSystemConfig = asyncHandler(async (req: Request, res: Response) => {
+  adminService.requireCanMutate(await adminService.getAdminContext(req.user?.user_id))
   const config = await configService.updateSystemConfig(req.body)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'System config updated', config))
 })
@@ -104,6 +108,7 @@ export const updateSystemConfig = asyncHandler(async (req: Request, res: Respons
 // ─── Notifications ───
 
 export const broadcastNotification = asyncHandler(async (req: Request, res: Response) => {
+  adminService.requireCanMutate(await adminService.getAdminContext(req.user?.user_id))
   const { title, message, target, user_ids, priority } = req.body
   const result = await notificationService.broadcastNotification(title, message, target, user_ids, priority, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification broadcast successful', result))
@@ -122,6 +127,30 @@ export const performBatchOperation = asyncHandler(async (req: Request, res: Resp
 export const getSystemHealth = asyncHandler(async (req: Request, res: Response) => {
   const health = await adminService.getSystemHealth()
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'System health', health))
+})
+
+/** Reminder-only operational health, scoped to the requesting admin's tenant. */
+export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: Response) => {
+  const tenantUserIds = await getTenantUserIdsForAdmin(req.user?.user_id)
+  const reminderTypes = ['DOSAGE_REMINDER', 'INR_REMINDER', 'APPOINTMENT_REMINDER', 'CRITICAL_ALERT']
+  const notificationQuery: any = { type: { $in: reminderTypes } }
+  if (tenantUserIds) notificationQuery.user_id = { $in: tenantUserIds }
+  const notifications = await Notification.find(notificationQuery).select('_id type createdAt').lean()
+  const notificationIds = notifications.map((row) => row._id)
+  const deliveries = notificationIds.length
+    ? await NotificationDelivery.find({ notification_id: { $in: notificationIds } }).select('status notification_id next_attempt_at').lean()
+    : []
+  const byStatus: Record<string, number> = {}
+  for (const row of deliveries) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const overdue = deliveries.filter((row) => ['PENDING', 'QUEUED', 'FAILED_RETRYABLE'].includes(row.status) && row.next_attempt_at <= new Date()).length
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Reminder delivery health', {
+    remindersLast24Hours: notifications.filter((row) => row.createdAt >= twentyFourHoursAgo).length,
+    totalReminders: notifications.length,
+    deliveriesByStatus: byStatus,
+    overdueDeliveries: overdue,
+    processMetrics: getDeliveryMetrics(),
+  }))
 })
 
 // ─── Legacy Endpoints ───
@@ -228,4 +257,9 @@ export const inviteUser = asyncHandler(async (req: Request, res: Response) => {
 export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.updateAdminUser(req.params.id, req.body, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'User updated successfully', result))
+})
+
+export const resetUserAuthenticator = asyncHandler(async (req: Request, res: Response) => {
+  const result = await adminService.resetAdminAuthenticator(req.params.id, req.user?.user_id)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Authenticator reset successfully', result))
 })

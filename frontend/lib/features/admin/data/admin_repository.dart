@@ -153,6 +153,10 @@ class AdminRepository {
     return _apiClient.put('${AppStrings.adminUsersPath}/$id', data: data);
   }
 
+  Future<Map<String, dynamic>> resetUserAuthenticator(String id) async {
+    return _apiClient.post('${AppStrings.adminUsersPath}/$id/mfa/reset');
+  }
+
   Future<Map<String, dynamic>> getRoles() async {
     final response = await _apiClient.getRaw(AppStrings.adminRolesPath);
     return _extractData(response);
@@ -161,12 +165,9 @@ class AdminRepository {
   Future<Map<String, dynamic>> updateRole(
     String roleKey,
     Map<String, dynamic> permissions,
-  ) async {
-    return _apiClient.put(
-      '${AppStrings.adminRolesPath}/$roleKey',
-      data: {'permissions': permissions},
-    );
-  }
+  ) =>
+      _apiClient.put('${AppStrings.adminRolesPath}/$roleKey',
+          data: {'permissions': permissions});
 
   Future<Map<String, dynamic>> getInvoices() async {
     final response = await _apiClient.getRaw(AppStrings.adminInvoicesPath);
@@ -174,12 +175,14 @@ class AdminRepository {
   }
 
   Future<Map<String, dynamic>> generateInvoices({
+    required String billingPeriod,
     String? plan,
     num? amount,
   }) async {
     return _apiClient.post(
       AppStrings.adminInvoicesPath,
       data: {
+        'billing_period': billingPeriod,
         if (plan != null) 'plan': plan,
         if (amount != null) 'amount': amount,
       },
@@ -308,6 +311,10 @@ class AdminRepository {
   Future<SystemHealthModel> getSystemHealth() async {
     final response = await _apiClient.get(AppStrings.adminHealthPath);
     return SystemHealthModel.fromJson(response);
+  }
+
+  Future<Map<String, dynamic>> getReminderDeliveryHealth() async {
+    return _apiClient.get(AppStrings.adminReminderDeliveryHealthPath);
   }
 
   // ─── Statistics ───

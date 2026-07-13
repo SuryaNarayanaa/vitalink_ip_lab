@@ -59,6 +59,16 @@ const OtpChallengeSchema = new mongoose.Schema({
   provider_status: {
     type: String,
   },
+  provider_reservation_id: {
+    type: String,
+  },
+  provider_reservation_operation: {
+    type: String,
+    enum: ['resend', 'verify'],
+  },
+  provider_reservation_expires_at: {
+    type: Date,
+  },
   expires_at: {
     type: Date,
     required: [true, 'OTP expiration is required'],

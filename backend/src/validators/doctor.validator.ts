@@ -1,16 +1,11 @@
 import { z } from 'zod'
 import { therapy_drug } from '.'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 const dosageScheduleBaseSchema = z.object({
-  monday: z.number().default(0),
-  tuesday: z.number().default(0),
-  wednesday: z.number().default(0),
-  thursday: z.number().default(0),
-  friday: z.number().default(0),
-  saturday: z.number().default(0),
-  sunday: z.number().default(0)
-})
+  monday: z.number().finite().nonnegative().default(0), tuesday: z.number().finite().nonnegative().default(0), wednesday: z.number().finite().nonnegative().default(0), thursday: z.number().finite().nonnegative().default(0), friday: z.number().finite().nonnegative().default(0), saturday: z.number().finite().nonnegative().default(0), sunday: z.number().finite().nonnegative().default(0)
+}).refine(value => Object.values(value).some(dose => dose > 0), 'At least one scheduled dose must be positive')
 
 const dosageScheduleSchema = dosageScheduleBaseSchema.optional()
 
@@ -22,20 +17,7 @@ const ddmmyyyy = z.preprocess((arg) => {
   if (arg === null || arg === undefined || arg === '') return undefined;
   if (arg instanceof Date) return arg;
   if (typeof arg === 'string') {
-    const isoDate = new Date(arg);
-    if (!isNaN(isoDate.getTime())) return isoDate;
-
-    const ddmmyyyyMatch = arg.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    if (ddmmyyyyMatch) {
-      const [, day, month, year] = ddmmyyyyMatch;
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    }
-
-    const yyyymmddMatch = arg.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (yyyymmddMatch) {
-      const [, year, month, day] = yyyymmddMatch;
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    }
+    return parseStrictDateOnly(arg)
   }
   return undefined;
 }, z.date().optional())
@@ -53,8 +35,8 @@ export const createPatient = z.object({
     age: z.number("age should be a number").max(100, "Age cannot exceed 100").optional(),
     gender: z.enum(["Male", "Female", "Other"], "The gender should be a valid option"),
     contact_no: primaryPhoneNumberSchema,
-    target_inr_min: z.number("target_inr_min should be a number").optional(),
-    target_inr_max: z.number("target_inr_max should be a number").optional(),
+    target_inr_min: z.number().finite().positive().optional(),
+    target_inr_max: z.number().finite().positive().optional(),
     therapy: z.enum(therapy_drug, "Therapy Drug Should only Take The given Drug Values").optional(),
     therapy_start_date: ddmmyyyy.optional(),
     prescription: dosageScheduleSchema,
@@ -62,7 +44,7 @@ export const createPatient = z.object({
     kin_name: z.string("kin_name should be string").optional(),
     kin_relation: z.string("Relation should be string").optional(),
     kin_contact_number: z.string("contact_number should be a string"),
-  })
+  }).refine(value => value.target_inr_min === undefined || value.target_inr_max === undefined || value.target_inr_min < value.target_inr_max, 'Target INR minimum must be less than maximum')
 })
 
 export type CreatePatientInput = z.infer<typeof createPatient>

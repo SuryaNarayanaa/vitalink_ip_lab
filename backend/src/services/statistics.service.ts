@@ -102,7 +102,8 @@ export async function getInrComplianceStats(actorUserId?: string) {
       continue
     }
 
-    const latest = history[history.length - 1]
+    const latest = history.filter((entry: any) => entry?.test_date && !Number.isNaN(new Date(entry.test_date).getTime())).sort((a: any, b: any) => +new Date(b.test_date) - +new Date(a.test_date))[0]
+    if (!latest) { noData++; continue }
     const targetMin = (patient as any).medical_config?.target_inr?.min || 2.0
     const targetMax = (patient as any).medical_config?.target_inr?.max || 3.0
 

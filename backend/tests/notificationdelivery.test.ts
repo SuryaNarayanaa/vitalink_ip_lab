@@ -9,8 +9,10 @@ import * as firebaseConfig from '@alias/config/firebase.config'
 import {
   buildIdempotencyKey,
   createPushDeliveryOutbox,
+  claimDeliveryForProcessing,
   enqueueNotificationPush,
   processNotificationDelivery,
+  recoverDueDeliveries,
   sanitizeDeliveryError,
 } from '@alias/services/notification-delivery.service'
 import {
@@ -31,6 +33,7 @@ import { config } from '@alias/config'
 import PatientProfile from '@alias/models/patientprofile.model'
 import User from '@alias/models/user.model'
 import { runDosageReminderPass } from '@alias/jobs/dosage.scheduler'
+import { runClinicalReminderPass } from '@alias/jobs/clinical-reminder.scheduler'
 
 describe('Notification delivery durability', () => {
   let mongoContainer: StartedTestContainer
@@ -39,6 +42,7 @@ describe('Notification delivery durability', () => {
   const originalDeliveryEnabled = config.notificationDeliveryEnabled
   const originalMaxAttempts = config.notificationDeliveryMaxAttempts
   const originalBackoff = config.notificationDeliveryBaseBackoffMs
+  const originalProcessingLeaseMs = config.notificationDeliveryProcessingLeaseMs
 
   beforeAll(async () => {
     mongoContainer = await new GenericContainer('mongo:7.0')
@@ -71,6 +75,7 @@ describe('Notification delivery durability', () => {
     ;(config as any).notificationDeliveryEnabled = originalDeliveryEnabled
     ;(config as any).notificationDeliveryMaxAttempts = originalMaxAttempts
     ;(config as any).notificationDeliveryBaseBackoffMs = originalBackoff
+    ;(config as any).notificationDeliveryProcessingLeaseMs = originalProcessingLeaseMs
 
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close()
@@ -83,6 +88,7 @@ describe('Notification delivery durability', () => {
     resetDeliveryMetrics()
     ;(config as any).notificationDeliveryMaxAttempts = 5
     ;(config as any).notificationDeliveryBaseBackoffMs = 10
+    ;(config as any).notificationDeliveryProcessingLeaseMs = 60_000
     await Promise.all([
       Notification.deleteMany({}),
       NotificationDelivery.deleteMany({}),
@@ -128,9 +134,10 @@ describe('Notification delivery durability', () => {
       await createPushDeliveryOutbox(input)
       return true
     }
+    const publish = jest.fn()
     const [first, duplicate] = await Promise.all([
-      runDosageReminderPass(monday, enqueue),
-      runDosageReminderPass(monday, enqueue),
+      runDosageReminderPass(monday, enqueue, publish),
+      runDosageReminderPass(monday, enqueue, publish),
     ])
 
     expect(first.created + duplicate.created).toBe(1)
@@ -142,6 +149,15 @@ describe('Notification delivery durability', () => {
     const notification = await Notification.findOne({ type: 'DOSAGE_REMINDER' }).lean()
     expect(notification?.reminder_key).toBe(`dosage:${userId}:2026-07-13`)
     expect(notification?.data).toMatchObject({ dueWindow: '2026-07-13' })
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledWith(
+      String(userId),
+      'notification',
+      expect.objectContaining({
+        type: 'DOSAGE_REMINDER',
+        data: expect.objectContaining({ route: 'patient-take-dosage' }),
+      })
+    )
   })
 
   test('dosage reminder repairs a missing outbox on a repeated pass', async () => {
@@ -176,6 +192,61 @@ describe('Notification delivery durability', () => {
     expect(repaired).toEqual({ created: 0, skipped: 1, failed: 0 })
     expect(await Notification.countDocuments({ type: 'DOSAGE_REMINDER' })).toBe(1)
     expect(await NotificationDelivery.countDocuments()).toBe(1)
+  })
+
+  test('clinical reminder pass creates INR, review, and patient/doctor missed-dose reminders once', async () => {
+    const now = new Date('2026-07-13T09:00:00.000Z')
+    const doctorProfileId = new mongoose.Types.ObjectId()
+    const doctorUserId = new mongoose.Types.ObjectId()
+    const profile = await PatientProfile.create({
+      demographics: { name: 'Escalation Patient' },
+      assigned_doctor_id: doctorUserId,
+      medical_config: {
+        therapy_start_date: new Date('2026-05-01T00:00:00.000Z'),
+        next_review_date: new Date('2026-07-15T00:00:00.000Z'),
+        taken_doses: [],
+      },
+      weekly_dosage: { monday: 5, tuesday: 5, wednesday: 5, thursday: 5, friday: 5, saturday: 5, sunday: 5 },
+      account_status: 'Active',
+    })
+    const patientUserId = new mongoose.Types.ObjectId()
+    await User.collection.insertMany([
+      { _id: patientUserId, login_id: 'clinical-patient', password: 'x', salt: 'x', user_type: 'PATIENT', user_type_model: 'PatientProfile', profile_id: profile._id, is_active: true },
+      { _id: doctorUserId, login_id: 'clinical-doctor', password: 'x', salt: 'x', user_type: 'DOCTOR', user_type_model: 'DoctorProfile', profile_id: doctorProfileId, is_active: true },
+    ] as any)
+
+    const first = await runClinicalReminderPass(now)
+    const repeat = await runClinicalReminderPass(now)
+
+    expect(first).toEqual({ created: 4, skipped: 0, failed: 0 })
+    expect(repeat).toEqual({ created: 0, skipped: 4, failed: 0 })
+    expect(await Notification.countDocuments({ user_id: patientUserId })).toBe(3)
+    expect(await Notification.countDocuments({ user_id: doctorUserId })).toBe(1)
+    expect(await NotificationDelivery.countDocuments()).toBe(4)
+  })
+
+  test('clinical reminder pass supports legacy doctor profile IDs during migration', async () => {
+    const now = new Date('2026-07-13T09:00:00.000Z')
+    const doctorProfileId = new mongoose.Types.ObjectId()
+    const doctorUserId = new mongoose.Types.ObjectId()
+    const profile = await PatientProfile.create({
+      demographics: { name: 'Legacy Assignment Patient' },
+      assigned_doctor_id: doctorProfileId,
+      medical_config: { taken_doses: [] },
+      weekly_dosage: { saturday: 5, sunday: 5 },
+      account_status: 'Active',
+    })
+    const patientUserId = new mongoose.Types.ObjectId()
+    await User.collection.insertMany([
+      { _id: patientUserId, login_id: 'legacy-clinical-patient', password: 'x', salt: 'x', user_type: 'PATIENT', user_type_model: 'PatientProfile', profile_id: profile._id, is_active: true },
+      { _id: doctorUserId, login_id: 'legacy-clinical-doctor', password: 'x', salt: 'x', user_type: 'DOCTOR', user_type_model: 'DoctorProfile', profile_id: doctorProfileId, is_active: true },
+    ] as any)
+
+    const result = await runClinicalReminderPass(now)
+
+    expect(result).toEqual({ created: 2, skipped: 0, failed: 0 })
+    expect(await Notification.countDocuments({ user_id: patientUserId, type: 'CRITICAL_ALERT' })).toBe(1)
+    expect(await Notification.countDocuments({ user_id: doctorUserId, type: 'CRITICAL_ALERT' })).toBe(1)
   })
 
   test('sanitizeDeliveryError redacts long tokens and truncates', () => {
@@ -244,6 +315,54 @@ describe('Notification delivery durability', () => {
     expect(updated?.attempts).toBe(1)
     expect(updated?.completed_at).toBeTruthy()
     expect(getDeliveryMetrics().succeeded).toBe(1)
+  })
+
+  test('reports a stale lease when recovery reassigns a delivery before its result is persisted', async () => {
+    const notification = await seedNotification()
+    await DeviceToken.create({
+      user_id: notification.user_id,
+      fcm_token: 'stale-lease-token',
+      platform: 'android',
+      is_active: true,
+    })
+
+    let releaseSend: (() => void) | undefined
+    let signalSendStarted: (() => void) | undefined
+    const sendStarted = new Promise<void>(resolve => { signalSendStarted = resolve })
+    const sendRelease = new Promise<void>(resolve => { releaseSend = resolve })
+    jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({
+      sendEachForMulticast: jest.fn(async () => {
+        signalSendStarted?.()
+        await sendRelease
+        return {
+          responses: [{ success: true, messageId: 'stale-lease-message' }],
+          successCount: 1,
+          failureCount: 0,
+        }
+      }),
+    } as any)
+
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+
+    const processing = processNotificationDelivery(String(delivery._id))
+    await sendStarted
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_lease_id: 'reclaimed-by-recovery' } }
+    )
+    releaseSend?.()
+
+    expect((await processing).outcome).toBe('stale_lease')
+    const row = await NotificationDelivery.findById(delivery._id).lean()
+    expect(row?.status).toBe(NotificationDeliveryStatus.PROCESSING)
+    expect(row?.processing_lease_id).toBe('reclaimed-by-recovery')
+    expect(getDeliveryMetrics().succeeded).toBe(0)
+    expect(getDeliveryMetrics().stale_lease).toBe(1)
   })
 
   test('transient provider failure retries without creating duplicate in-app notifications', async () => {
@@ -452,6 +571,73 @@ describe('Notification delivery durability', () => {
     const second = await processNotificationDelivery(String(delivery._id))
     expect(second.outcome).toBe('already_terminal')
     expect((await NotificationDelivery.findById(delivery._id))?.attempts).toBe(1)
+  })
+
+  test('recovery reclaims an expired processing lease', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_started_at: new Date(Date.now() - 61_000) } }
+    )
+
+    const queue = await import('@alias/jobs/notification-delivery.queue')
+    jest.spyOn(queue, 'isNotificationQueueAvailable').mockReturnValue(true)
+    jest.spyOn(queue, 'publishDeliveryJob').mockResolvedValue(true)
+
+    expect(await recoverDueDeliveries()).toBe(1)
+    const recovered = await NotificationDelivery.findById(delivery._id).lean()
+    expect(recovered?.status).toBe(NotificationDeliveryStatus.QUEUED)
+    expect(recovered?.last_error).toBe('processing_lease_expired')
+    expect(recovered?.processing_started_at).toBeUndefined()
+    expect(recovered?.processing_lease_id).toBeUndefined()
+  })
+
+  test('recovery does not steal a recently claimed delivery', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+
+    expect(await recoverDueDeliveries()).toBe(0)
+    const unchanged = await NotificationDelivery.findById(delivery._id).lean()
+    expect(unchanged?.status).toBe(NotificationDeliveryStatus.PROCESSING)
+    expect(unchanged?.processing_started_at).toBeTruthy()
+  })
+
+  test('concurrent recovery workers reclaim an expired processing lease only once', async () => {
+    const notification = await seedNotification()
+    const { delivery } = await createPushDeliveryOutbox({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+    })
+    await claimDeliveryForProcessing(String(delivery._id))
+    await NotificationDelivery.updateOne(
+      { _id: delivery._id },
+      { $set: { processing_started_at: new Date(Date.now() - 61_000) } }
+    )
+
+    const queue = await import('@alias/jobs/notification-delivery.queue')
+    jest.spyOn(queue, 'isNotificationQueueAvailable').mockReturnValue(true)
+    const publish = jest.spyOn(queue, 'publishDeliveryJob').mockResolvedValue(true)
+
+    const recovered = await Promise.all([recoverDueDeliveries(), recoverDueDeliveries()])
+    expect(recovered[0] + recovered[1]).toBe(1)
+    expect(publish).toHaveBeenCalledTimes(1)
+    const row = await NotificationDelivery.findById(delivery._id).lean()
+    expect(row?.status).toBe(NotificationDeliveryStatus.QUEUED)
   })
 
   test('BullMQ worker processes a published delivery when Redis is available', async () => {

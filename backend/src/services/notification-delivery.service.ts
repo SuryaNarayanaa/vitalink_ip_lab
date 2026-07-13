@@ -1,4 +1,5 @@
 import { config } from '@alias/config'
+import crypto from 'crypto'
 import NotificationDelivery, {
   NotificationDeliveryChannel,
   NotificationDeliveryProvider,
@@ -9,6 +10,7 @@ import {
   incrementDeliveryMetric,
 } from '@alias/services/notification-delivery.metrics'
 import logger from '@alias/utils/logger'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 const TERMINAL_STATUSES = new Set([
   NotificationDeliveryStatus.SUCCEEDED,
@@ -21,6 +23,18 @@ const CLAIMABLE_STATUSES = [
   NotificationDeliveryStatus.QUEUED,
   NotificationDeliveryStatus.FAILED_RETRYABLE,
 ]
+
+function expiredProcessingClaimFilter(now: Date) {
+  const leaseExpiry = new Date(now.getTime() - config.notificationDeliveryProcessingLeaseMs)
+  return {
+    status: NotificationDeliveryStatus.PROCESSING,
+    $or: [
+      { processing_started_at: { $lte: leaseExpiry } },
+      // Rows created before leases were introduced still need a safe recovery path.
+      { processing_started_at: { $exists: false }, updatedAt: { $lte: leaseExpiry } },
+    ],
+  }
+}
 
 export type EnqueuePushInput = {
   notificationId: string
@@ -158,6 +172,10 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
  * Failures after a durable write are logged; callers should not fail clinical mutations.
  */
 export async function enqueueNotificationPush(input: EnqueuePushInput): Promise<boolean> {
+  if (!await isFeatureEnabled('notifications_enabled')) {
+    return false
+  }
+
   let deliveryId: string | undefined
   try {
     const { delivery } = await createPushDeliveryOutbox(input)
@@ -207,6 +225,7 @@ export async function enqueueNotificationPush(input: EnqueuePushInput): Promise<
  */
 export async function claimDeliveryForProcessing(deliveryId: string) {
   const now = new Date()
+  const leaseId = crypto.randomUUID()
   const claimed = await NotificationDelivery.findOneAndUpdate(
     {
       _id: deliveryId,
@@ -217,6 +236,8 @@ export async function claimDeliveryForProcessing(deliveryId: string) {
     {
       $set: {
         status: NotificationDeliveryStatus.PROCESSING,
+        processing_started_at: now,
+        processing_lease_id: leaseId,
       },
       $inc: { attempts: 1 },
     },
@@ -227,6 +248,7 @@ export async function claimDeliveryForProcessing(deliveryId: string) {
 
 async function markTerminal(
   deliveryId: string,
+  leaseId: string | undefined,
   status:
     | NotificationDeliveryStatus.SUCCEEDED
     | NotificationDeliveryStatus.SKIPPED
@@ -236,31 +258,47 @@ async function markTerminal(
     last_error?: string
   } = {}
 ) {
-  await NotificationDelivery.updateOne(
-    { _id: deliveryId },
+  const result = await NotificationDelivery.updateOne(
+    {
+      _id: deliveryId,
+      status: NotificationDeliveryStatus.PROCESSING,
+      processing_lease_id: leaseId,
+    },
     {
       $set: {
         status,
         completed_at: new Date(),
         ...fields,
       },
+      $unset: { processing_started_at: 1, processing_lease_id: 1 },
     }
   )
+  return result.modifiedCount > 0
 }
 
-async function markRetryable(deliveryId: string, attempts: number, lastError: string) {
+async function markRetryable(
+  deliveryId: string,
+  leaseId: string | undefined,
+  attempts: number,
+  lastError: string
+) {
   const nextAttempt = computeNextAttemptAt(attempts)
-  await NotificationDelivery.updateOne(
-    { _id: deliveryId },
+  const result = await NotificationDelivery.updateOne(
+    {
+      _id: deliveryId,
+      status: NotificationDeliveryStatus.PROCESSING,
+      processing_lease_id: leaseId,
+    },
     {
       $set: {
         status: NotificationDeliveryStatus.FAILED_RETRYABLE,
         next_attempt_at: nextAttempt,
         last_error: lastError,
       },
+      $unset: { processing_started_at: 1, processing_lease_id: 1 },
     }
   )
-  return nextAttempt
+  return { nextAttempt, updated: result.modifiedCount > 0 }
 }
 
 /**
@@ -275,6 +313,7 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
     | 'dead_letter'
     | 'not_claimable'
     | 'already_terminal'
+    | 'stale_lease'
   nextAttemptAt?: Date
 }> {
   const existing = await NotificationDelivery.findById(deliveryId).lean()
@@ -301,14 +340,25 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
     body: delivery.body,
     data: payloadDataAsRecord(delivery.data as any),
   }
+  const staleLease = () => {
+    incrementDeliveryMetric('stale_lease')
+    logger.warn('notification_delivery.stale_lease', {
+      deliveryId,
+      notificationId: String(delivery.notification_id),
+      userId: String(delivery.user_id),
+      attempts: delivery.attempts,
+    })
+    return { outcome: 'stale_lease' as const }
+  }
 
   try {
     const result = await sendPushToUser(String(delivery.user_id), payload)
 
     if (result.skipped) {
-      await markTerminal(deliveryId, NotificationDeliveryStatus.SKIPPED, {
+      const updated = await markTerminal(deliveryId, delivery.processing_lease_id, NotificationDeliveryStatus.SKIPPED, {
         last_error: result.skipReason ? `skipped:${result.skipReason}` : 'skipped',
       })
+      if (!updated) return staleLease()
       incrementDeliveryMetric('skipped')
       logger.info('notification_delivery.skipped', {
         deliveryId,
@@ -321,9 +371,10 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
     }
 
     if (result.success) {
-      await markTerminal(deliveryId, NotificationDeliveryStatus.SUCCEEDED, {
+      const updated = await markTerminal(deliveryId, delivery.processing_lease_id, NotificationDeliveryStatus.SUCCEEDED, {
         provider_message_id: result.providerMessageIds[0],
       })
+      if (!updated) return staleLease()
       incrementDeliveryMetric('succeeded')
       logger.info('notification_delivery.succeeded', {
         deliveryId,
@@ -342,9 +393,10 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
       result.errorMessage || result.errorCode || 'transient_provider_failure'
     )
     if (delivery.attempts >= delivery.max_attempts) {
-      await markTerminal(deliveryId, NotificationDeliveryStatus.DEAD_LETTER, {
+      const updated = await markTerminal(deliveryId, delivery.processing_lease_id, NotificationDeliveryStatus.DEAD_LETTER, {
         last_error: sanitized,
       })
+      if (!updated) return staleLease()
       incrementDeliveryMetric('dead_letter')
       logger.error('notification_delivery.dead_letter', {
         deliveryId,
@@ -356,7 +408,8 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
       return { outcome: 'dead_letter' }
     }
 
-    const nextAttemptAt = await markRetryable(deliveryId, delivery.attempts, sanitized)
+    const { nextAttempt, updated } = await markRetryable(deliveryId, delivery.processing_lease_id, delivery.attempts, sanitized)
+    if (!updated) return staleLease()
     incrementDeliveryMetric('retryable')
     logger.warn('notification_delivery.retryable', {
       deliveryId,
@@ -364,16 +417,17 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
       userId: String(delivery.user_id),
       attempts: delivery.attempts,
       maxAttempts: delivery.max_attempts,
-      nextAttemptAt: nextAttemptAt.toISOString(),
+      nextAttemptAt: nextAttempt.toISOString(),
       lastError: sanitized,
     })
-    return { outcome: 'retryable', nextAttemptAt }
+    return { outcome: 'retryable', nextAttemptAt: nextAttempt }
   } catch (error) {
     const sanitized = sanitizeDeliveryError(error)
     if (delivery.attempts >= delivery.max_attempts) {
-      await markTerminal(deliveryId, NotificationDeliveryStatus.DEAD_LETTER, {
+      const updated = await markTerminal(deliveryId, delivery.processing_lease_id, NotificationDeliveryStatus.DEAD_LETTER, {
         last_error: sanitized,
       })
+      if (!updated) return staleLease()
       incrementDeliveryMetric('dead_letter')
       logger.error('notification_delivery.dead_letter', {
         deliveryId,
@@ -385,40 +439,46 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
       return { outcome: 'dead_letter' }
     }
 
-    const nextAttemptAt = await markRetryable(deliveryId, delivery.attempts, sanitized)
+    const { nextAttempt, updated } = await markRetryable(deliveryId, delivery.processing_lease_id, delivery.attempts, sanitized)
+    if (!updated) return staleLease()
     incrementDeliveryMetric('retryable')
     logger.warn('notification_delivery.retryable', {
       deliveryId,
       notificationId: String(delivery.notification_id),
       userId: String(delivery.user_id),
       attempts: delivery.attempts,
-      nextAttemptAt: nextAttemptAt.toISOString(),
+      nextAttemptAt: nextAttempt.toISOString(),
       lastError: sanitized,
     })
-    return { outcome: 'retryable', nextAttemptAt }
+    return { outcome: 'retryable', nextAttemptAt: nextAttempt }
   }
 }
 
 /**
- * Re-queue or directly process due outbox rows (PENDING / FAILED_RETRYABLE / stuck QUEUED).
+ * Re-queue or directly process due outbox rows, including expired PROCESSING leases.
  * Used when Redis was unavailable at enqueue time or after restarts.
  */
 export async function recoverDueDeliveries(limit = 50): Promise<number> {
   const now = new Date()
   const due = await NotificationDelivery.find({
-    status: {
-      $in: [
-        NotificationDeliveryStatus.PENDING,
-        NotificationDeliveryStatus.QUEUED,
-        NotificationDeliveryStatus.FAILED_RETRYABLE,
-      ],
-    },
-    next_attempt_at: { $lte: now },
-    $expr: { $lt: ['$attempts', '$max_attempts'] },
+    $or: [
+      {
+        status: {
+          $in: [
+            NotificationDeliveryStatus.PENDING,
+            NotificationDeliveryStatus.QUEUED,
+            NotificationDeliveryStatus.FAILED_RETRYABLE,
+          ],
+        },
+        next_attempt_at: { $lte: now },
+        $expr: { $lt: ['$attempts', '$max_attempts'] },
+      },
+      expiredProcessingClaimFilter(now),
+    ],
   })
     .sort({ next_attempt_at: 1 })
     .limit(limit)
-    .select({ _id: 1 })
+    .select({ _id: 1, status: 1, attempts: 1, max_attempts: 1 })
     .lean()
 
   if (!due.length) return 0
@@ -430,6 +490,34 @@ export async function recoverDueDeliveries(limit = 50): Promise<number> {
 
   for (const row of due) {
     const id = String(row._id)
+    if (row.status === NotificationDeliveryStatus.PROCESSING) {
+      const exhausted = row.attempts >= row.max_attempts
+      const reclaimed = await NotificationDelivery.updateOne(
+        { _id: row._id, ...expiredProcessingClaimFilter(now) },
+        exhausted
+          ? {
+              $set: {
+                status: NotificationDeliveryStatus.DEAD_LETTER,
+                completed_at: now,
+                last_error: 'processing_lease_expired',
+              },
+              $unset: { processing_started_at: 1, processing_lease_id: 1 },
+            }
+          : {
+              $set: {
+                status: NotificationDeliveryStatus.FAILED_RETRYABLE,
+                next_attempt_at: now,
+                last_error: 'processing_lease_expired',
+              },
+              $unset: { processing_started_at: 1, processing_lease_id: 1 },
+            }
+      )
+      if (!reclaimed.modifiedCount) continue
+      if (exhausted) {
+        incrementDeliveryMetric('dead_letter')
+        continue
+      }
+    }
     claimed += 1
     incrementDeliveryMetric('recovery_claimed')
 
