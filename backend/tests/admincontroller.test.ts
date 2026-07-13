@@ -653,6 +653,19 @@ describe('Admin Routes', () => {
             expect(response.data.data.is_active).toBe(false);
         });
 
+        test('should not move a doctor who still has assigned patients', async () => {
+            const response = await api.put(`/api/admin/doctors/${primaryDoctorUser._id}`, {
+                hospital_id: secondaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+
+            expect(response.status).toBe(409);
+            expect(response.data.message).toMatch(/still has assigned patients/i);
+            const profile = await DoctorProfile.findById(primaryDoctorUser.profile_id);
+            expect(String(profile?.hospital_id)).toBe(primaryHospital._id.toString());
+        });
+
         test('should fail when deactivating non-existent doctor', async () => {
             const response = await api.delete(`/api/admin/doctors/${new mongoose.Types.ObjectId().toString()}`, {
                 headers: { Authorization: `Bearer ${adminToken}` }
@@ -800,6 +813,51 @@ describe('Admin Routes', () => {
             expect(response.data.data.profile_id.demographics.phone).toBe('+919222222222');
             expect(response.data.data.profile_id.demographics.phone_verification.status).toBe('VERIFIED');
             expect(response.data.data.profile_id.demographics.phone_verification.verified_at).toBeDefined();
+        });
+
+        test('should reject conflicting assigned doctor and hospital updates without a partial write', async () => {
+            const before = await PatientProfile.findById(baselinePatientUser.profile_id).lean();
+            const response = await api.put(`/api/admin/patients/${baselinePatientUser._id}`, {
+                assigned_doctor_id: primaryDoctorUser._id.toString(),
+                hospital_id: secondaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.message).toMatch(/same hospital/i);
+            const after = await PatientProfile.findById(baselinePatientUser.profile_id).lean();
+            expect(String(after?.assigned_doctor_id)).toBe(String(before?.assigned_doctor_id));
+            expect(String(after?.hospital_id)).toBe(String(before?.hospital_id));
+        });
+
+        test('should accept matching assigned doctor and hospital updates', async () => {
+            const response = await api.put(`/api/admin/patients/${baselinePatientUser._id}`, {
+                assigned_doctor_id: primaryDoctorUser._id.toString(),
+                hospital_id: primaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+
+            expect(response.status).toBe(200);
+            const profile = await PatientProfile.findById(baselinePatientUser.profile_id).lean();
+            expect(String(profile?.assigned_doctor_id)).toBe(primaryDoctorUser._id.toString());
+            expect(String(profile?.hospital_id)).toBe(primaryHospital._id.toString());
+        });
+
+        test('should reject a hospital-only move that conflicts with the retained doctor', async () => {
+            const before = await PatientProfile.findById(baselinePatientUser.profile_id).lean();
+            const response = await api.put(`/api/admin/patients/${baselinePatientUser._id}`, {
+                hospital_id: secondaryHospital._id.toString(),
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+
+            expect(response.status).toBe(403);
+            expect(response.data.message).toMatch(/same hospital/i);
+            const after = await PatientProfile.findById(baselinePatientUser.profile_id).lean();
+            expect(String(after?.assigned_doctor_id)).toBe(String(before?.assigned_doctor_id));
+            expect(String(after?.hospital_id)).toBe(String(before?.hospital_id));
         });
 
         test('should reassign patient to another doctor', async () => {

@@ -86,6 +86,17 @@ async function findDoctorByIdentifier(identifier: string) {
   return doctor
 }
 
+async function findDoctorByAssignment(assignedDoctorId: unknown) {
+  if (!assignedDoctorId) return null
+  return User.findOne({
+    user_type: UserType.DOCTOR,
+    $or: [
+      { _id: assignedDoctorId },
+      { profile_id: assignedDoctorId },
+    ],
+  })
+}
+
 export async function getAdminContext(userId?: string) {
   const user = userId ? await User.findById(userId).populate({
     path: 'profile_id',
@@ -729,6 +740,15 @@ export async function updateDoctor(
   if (data.hospital_id || data.hospital) {
     profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
     ensureTenantAccess(ctx, profileUpdate.hospital_id)
+    const currentHospitalId = doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined
+    if (String(profileUpdate.hospital_id) !== String(currentHospitalId || '')) {
+      const assignedPatients = await PatientProfile.countDocuments({
+        assigned_doctor_id: { $in: [user._id, user.profile_id] },
+      })
+      if (assignedPatients > 0) {
+        throw new ApiError(StatusCodes.CONFLICT, 'Cannot move a doctor who still has assigned patients')
+      }
+    }
   }
 
   if (Object.keys(profileUpdate).length > 0) {
@@ -980,19 +1000,42 @@ export async function updatePatient(
   if (data.medical_config) profileUpdate.medical_config = data.medical_config
   if (data.account_status) profileUpdate.account_status = data.account_status
 
+  let requestedHospitalId: string | undefined
+  if (data.hospital_id || data.hospital) {
+    requestedHospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
+    ensureTenantAccess(ctx, requestedHospitalId)
+  }
+
   if (data.assigned_doctor_id) {
     const doctorUser = await findDoctorByIdentifier(data.assigned_doctor_id)
     if (!doctorUser || doctorUser.user_type !== UserType.DOCTOR || !doctorUser.is_active) {
       throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid or inactive doctor ID')
     }
-    profileUpdate.assigned_doctor_id = doctorUser._id
     const doctorProfile: any = await DoctorProfile.findById(doctorUser.profile_id)
-    ensureTenantAccess(ctx, doctorProfile?.hospital_id)
-    if (doctorProfile?.hospital_id) profileUpdate.hospital_id = doctorProfile.hospital_id
-  }
-  if (data.hospital_id || data.hospital) {
-    profileUpdate.hospital_id = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
-    ensureTenantAccess(ctx, profileUpdate.hospital_id)
+    const doctorHospitalId = doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined
+    if (!doctorHospitalId) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Assigned doctor must be assigned to a hospital')
+    }
+    ensureTenantAccess(ctx, doctorHospitalId)
+    if (requestedHospitalId && requestedHospitalId !== doctorHospitalId) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Assigned doctor must belong to the same hospital as the patient')
+    }
+    profileUpdate.assigned_doctor_id = doctorUser._id
+    profileUpdate.hospital_id = doctorHospitalId
+  } else if (requestedHospitalId) {
+    const retainedDoctor = await findDoctorByAssignment(patientProfile?.assigned_doctor_id)
+    if (retainedDoctor) {
+      const retainedDoctorProfile: any = await DoctorProfile.findById(retainedDoctor.profile_id)
+      const retainedDoctorHospitalId = retainedDoctorProfile?.hospital_id
+        ? String(retainedDoctorProfile.hospital_id)
+        : undefined
+      if (!retainedDoctorHospitalId || retainedDoctorHospitalId !== requestedHospitalId) {
+        throw new ApiError(StatusCodes.FORBIDDEN, 'Assigned doctor must belong to the same hospital as the patient')
+      }
+    } else if (patientProfile?.assigned_doctor_id) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient has an invalid assigned doctor')
+    }
+    profileUpdate.hospital_id = requestedHospitalId
   }
 
   if (Object.keys(profileUpdate).length > 0) {

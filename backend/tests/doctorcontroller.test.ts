@@ -327,6 +327,33 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patient).toBeDefined();
         });
 
+        test('should remove the profile when patient user creation fails on standalone Mongo', async () => {
+            const startSessionSpy = jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+                withTransaction: jest.fn().mockRejectedValue(new Error('Transaction numbers are only allowed on a replica set member')),
+                endSession: jest.fn(),
+            } as any);
+            const createUserSpy = jest.spyOn(User, 'create').mockRejectedValue(new Error('Simulated patient user creation failure'));
+            const patientName = 'Patient Cleanup Verification';
+
+            try {
+                const response = await api.post('/api/doctors/patients', {
+                    name: patientName,
+                    op_num: 'PAT_CLEANUP',
+                    gender: 'Male',
+                    contact_no: '7111111111',
+                    kin_contact_number: '7222222222',
+                }, {
+                    headers: { Authorization: `Bearer ${doctorToken}` },
+                });
+
+                expect(response.status).toBe(500);
+                expect(await PatientProfile.countDocuments({ 'demographics.name': patientName })).toBe(0);
+            } finally {
+                createUserSpy.mockRestore();
+                startSessionSpy.mockRestore();
+            }
+        });
+
         test('should fail with duplicate op_num', async () => {
             const duplicatePatient = {
                 name: 'Duplicate Patient',

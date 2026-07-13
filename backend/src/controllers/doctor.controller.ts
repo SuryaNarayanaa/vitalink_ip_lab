@@ -106,6 +106,36 @@ const getDoctorUserOrThrow = async (userId: string) => {
   return doctor
 }
 
+async function createPatientProfileAndUser(
+  createProfile: (session?: mongoose.ClientSession) => Promise<any>,
+  createUser: (profileId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) => Promise<any>,
+) {
+  const session = await mongoose.startSession()
+  let profile: any
+  try {
+    await session.withTransaction(async () => {
+      profile = await createProfile(session)
+      await createUser(profile._id, session)
+    })
+    return profile
+  } catch (error: any) {
+    if (!/Transaction numbers are only allowed|replica set member|Transaction support/i.test(String(error?.message))) {
+      throw error
+    }
+    profile = undefined
+    try {
+      profile = await createProfile()
+      await createUser(profile._id)
+      return profile
+    } catch (fallbackError) {
+      if (profile?._id) await profile.deleteOne()
+      throw fallbackError
+    }
+  } finally {
+    await session.endSession()
+  }
+}
+
 const getPatientUserOrThrow = async (op_num: string) => {
   const normalizedOpNum = normalizeLoginId(op_num)
   const patientUsers = await User.find({ login_id: normalizedOpNum, user_type: UserType.PATIENT }).limit(2)
@@ -289,30 +319,37 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
     }
   }
 
-  const patientProfile = await PatientProfile.create({
-    assigned_doctor_id: doctorUser._id,
-    hospital_id: hospitalId,
-    demographics: {
-      name,
-      age,
-      gender,
-      phone: contact_no,
-      next_of_kin: { name: kin_name, relation: kin_relation, phone: kin_contact_number },
-    },
-    medical_config: {
-      therapy_drug: therapy,
-      therapy_start_date: parsedTherapyStartDate,
-      target_inr: {
-        min: target_inr_min ?? 2.0,
-        max: target_inr_max ?? 3.0,
-      },
-    },
-    medical_history: medical_history ?? undefined,
-    weekly_dosage: prescription ?? undefined,
-  })
-
   const tempPassword = contact_no
-  await User.create({ login_id: normalizedOpNum, password: tempPassword, user_type: UserType.PATIENT, profile_id: patientProfile._id })
+  const patientProfile = await createPatientProfileAndUser(
+    session => PatientProfile.create([{
+      assigned_doctor_id: doctorUser._id,
+      hospital_id: hospitalId,
+      demographics: {
+        name,
+        age,
+        gender,
+        phone: contact_no,
+        next_of_kin: { name: kin_name, relation: kin_relation, phone: kin_contact_number },
+      },
+      medical_config: {
+        therapy_drug: therapy,
+        therapy_start_date: parsedTherapyStartDate,
+        target_inr: {
+          min: target_inr_min ?? 2.0,
+          max: target_inr_max ?? 3.0,
+        },
+      },
+      medical_history: medical_history ?? undefined,
+      weekly_dosage: prescription ?? undefined,
+    }], session ? { session } : undefined).then(([profile]) => profile),
+    (profileId, session) => User.create([{
+      login_id: normalizedOpNum,
+      password: tempPassword,
+      user_type: UserType.PATIENT,
+      profile_id: profileId,
+      user_type_model: 'PatientProfile',
+    }], session ? { session } : undefined).then(([user]) => user),
+  )
 
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Patient created successfully', { patient: patientProfile }))
 })
