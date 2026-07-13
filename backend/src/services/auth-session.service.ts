@@ -101,8 +101,9 @@ export const refreshAuthSession = async ({
   ipAddress?: string
   userAgent?: string | string[]
 }) => {
+  const refreshTokenHash = hashRefreshToken(refreshToken)
   const session = await AuthSession.findOne({
-    refresh_token_hash: hashRefreshToken(refreshToken),
+    refresh_token_hash: refreshTokenHash,
     revoked_at: { $exists: false },
     expires_at: { $gt: new Date() },
   })
@@ -116,29 +117,48 @@ export const refreshAuthSession = async ({
     return null
   }
 
-  session.access_token_id = crypto.randomUUID()
+  const accessTokenId = crypto.randomUUID()
   const replacementRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url')
-  session.refresh_token_hash = hashRefreshToken(replacementRefreshToken)
+  const replacementRefreshTokenHash = hashRefreshToken(replacementRefreshToken)
   const timeoutMinutes = await getSessionTimeoutMinutes()
-  session.expires_at = getSessionExpiry(timeoutMinutes)
-  session.last_used_at = new Date()
-  session.ip_address = ipAddress
-  session.user_agent = Array.isArray(userAgent) ? userAgent.join(', ') : userAgent
-  await session.save()
+  const expiresAt = getSessionExpiry(timeoutMinutes)
+  const rotatedSession = await AuthSession.findOneAndUpdate(
+    {
+      _id: session._id,
+      refresh_token_hash: refreshTokenHash,
+      revoked_at: { $exists: false },
+      expires_at: { $gt: new Date() },
+    },
+    {
+      $set: {
+        access_token_id: accessTokenId,
+        refresh_token_hash: replacementRefreshTokenHash,
+        expires_at: expiresAt,
+        last_used_at: new Date(),
+        ip_address: ipAddress,
+        user_agent: Array.isArray(userAgent) ? userAgent.join(', ') : userAgent,
+      },
+    },
+    { new: true }
+  )
+
+  if (!rotatedSession) {
+    return null
+  }
 
   const accessToken = generateToken({
-    user_id: session.user_id.toString(),
-    user_type: session.user_type as UserType,
-    session_id: session._id.toString(),
-    token_id: session.access_token_id,
+    user_id: rotatedSession.user_id.toString(),
+    user_type: rotatedSession.user_type as UserType,
+    session_id: rotatedSession._id.toString(),
+    token_id: accessTokenId,
   }, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS)
 
   return {
     token: accessToken,
     refresh_token: replacementRefreshToken,
     session: {
-      session_id: session._id.toString(),
-      refresh_expires_at: session.expires_at,
+      session_id: rotatedSession._id.toString(),
+      refresh_expires_at: rotatedSession.expires_at,
     },
   }
 }

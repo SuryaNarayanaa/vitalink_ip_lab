@@ -671,6 +671,29 @@ describe('Auth Routes', () => {
             expect(replayResponse.status).toBe(401);
         });
 
+        test('accepts exactly one of two concurrent refreshes using the same token', async () => {
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'testuser',
+                password: 'testpassword123'
+            });
+            const refreshToken = loginResponse.data.data.refresh_token;
+
+            const responses = await Promise.all([
+                api.post('/api/auth/refresh', { refresh_token: refreshToken }),
+                api.post('/api/auth/refresh', { refresh_token: refreshToken }),
+            ]);
+
+            const successful = responses.filter(response => response.status === 200);
+            const rejected = responses.filter(response => response.status === 401);
+            expect(successful).toHaveLength(1);
+            expect(rejected).toHaveLength(1);
+
+            const accessResponse = await api.get('/api/auth/me', {
+                headers: { Authorization: `Bearer ${successful[0].data.data.token}` }
+            });
+            expect(accessResponse.status).toBe(200);
+        });
+
         test('should reject missing or invalid refresh tokens', async () => {
             const missingResponse = await api.post('/api/auth/refresh', {});
             expect(missingResponse.status).toBe(400);

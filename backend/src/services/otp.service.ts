@@ -28,6 +28,12 @@ export interface OtpChallengeLike {
   verified_at?: Date
 }
 
+const PROVIDER_RESERVATION_LEASE_MS = 60_000
+const OTP_RESERVATION_OPERATION = {
+  RESEND: 'resend',
+  VERIFY: 'verify',
+} as const
+
 export enum OtpVerificationResult {
   VERIFIED = 'VERIFIED',
   INVALID = 'INVALID',
@@ -36,6 +42,7 @@ export enum OtpVerificationResult {
   ALREADY_VERIFIED = 'ALREADY_VERIFIED',
   CANCELLED = 'CANCELLED',
   PHONE_MISMATCH = 'PHONE_MISMATCH',
+  IN_PROGRESS = 'IN_PROGRESS',
 }
 
 export enum OtpResendBlockReason {
@@ -206,6 +213,20 @@ export function getVerificationPreflightBlock(
   return null
 }
 
+async function getLostVerificationReservationResult(challengeId: string, now: Date) {
+  const challenge = await OtpChallenge.findById(challengeId)
+  if (!challenge) return null
+
+  const preflight = getVerificationPreflightBlock(challenge, now)
+  if (preflight) return preflight
+
+  return {
+    verified: false,
+    result: OtpVerificationResult.IN_PROGRESS,
+    update: {},
+  }
+}
+
 export function getResendAvailability(challenge: OtpChallengeLike, now = new Date()): {
   allowed: boolean
   reason?: OtpResendBlockReason
@@ -304,7 +325,8 @@ export async function resendPhoneVerificationOtp(
   const policy = getDefaultOtpPolicy()
   const resendAvailableAt = new Date(now.getTime() + policy.resendCooldownSeconds * 1000)
   const phoneHash = hashPhoneNumber(phoneNumber)
-  const reservationStatus = `send_reserved:${crypto.randomUUID()}`
+  const reservationId = crypto.randomUUID()
+  const reservationExpiresAt = new Date(now.getTime() + PROVIDER_RESERVATION_LEASE_MS)
 
   const reservedChallenge = await OtpChallenge.findOneAndUpdate(
     {
@@ -312,25 +334,82 @@ export async function resendPhoneVerificationOtp(
       phone_hash: phoneHash,
       status: OtpChallengeStatus.PENDING,
       expires_at: { $gt: now },
-      $expr: {
-        $and: [
-          { $lt: ['$resend_count', '$max_resends'] },
-          { $lt: ['$attempt_count', '$max_attempts'] },
-        ],
-      },
-      $or: [
-        { resend_available_at: { $exists: false } },
-        { resend_available_at: { $lte: now } },
+      $and: [
+        {
+          $or: [
+            { resend_available_at: { $exists: false } },
+            { resend_available_at: { $lte: now } },
+          ],
+        },
+        {
+          $or: [
+            { provider_reservation_expires_at: { $exists: false } },
+            { provider_reservation_expires_at: { $lte: now } },
+          ],
+        },
+        {
+          $or: [
+            {
+              $expr: {
+                $and: [
+                  { $lt: ['$resend_count', '$max_resends'] },
+                  { $lt: ['$attempt_count', '$max_attempts'] },
+                ],
+              },
+            },
+            {
+              provider_reservation_id: { $exists: true },
+              provider_reservation_expires_at: { $lte: now },
+              provider_reservation_operation: OTP_RESERVATION_OPERATION.RESEND,
+              $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+            },
+            {
+              provider_reservation_id: { $exists: true },
+              provider_reservation_expires_at: { $lte: now },
+              provider_reservation_operation: OTP_RESERVATION_OPERATION.VERIFY,
+              $expr: { $lt: ['$resend_count', '$max_resends'] },
+            },
+          ],
+        },
       ],
     },
-    {
-      $inc: { resend_count: 1 },
-      $set: {
+    [
+      {
+        $set: {
+          resend_count: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+                  { $lte: ['$provider_reservation_expires_at', now] },
+                  { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.RESEND] },
+                ],
+              },
+              '$resend_count',
+              { $add: ['$resend_count', 1] },
+            ],
+          },
+          attempt_count: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+                  { $lte: ['$provider_reservation_expires_at', now] },
+                  { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.VERIFY] },
+                ],
+              },
+              { $subtract: ['$attempt_count', 1] },
+              '$attempt_count',
+            ],
+          },
         resend_available_at: resendAvailableAt,
         last_sent_at: now,
-        provider_status: reservationStatus,
+        provider_reservation_id: reservationId,
+        provider_reservation_expires_at: reservationExpiresAt,
+        provider_reservation_operation: OTP_RESERVATION_OPERATION.RESEND,
+        },
       },
-    },
+    ],
     { new: true }
   )
 
@@ -354,7 +433,24 @@ export async function resendPhoneVerificationOtp(
     }
   }
 
-  const verification = await provider.startVerification(phoneNumber, config.twilioVerifyChannel)
+  let verification: Awaited<ReturnType<TwilioVerifyClient['startVerification']>>
+  try {
+    verification = await provider.startVerification(phoneNumber, config.twilioVerifyChannel)
+  } catch (error) {
+    await OtpChallenge.findOneAndUpdate(
+      {
+        _id: reservedChallenge._id,
+        status: OtpChallengeStatus.PENDING,
+        provider_reservation_id: reservationId,
+      },
+      {
+        $inc: { resend_count: -1 },
+        $set: { resend_available_at: now },
+        $unset: { provider_reservation_id: 1, provider_reservation_expires_at: 1, provider_reservation_operation: 1 },
+      }
+    )
+    throw error
+  }
   const update = {
     provider_verification_sid: verification.sid,
     provider_status: verification.status,
@@ -369,9 +465,12 @@ export async function resendPhoneVerificationOtp(
     {
       _id: reservedChallenge._id,
       status: OtpChallengeStatus.PENDING,
-      provider_status: reservationStatus,
+      provider_reservation_id: reservationId,
     },
-    { $set: update },
+    {
+      $set: update,
+      $unset: { provider_reservation_id: 1, provider_reservation_expires_at: 1, provider_reservation_operation: 1 },
+    },
     { new: true }
   )
 
@@ -393,19 +492,74 @@ export async function verifyOtpChallenge(
   now = new Date()
 ) {
   const phoneHash = hashPhoneNumber(phoneNumber)
-  const reservationStatus = `check_reserved:${crypto.randomUUID()}`
+  const reservationId = crypto.randomUUID()
+  const reservationExpiresAt = new Date(now.getTime() + PROVIDER_RESERVATION_LEASE_MS)
   const reservedChallenge = await OtpChallenge.findOneAndUpdate(
     {
       _id: challengeId,
       phone_hash: phoneHash,
       status: OtpChallengeStatus.PENDING,
       expires_at: { $gt: now },
-      $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+      $and: [
+        {
+        $or: [
+            { provider_reservation_expires_at: { $exists: false } },
+            { provider_reservation_expires_at: { $lte: now } },
+          ],
+        },
+        {
+          $or: [
+            { $expr: { $lt: ['$attempt_count', '$max_attempts'] } },
+            {
+              provider_reservation_id: { $exists: true },
+              provider_reservation_expires_at: { $lte: now },
+              provider_reservation_operation: OTP_RESERVATION_OPERATION.VERIFY,
+            },
+            {
+              provider_reservation_id: { $exists: true },
+              provider_reservation_expires_at: { $lte: now },
+              provider_reservation_operation: OTP_RESERVATION_OPERATION.RESEND,
+              $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+            },
+          ],
+        },
+      ],
     },
-    {
-      $inc: { attempt_count: 1 },
-      $set: { provider_status: reservationStatus },
-    },
+    [
+      {
+        $set: {
+          attempt_count: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+                  { $lte: ['$provider_reservation_expires_at', now] },
+                  { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.VERIFY] },
+                ],
+              },
+              '$attempt_count',
+              { $add: ['$attempt_count', 1] },
+            ],
+          },
+          resend_count: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: [{ $ifNull: ['$provider_reservation_id', null] }, null] },
+                  { $lte: ['$provider_reservation_expires_at', now] },
+                  { $eq: ['$provider_reservation_operation', OTP_RESERVATION_OPERATION.RESEND] },
+                ],
+              },
+              { $subtract: ['$resend_count', 1] },
+              '$resend_count',
+            ],
+          },
+        provider_reservation_id: reservationId,
+        provider_reservation_expires_at: reservationExpiresAt,
+        provider_reservation_operation: OTP_RESERVATION_OPERATION.VERIFY,
+        },
+      },
+    ],
     { new: true }
   )
 
@@ -431,12 +585,28 @@ export async function verifyOtpChallenge(
 
     return {
       verified: false,
-      result: OtpVerificationResult.LOCKED,
-      update: { status: OtpChallengeStatus.LOCKED },
+      result: OtpVerificationResult.IN_PROGRESS,
+      update: {},
     }
   }
 
-  const verification = await provider.checkVerification(phoneNumber, candidate)
+  let verification: Awaited<ReturnType<TwilioVerifyClient['checkVerification']>>
+  try {
+    verification = await provider.checkVerification(phoneNumber, candidate)
+  } catch (error) {
+    await OtpChallenge.findOneAndUpdate(
+      {
+        _id: reservedChallenge._id,
+        status: OtpChallengeStatus.PENDING,
+        provider_reservation_id: reservationId,
+      },
+      {
+        $inc: { attempt_count: -1 },
+        $unset: { provider_reservation_id: 1, provider_reservation_expires_at: 1, provider_reservation_operation: 1 },
+      }
+    )
+    throw error
+  }
   const approved = verification.valid === true || verification.status === 'approved'
 
   if (approved) {
@@ -449,15 +619,23 @@ export async function verifyOtpChallenge(
       {
         _id: reservedChallenge._id,
         status: OtpChallengeStatus.PENDING,
+        provider_reservation_id: reservationId,
       },
-      { $set: update },
+      {
+        $set: update,
+        $unset: { provider_reservation_id: 1, provider_reservation_expires_at: 1, provider_reservation_operation: 1 },
+      },
       { new: true }
     )
 
+    if (!finalizedChallenge) {
+      return getLostVerificationReservationResult(reservedChallenge._id.toString(), now)
+    }
+
     return {
-      verified: Boolean(finalizedChallenge),
-      result: finalizedChallenge ? OtpVerificationResult.VERIFIED : OtpVerificationResult.ALREADY_VERIFIED,
-      update: finalizedChallenge ? update : {},
+      verified: true,
+      result: OtpVerificationResult.VERIFIED,
+      update,
     }
   }
 
@@ -470,22 +648,25 @@ export async function verifyOtpChallenge(
     {
       _id: reservedChallenge._id,
       status: OtpChallengeStatus.PENDING,
-      provider_status: reservationStatus,
+      provider_reservation_id: reservationId,
     },
-    { $set: update },
+    {
+      $set: update,
+      $unset: { provider_reservation_id: 1, provider_reservation_expires_at: 1, provider_reservation_operation: 1 },
+    },
     { new: true }
   )
 
+  if (!finalizedChallenge) {
+    return getLostVerificationReservationResult(reservedChallenge._id.toString(), now)
+  }
+
   return {
     verified: false,
-    result: finalizedChallenge
-      ? (isLocked ? OtpVerificationResult.LOCKED : OtpVerificationResult.INVALID)
-      : OtpVerificationResult.ALREADY_VERIFIED,
-    update: finalizedChallenge
-      ? {
-        attempt_count: reservedChallenge.attempt_count,
-        status: update.status,
-      }
-      : {},
+    result: isLocked ? OtpVerificationResult.LOCKED : OtpVerificationResult.INVALID,
+    update: {
+      attempt_count: reservedChallenge.attempt_count,
+      status: update.status,
+    },
   }
 }

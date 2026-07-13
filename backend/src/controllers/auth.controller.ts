@@ -448,6 +448,7 @@ export const verifyLoginOtpController = asyncHandler(
         [OtpVerificationResult.CANCELLED]: StatusCodes.GONE,
         [OtpVerificationResult.PHONE_MISMATCH]: StatusCodes.FORBIDDEN,
         [OtpVerificationResult.ALREADY_VERIFIED]: StatusCodes.CONFLICT,
+        [OtpVerificationResult.IN_PROGRESS]: StatusCodes.TOO_MANY_REQUESTS,
       }
 
       throw new ApiError(statusByResult[result.result] || StatusCodes.BAD_REQUEST, 'OTP verification failed')
