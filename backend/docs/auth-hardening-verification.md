@@ -37,7 +37,7 @@ Recommended contract guard: add an OpenAPI validation step to backend CI, for ex
 | Lockout and throttling | Implemented | Submit invalid passwords until lockout, confirm `locked_until` is set and login returns `423`; separately exceed auth rate limits and confirm `429`. |
 | Refresh rotation | Implemented | Log in, call `/auth/refresh`, confirm old access and refresh tokens are rejected and the new session works. |
 | Logout and revoke | Implemented | Call `/auth/logout` and `/auth/revoke`, then confirm affected tokens fail. |
-| Password expiry and history | Implemented | Confirm expired-password state appears on login and `/auth/me`; confirm password reuse is rejected on self-change and admin reset paths; confirm `password_history` stores salted hashes only. |
+| Password expiry and history | Implemented | Confirm expired-password state appears on login and `/auth/me`; confirm clinical/admin routes return `403` until `/auth/change-password` succeeds; confirm password reuse is rejected on self-change and admin reset paths; confirm `password_history` stores salted hashes only. |
 | Admin reset session invalidation | Implemented | Reset a user's password while that user has live sessions; confirm old access/refresh tokens fail, `invalidated_sessions` is returned, and audit metadata records the reset revocation reason. |
 | Login telemetry | Implemented | Confirm matched login attempts write audit metadata with IP, normalized login ID, request ID, and outcome; confirm unknown/duplicate login IDs produce structured warning logs; confirm sensitive values are redacted from audit bodies and request URL logs. |
 
@@ -50,7 +50,7 @@ Recommended contract guard: add an OpenAPI validation step to backend CI, for ex
 5. Verify refresh rotation and logout revocation.
 6. Verify password expiry state and recent-password reuse rejection.
 7. Verify admin reset invalidates sessions and returns `invalidated_sessions`.
-8. Query `AuditLog` by `metadata.login_attempt.normalized_login_id` plus `metadata.login_attempt.ip_address`.
+8. Query `AuditLog` by `metadata.login_attempt.normalized_login_id` plus `metadata.login_attempt.ip_address`. Operational logs expose only a one-way login-ID fingerprint for unmatched accounts.
 
 ## Promotion Criteria
 

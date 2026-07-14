@@ -4,7 +4,9 @@ import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import { Notification, NotificationDelivery } from '@alias/models'
+import { AuditLog, Notification, NotificationDelivery } from '@alias/models'
+import { AuditAction } from '@alias/models/auditlog.model'
+import logger from '@alias/utils/logger'
 import { getTenantUserIdsForAdmin } from '@alias/services/admin.service'
 import { getDeliveryMetrics } from '@alias/services/notification-delivery.metrics'
 
@@ -80,7 +82,7 @@ export const reassignPatient = asyncHandler(async (req: Request, res: Response) 
 // ─── Audit Logs ───
 
 export const getAuditLogs = asyncHandler(async (req: Request, res: Response) => {
-  const { page, limit, user_id, action, start_date, end_date, success } = req.query as any
+  const { page, limit, user_id, action, start_date, end_date, success } = (req.validatedQuery ?? req.query) as any
   const filters: any = {}
   if (user_id) filters.user_id = user_id
   if (action) filters.action = action
@@ -194,7 +196,7 @@ export const updateRole = asyncHandler(async (req: Request, res: Response) => {
 })
 
 export const listHospitals = asyncHandler(async (req: Request, res: Response) => {
-  const { status, search } = req.query as any
+  const { status, search } = (req.validatedQuery ?? req.query) as any
   const result = await adminService.listHospitals({ status, search }, req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospitals retrieved successfully', result))
 })
@@ -260,6 +262,40 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
 })
 
 export const resetUserAuthenticator = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.resetAdminAuthenticator(req.params.id, req.user?.user_id)
+  let result
+  try {
+    result = await adminService.resetAdminAuthenticator(req.params.id, req.user?.user_id)
+  } catch (error) {
+    try {
+      await AuditLog.create({
+        user_id: req.user?.user_id, user_type: req.user?.user_type,
+        action: AuditAction.MFA_RESET, description: 'Supervised admin authenticator reset failed',
+        resource_type: 'User', resource_id: req.params.id, success: false,
+        error_message: 'mfa_reset_failed', ip_address: req.ip || req.socket?.remoteAddress,
+        user_agent: req.headers['user-agent'], metadata: { target_user_id: req.params.id },
+      })
+    } catch { logger.error('MFA reset failure audit persistence failed', { target_user_id: req.params.id }) }
+    throw error
+  }
+  let auditRecorded = true
+  try {
+    await AuditLog.create({
+      user_id: req.user?.user_id, user_type: req.user?.user_type,
+      action: AuditAction.MFA_RESET, description: 'Supervised admin authenticator reset completed',
+      resource_type: 'User', resource_id: req.params.id, success: true,
+      ip_address: req.ip || req.socket?.remoteAddress, user_agent: req.headers['user-agent'],
+      metadata: {
+        target_user_id: req.params.id, factor_type: result.factor_type,
+        invalidated_sessions: result.invalidated_sessions,
+        revocation_cleanup_completed: result.revocation_cleanup_completed,
+        challenge_cleanup_completed: result.challenge_cleanup_completed,
+        user_enrichment_completed: result.user_enrichment_completed,
+      },
+    })
+  } catch {
+    auditRecorded = false
+    logger.error('MFA reset success audit persistence failed', { target_user_id: req.params.id })
+  }
+  result.audit_recorded = auditRecorded
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Authenticator reset successfully', result))
 })

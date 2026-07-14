@@ -25,6 +25,8 @@ import {
     EditPatientDosageSchema,
     markNotificationReadSchema,
     notificationsQuerySchema,
+    patientOpNumParamsSchema,
+    patientReportParamsSchema,
     ReassignPatientSchema,
     UpdateNextReviewSchema,
     UpdateReportSchema,
@@ -74,13 +76,13 @@ router.patch('/notifications/read-all', authenticate, AllowDoctor, markAllDoctor
 router.patch('/notifications/:notification_id/read', authenticate, AllowDoctor, validate(markNotificationReadSchema), markDoctorNotificationAsRead)
 
 router.get('/patients', authenticate, AllowDoctor, getPatients)
-router.get('/patients/:op_num', authenticate, AllowDoctor, viewPatient)
+router.get('/patients/:op_num', authenticate, AllowDoctor, validate(patientOpNumParamsSchema), viewPatient)
 router.post('/patients', authenticate, AllowDoctor, validate(createPatient), addPatient)
 router.patch('/patients/:op_num/reassign', authenticate, AllowDoctor, validate(ReassignPatientSchema), reassignPatient)
 router.put('/patients/:op_num/dosage', authenticate, AllowDoctor, validate(EditPatientDosageSchema), editPatientDosage)
-router.route('/patients/:op_num/reports').get(authenticate, AllowDoctor, getReports)
+router.route('/patients/:op_num/reports').get(authenticate, AllowDoctor, validate(patientOpNumParamsSchema), getReports)
 
-router.route('/patients/:op_num/reports/:report_id').get(authenticate, AllowDoctor, getReport).put(authenticate, AllowDoctor, validate(UpdateReportSchema), updateReport)
+router.route('/patients/:op_num/reports/:report_id').get(authenticate, AllowDoctor, validate(patientReportParamsSchema), getReport).put(authenticate, AllowDoctor, validate(UpdateReportSchema), updateReport)
 
 router.put('/patients/:op_num/config', authenticate, AllowDoctor, validate(UpdateNextReviewSchema), updateNextReview)
 router.put('/patients/:op_num/instructions', authenticate, AllowDoctor, validate(UpdateInstructionsSchema), UpdateInstructions)

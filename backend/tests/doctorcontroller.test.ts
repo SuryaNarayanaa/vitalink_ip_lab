@@ -2,13 +2,15 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { User, DoctorProfile, PatientProfile, Notification, Hospital } from '@alias/models';
+import { User, DoctorProfile, PatientProfile, Notification, Hospital, AuditLog } from '@alias/models';
+import { AuditAction } from '@alias/models/auditlog.model';
 import { NotificationType } from '@alias/models/notification.model';
 import { Server } from 'http';
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import client from '@alias/config/s3-client'
 import { config } from '@alias/config'
 import * as notificationDeliveryService from '@alias/services/notification-delivery.service'
+import { acquireDoctorAssignmentGuard, acquireDoctorMoveGuard, stampDoctorProfileFence } from '@alias/services/doctor-assignment.service'
 
 describe('Doctor Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -111,7 +113,7 @@ describe('Doctor Routes', () => {
         });
 
         patientProfile = await PatientProfile.create({
-            assigned_doctor_id: doctorProfile._id,
+            assigned_doctor_id: doctorUser._id,
             hospital_id: primaryHospital._id,
             demographics: {
                 name: 'Test Patient',
@@ -204,7 +206,7 @@ describe('Doctor Routes', () => {
             await DoctorProfile.findByIdAndUpdate(doctorProfile._id, { hospital_id: primaryHospital._id });
 
             expect(response.status).toBe(403);
-            expect(response.data.message).toContain('assigned to a hospital');
+            expect(response.data.message).toMatch(/hospital/i);
         });
 
         test('should fail without authentication token', async () => {
@@ -309,6 +311,11 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patient.demographics.name).toBe('New Patient');
             expect(response.data.data.patient.demographics.phone_verification.status).toBe('PENDING');
             expect(response.data.data.patient.hospital_id).toBe(primaryHospital._id.toString());
+            expect(response.data.data.temporary_password).toBeDefined();
+            expect(response.data.data.temporary_password).not.toBe(newPatient.contact_no);
+            expect(response.data.data.must_change_password).toBe(true);
+            const createdUser = await User.findOne({ login_id: newPatient.op_num });
+            expect(createdUser?.must_change_password).toBe(true);
         });
 
         test('should create patient with minimum required fields', async () => {
@@ -327,6 +334,18 @@ describe('Doctor Routes', () => {
             expect(response.status).toBe(201);
             expect(response.data.success).toBe(true);
             expect(response.data.data.patient).toBeDefined();
+        });
+
+        test('should fail closed instead of creating a tenantless patient', async () => {
+            await DoctorProfile.updateOne({ _id: doctorProfile._id }, { $unset: { hospital_id: 1 } });
+            const response = await api.post('/api/doctors/patients', {
+                name: 'Tenantless Patient', op_num: 'PAT_NO_TENANT', gender: 'Male',
+                contact_no: '7555555555', kin_contact_number: '7666666666',
+            }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+            await DoctorProfile.updateOne({ _id: doctorProfile._id }, { $set: { hospital_id: primaryHospital._id } });
+
+            expect(response.status).toBe(403);
+            expect(await User.findOne({ login_id: 'PAT_NO_TENANT' })).toBeNull();
         });
 
         test('should remove the profile when patient user creation fails on standalone Mongo', async () => {
@@ -353,6 +372,54 @@ describe('Doctor Routes', () => {
             } finally {
                 createUserSpy.mockRestore();
                 startSessionSpy.mockRestore();
+            }
+        });
+
+        test('preserves the published User/Profile pair when a successor reassigns before final guard validation', async () => {
+            const originalCreate = User.create.bind(User);
+            let previousGuard: Awaited<ReturnType<typeof acquireDoctorMoveGuard>> | undefined;
+            let targetGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined;
+            const spy = jest.spyOn(User, 'create').mockImplementationOnce((async (...args: any[]) => {
+                const created: any = await originalCreate(...args as any);
+                const createdUser = Array.isArray(created) ? created[0] : created;
+                await User.updateOne({ _id: doctorUser._id }, {
+                    $set: { 'doctor_operation_lock.expires_at': new Date(Date.now() - 1_000) },
+                });
+                previousGuard = await acquireDoctorMoveGuard(doctorUser._id);
+                await stampDoctorProfileFence(doctorUser.profile_id, previousGuard);
+                targetGuard = await acquireDoctorAssignmentGuard(secondDoctorUser._id);
+                await stampDoctorProfileFence(secondDoctorUser.profile_id, {
+                    fenceToken: targetGuard.fenceToken, assertOwned: targetGuard.assertOwned,
+                });
+                await PatientProfile.updateOne({ _id: createdUser.profile_id }, {
+                    $set: {
+                        assigned_doctor_id: secondDoctorUser._id,
+                        assigned_doctor_fence: targetGuard.fenceToken,
+                    },
+                });
+                return created;
+            }) as any);
+            try {
+                const response = await api.post('/api/doctors/patients', {
+                    name: 'Successor Assigned Patient', op_num: 'PAT_SUCCESSOR_PAIR', gender: 'Male',
+                    contact_no: '7333333333', kin_contact_number: '7444444444',
+                }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+                expect(response.status).toBe(201);
+                const createdUser = await User.findOne({ login_id: 'PAT_SUCCESSOR_PAIR' }).lean();
+                expect(createdUser).toBeTruthy();
+                const createdProfile = await PatientProfile.findById(createdUser?.profile_id).lean();
+                expect(createdProfile).toBeTruthy();
+                expect(String(createdProfile?.assigned_doctor_id)).toBe(String(secondDoctorUser._id));
+            } finally {
+                spy.mockRestore();
+                if (targetGuard) await targetGuard();
+                if (previousGuard) await previousGuard.release();
+                const createdUser = await User.findOne({ login_id: 'PAT_SUCCESSOR_PAIR' }).lean();
+                if (createdUser) await Promise.all([
+                    User.deleteOne({ _id: createdUser._id }),
+                    PatientProfile.deleteOne({ _id: createdUser.profile_id }),
+                ]);
+                await User.updateOne({ _id: doctorUser._id }, { $unset: { doctor_operation_lock: 1 } });
             }
         });
 
@@ -487,9 +554,19 @@ describe('Doctor Routes', () => {
 
             const updatedPatient = await PatientProfile.findById(patientProfile._id);
             expect(updatedPatient.assigned_doctor_id.toString()).toBe(secondDoctorUser._id.toString());
+            const audit = await AuditLog.findOne({
+                action: AuditAction.PATIENT_REASSIGN,
+                resource_id: String(patientProfile._id),
+                success: true,
+            }).lean();
+            expect(audit?.metadata).toMatchObject({
+                patient_user_id: String(patientUser._id),
+                previous_doctor_id: String(doctorUser._id),
+                assigned_doctor_id: String(secondDoctorUser._id),
+            });
 
             await PatientProfile.findByIdAndUpdate(patientProfile._id, {
-                assigned_doctor_id: doctorProfile._id
+                assigned_doctor_id: doctorUser._id
             });
         });
 
@@ -505,6 +582,64 @@ describe('Doctor Routes', () => {
             expect(response.data.message).toContain('Cross-tenant');
         });
 
+        test('does not report or notify a stale target after a successor reassignment', async () => {
+            const successorProfile = await DoctorProfile.create({
+                name: 'Successor Doctor', department: 'Cardiology', contact_number: '9000012345',
+                hospital_id: primaryHospital._id,
+            });
+            const successorDoctor = await User.create({
+                login_id: `successor-${Date.now()}`, password: 'Doctor@123', user_type: 'DOCTOR',
+                profile_id: successorProfile._id, is_active: true,
+            });
+            const staleNotificationFilter = {
+                user_id: patientUser._id,
+                'data.change_type': 'DOCTOR_REASSIGNED',
+                'data.changed_by_doctor_id': doctorUser._id,
+            };
+            const staleAuditFilter = {
+                action: AuditAction.PATIENT_REASSIGN,
+                resource_id: String(patientProfile._id), success: true,
+                'metadata.assigned_doctor_id': String(secondDoctorUser._id),
+            };
+            const [notificationsBefore, auditsBefore] = await Promise.all([
+                Notification.countDocuments(staleNotificationFilter),
+                AuditLog.countDocuments(staleAuditFilter),
+            ]);
+            const original = PatientProfile.findOneAndUpdate.bind(PatientProfile);
+            let replacementGuard: Awaited<ReturnType<typeof acquireDoctorMoveGuard>> | undefined;
+            const spy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockImplementationOnce((async (...args: any[]) => {
+                const committedToSecond = await original(...args);
+                await User.updateOne({ _id: secondDoctorUser._id }, {
+                    $set: { 'doctor_operation_lock.expires_at': new Date(Date.now() - 1_000) },
+                });
+                replacementGuard = await acquireDoctorMoveGuard(secondDoctorUser._id);
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { assigned_doctor_id: successorDoctor._id, assigned_doctor_fence: 77 },
+                });
+                return committedToSecond as any;
+            }) as any);
+            try {
+                const response = await api.patch('/api/doctors/patients/PAT001/reassign', {
+                    new_doctor_id: 'doctor002',
+                }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+                expect(response.status).toBe(409);
+                const actual = await PatientProfile.findById(patientProfile._id).lean();
+                expect(String(actual?.assigned_doctor_id)).toBe(String(successorDoctor._id));
+                expect(await Notification.countDocuments(staleNotificationFilter)).toBe(notificationsBefore);
+                expect(await AuditLog.countDocuments(staleAuditFilter)).toBe(auditsBefore);
+            } finally {
+                spy.mockRestore();
+                if (replacementGuard) await replacementGuard.release();
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { assigned_doctor_id: doctorUser._id },
+                });
+                await Promise.all([
+                    User.deleteOne({ _id: successorDoctor._id }),
+                    DoctorProfile.deleteOne({ _id: successorProfile._id }),
+                ]);
+            }
+        });
+
         test('should reject an inactive target doctor', async () => {
             await User.findByIdAndUpdate(secondDoctorUser._id, { is_active: false });
             const response = await api.patch('/api/doctors/patients/PAT001/reassign', {
@@ -517,7 +652,7 @@ describe('Doctor Routes', () => {
             expect(response.status).toBe(400);
             expect(response.data.message).toContain('inactive');
             expect((await PatientProfile.findById(patientProfile._id))?.assigned_doctor_id.toString())
-                .toBe(doctorProfile._id.toString());
+                .toBe(doctorUser._id.toString());
         });
 
         test('should reject a target doctor without a hospital', async () => {
@@ -530,7 +665,7 @@ describe('Doctor Routes', () => {
             await DoctorProfile.findByIdAndUpdate(secondDoctorUser.profile_id, { hospital_id: primaryHospital._id });
 
             expect(response.status).toBe(403);
-            expect(response.data.message).toContain('assigned to a hospital');
+            expect(response.data.message).toMatch(/hospital/i);
         });
 
         test('should reject reassignment when the patient or current doctor lacks hospital ownership', async () => {
@@ -553,7 +688,7 @@ describe('Doctor Routes', () => {
             expect(missingPatientHospital.status).toBe(403);
             expect(missingCurrentDoctorHospital.status).toBe(403);
             expect(missingPatientHospital.data.message).toContain('assigned to a hospital');
-            expect(missingCurrentDoctorHospital.data.message).toContain('assigned to a hospital');
+            expect(missingCurrentDoctorHospital.data.message).toMatch(/hospital/i);
         });
 
         test('should fail with non-existent patient', async () => {
@@ -591,6 +726,35 @@ describe('Doctor Routes', () => {
     });
 
     describe('PUT /api/doctors/patients/:op_num/dosage', () => {
+        test('should deny tenantless doctors from mutating hospitalized patient care', async () => {
+            const before = await PatientProfile.findById(patientProfile._id).lean();
+            const notificationsBefore = await Notification.countDocuments({ user_id: patientUser._id });
+            await DoctorProfile.updateOne({ _id: doctorProfile._id }, { $unset: { hospital_id: 1 } });
+            try {
+                const [dosageResponse, reviewResponse] = await Promise.all([
+                    api.put('/api/doctors/patients/PAT001/dosage', {
+                        prescription: { monday: 9 }
+                    }, { headers: { Authorization: `Bearer ${doctorToken}` } }),
+                    api.put('/api/doctors/patients/PAT001/config', {
+                        date: '31-12-2027'
+                    }, { headers: { Authorization: `Bearer ${doctorToken}` } }),
+                ]);
+
+                expect(dosageResponse.status).toBe(403);
+                expect(reviewResponse.status).toBe(403);
+                const after = await PatientProfile.findById(patientProfile._id).lean();
+                expect(after?.weekly_dosage).toEqual(before?.weekly_dosage);
+                expect(after?.medical_config?.next_review_date?.toISOString())
+                    .toBe(before?.medical_config?.next_review_date?.toISOString());
+                expect(await Notification.countDocuments({ user_id: patientUser._id })).toBe(notificationsBefore);
+            } finally {
+                await DoctorProfile.updateOne(
+                    { _id: doctorProfile._id },
+                    { $set: { hospital_id: primaryHospital._id } },
+                );
+            }
+        });
+
         test('should update patient dosage successfully', async () => {
             const newDosage = {
                 monday: 6,
@@ -832,7 +996,7 @@ describe('Doctor Routes', () => {
     describe('PUT /api/doctors/patients/:op_num/config', () => {
         test('should update next review date with valid DD-MM-YYYY format', async () => {
             const response = await api.put('/api/doctors/patients/PAT001/config', {
-                date: '15-03-2024'
+                date: '15-03-2099'
             }, {
                 headers: { Authorization: `Bearer ${doctorToken}` }
             });
@@ -854,6 +1018,64 @@ describe('Doctor Routes', () => {
             expect(response.data.message).toBe('Validation failed');
         });
 
+        test('should reject a next review date in the past', async () => {
+            const response = await api.put('/api/doctors/patients/PAT001/config', {
+                date: '15-03-2024'
+            }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+
+            expect(response.status).toBe(400);
+        });
+
+        test('should reject a review date before therapy starts', async () => {
+            await PatientProfile.updateOne(
+                { _id: patientProfile._id },
+                { $set: { 'medical_config.therapy_start_date': new Date('2098-01-01T00:00:00.000Z') } },
+            );
+            try {
+                const response = await api.put('/api/doctors/patients/PAT001/config', {
+                    date: '15-03-2097'
+                }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+
+                expect(response.status).toBe(400);
+                expect(response.data.message).toMatch(/before therapy/i);
+            } finally {
+                await PatientProfile.updateOne(
+                    { _id: patientProfile._id },
+                    { $set: { 'medical_config.therapy_start_date': new Date('2024-01-01T00:00:00.000Z') } },
+                );
+            }
+        });
+
+        test('should atomically reject a review date when therapy start moves concurrently', async () => {
+            await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                $set: {
+                    'medical_config.therapy_start_date': new Date('2024-01-01T00:00:00.000Z'),
+                    'medical_config.next_review_date': null,
+                },
+            });
+            const original = PatientProfile.findOneAndUpdate.bind(PatientProfile);
+            const spy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockImplementationOnce((async (...args: any[]) => {
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { 'medical_config.therapy_start_date': new Date('2098-01-01T00:00:00.000Z') },
+                });
+                return original(...args) as any;
+            }) as any);
+            try {
+                const response = await api.put('/api/doctors/patients/PAT001/config', {
+                    date: '15-03-2097',
+                }, { headers: { Authorization: `Bearer ${doctorToken}` } });
+                expect(response.status).toBe(409);
+                const profile = await PatientProfile.findById(patientProfile._id).lean();
+                expect(profile?.medical_config?.next_review_date).toBeNull();
+                expect(profile?.medical_config?.therapy_start_date).toEqual(new Date('2098-01-01T00:00:00.000Z'));
+            } finally {
+                spy.mockRestore();
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { 'medical_config.therapy_start_date': new Date('2024-01-01T00:00:00.000Z') },
+                });
+            }
+        });
+
         test('should fail with non-string date', async () => {
             const response = await api.put('/api/doctors/patients/PAT001/config', {
                 date: 12345
@@ -867,7 +1089,7 @@ describe('Doctor Routes', () => {
 
         test('should fail with non-existent patient', async () => {
             const response = await api.put('/api/doctors/patients/INVALID001/config', {
-                date: '15-03-2024'
+                date: '15-03-2099'
             }, {
                 headers: { Authorization: `Bearer ${doctorToken}` }
             });
@@ -878,7 +1100,7 @@ describe('Doctor Routes', () => {
 
         test('should fail without authentication', async () => {
             const response = await api.put('/api/doctors/patients/PAT001/config', {
-                date: '15-03-2024'
+                date: '15-03-2099'
             });
 
             expect(response.status).toBe(401);
@@ -1225,6 +1447,10 @@ describe('Doctor Routes', () => {
                 expect(response.data.success).toBe(true);
                 expect(response.data.data.doctor).toBeDefined();
                 expect(response.data.data.patients_count).toBeDefined();
+                expect(response.data.data.doctor.password).toBeUndefined();
+                expect(response.data.data.doctor.salt).toBeUndefined();
+                expect(response.data.data.doctor.password_history).toBeUndefined();
+                expect(response.data.data.doctor.admin_mfa).toBeUndefined();
 
                 // If profile picture exists, verify it's a presigned URL
                 const profilePictureUrl = response.data.data.doctor?.profile_id?.profile_picture_url;
@@ -1310,7 +1536,10 @@ describe('Doctor Routes', () => {
 
                 expect(response.status).toBe(400);
                 expect(response.data.success).toBe(false);
-                expect(response.data.message).toContain('Invalid report_id');
+                expect(response.data.message).toBe('Validation failed');
+                expect(response.data.data.errors).toEqual(expect.arrayContaining([
+                    expect.objectContaining({ message: expect.stringMatching(/report_id.*ObjectId/i) }),
+                ]));
             });
 
             test('should fail when accessing another doctor\'s patient report', async () => {

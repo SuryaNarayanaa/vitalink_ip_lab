@@ -20,6 +20,7 @@ describe('Patient File Upload Routes', () => {
     let patientUser: any;
     let patientProfile: any;
     let doctorProfile: any;
+    let doctorUser: any;
     let hospital: any;
     let uploadedReportKeys: string[] = [];
     let uploadedProfilePicKey: string;
@@ -64,8 +65,16 @@ describe('Patient File Upload Routes', () => {
             hospital_id: hospital._id
         });
 
+        doctorUser = await User.create({
+            login_id: 'upload-suite-doctor',
+            password: 'Doctor123!',
+            user_type: 'DOCTOR',
+            profile_id: doctorProfile._id,
+            is_active: true,
+        });
+
         patientProfile = await PatientProfile.create({
-            assigned_doctor_id: doctorProfile._id,
+            assigned_doctor_id: doctorUser._id,
             hospital_id: hospital._id,
             demographics: {
                 name: 'Test Patient',
@@ -242,6 +251,34 @@ describe('Patient File Upload Routes', () => {
             expect(latestReport.is_critical).toBe(true);
         });
 
+        test('should atomically reject duplicate INR measurements for one clinical date', async () => {
+            const date = '23-02-2026';
+            const responses = await Promise.all([
+                api.post('/api/patient/reports', { inr_value: '2.4', test_date: date }, {
+                    headers: { Authorization: `Bearer ${patientToken}` },
+                }),
+                api.post('/api/patient/reports', { inr_value: '2.4', test_date: date }, {
+                    headers: { Authorization: `Bearer ${patientToken}` },
+                }),
+            ]);
+
+            expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+            const persisted = await PatientProfile.findById(patientProfile._id).lean();
+            expect(persisted?.inr_history.filter(entry =>
+                entry.test_date?.toISOString().startsWith('2026-02-23')
+            )).toHaveLength(1);
+        });
+
+        test('should reject a future INR test date without writing a measurement', async () => {
+            const before = (await PatientProfile.findById(patientProfile._id))!.inr_history.length;
+            const response = await api.post('/api/patient/reports', {
+                inr_value: '2.5', test_date: '01-01-2099'
+            }, { headers: { Authorization: `Bearer ${patientToken}` } });
+
+            expect(response.status).toBe(400);
+            expect((await PatientProfile.findById(patientProfile._id))!.inr_history).toHaveLength(before);
+        });
+
         test('should fail with invalid file type', async () => {
             const textBuffer = Buffer.from('This is not a valid report');
             const form = new FormData();
@@ -273,7 +310,7 @@ describe('Patient File Upload Routes', () => {
             const form = new FormData();
             form.append('file', pngBuffer, { filename: 'spoofed.pdf', contentType: 'application/pdf' });
             form.append('inr_value', '2.5');
-            form.append('test_date', '18-02-2026');
+            form.append('test_date', '24-02-2026');
 
             const before = await FileAsset.countDocuments();
             const response = await api.post('/api/patient/reports', form, {
@@ -290,7 +327,7 @@ describe('Patient File Upload Routes', () => {
             const form = new FormData();
             form.append('file', pdfBuffer, { filename: 'compensate.pdf', contentType: 'application/pdf' });
             form.append('inr_value', '2.5');
-            form.append('test_date', '18-02-2026');
+            form.append('test_date', '25-02-2026');
             const updateSpy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockRejectedValueOnce(new Error('forced write failure'));
             const deleteMock = deleteFile as jest.Mock;
 

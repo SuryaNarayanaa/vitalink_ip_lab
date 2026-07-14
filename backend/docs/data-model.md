@@ -1,6 +1,6 @@
 # VitaLink Data Model Documentation
 
-Last updated: 2026-07-10
+Last updated: 2026-07-14
 
 ## Purpose
 
@@ -43,6 +43,7 @@ erDiagram
         objectId profile_id UK
         boolean is_active
         boolean must_change_password
+        int security_version
         date password_changed_at
         int failed_login_attempts
         date locked_until
@@ -159,6 +160,9 @@ Key fields:
 | `user_type_model` | string | Yes | Derived discriminator-like ref target |
 | `is_active` | boolean | No | Default `true` |
 | `must_change_password` | boolean | No | Default `false` |
+| `security_version` | number | No | Monotonic credential epoch; password/MFA reset invalidates all sessions from older versions |
+| `doctor_operation_lock` | object | No | Expiring `ASSIGNING`, `MOVING`, or `DEACTIVATING` lease that serializes assignment and doctor lifecycle changes |
+| `doctor_operation_fence` | number | No | Monotonic fencing generation used to detect and roll back stale doctor lifecycle owners |
 | `password_changed_at` | date | No | Updated whenever the password hash changes |
 | `password_history` | array | No | Hidden salted/hash history entries used to block recent password reuse |
 | `failed_login_attempts` | number | No | Default `0` |
@@ -169,6 +173,7 @@ Key fields:
 | `admin_mfa.totp.secret_ciphertext` | string | No | Encrypted active TOTP secret for enabled admins |
 | `admin_mfa.totp.pending_secret_ciphertext` | string | No | Encrypted pending TOTP setup secret before activation |
 | `admin_mfa.totp.last_verified_time_step` | number | No | Replay guard for admin login TOTP verification |
+| `admin_mfa.totp.factor_generation` | number | No | Monotonic factor generation; challenges from retired secrets cannot authenticate |
 
 Security notes:
 
@@ -178,6 +183,7 @@ Security notes:
 - `profile_id` is a one-to-one link to the owning role profile.
 - `user_type_model` is computed from `user_type` and is used by Mongoose `refPath`.
 - Admin TOTP secrets are stored encrypted with AES-GCM using `ADMIN_TOTP_ENCRYPTION_KEY` when configured.
+- Startup idempotently backfills missing legacy `security_version`, TOTP `factor_generation`, and session generation fields to zero before authentication is served.
 
 ### `adminprofiles`
 
@@ -203,10 +209,26 @@ Key fields:
 | `user_id` | ObjectId | Yes | References an admin `users` record |
 | `user_type` | enum | Yes | Always `ADMIN` |
 | `status` | enum | No | `PENDING`, `VERIFIED`, `EXPIRED`, `LOCKED`, `CANCELLED` |
-| `expires_at` | date | Yes | TTL indexed challenge expiration |
+| `expires_at` | date | Yes | Application validity deadline; not a TTL deletion boundary |
+| `purge_at` | date | Yes | TTL deletion after the 30-day security-audit retention window |
 | `attempt_count` | number | No | Failed verification attempts |
 | `max_attempts` | number | Yes | Defaults from `ADMIN_TOTP_MAX_ATTEMPTS` |
+| `factor_generation` | number | Yes | TOTP factor generation captured when the challenge is issued |
+| `security_version` | number | Yes | Password/security generation captured when the password was accepted; generation changes invalidate the pending challenge |
 | `verified_at` | date | No | Set after successful TOTP verification |
+
+### `otpchallenges`
+
+Short-lived SMS first-login challenge for doctors and patients. Each challenge is bound to the password-authenticated account snapshot.
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `user_id` / `user_type` | ObjectId / enum | Yes | Doctor or patient identity that passed the password step |
+| `security_version` | number | Yes | Exact credential generation at issuance; password/reset changes invalidate the challenge |
+| `profile_id` | ObjectId | Yes | Exact role profile at issuance |
+| `phone_hash` | string | Yes | One-way binding to the registered phone; plaintext phone is not stored |
+| `status` | enum | No | `PENDING`, `VERIFIED`, `EXPIRED`, `LOCKED`, `CANCELLED` |
+| `expires_at` / `purge_at` | date | Yes | Validity deadline and later security-audit retention deadline |
 
 ### `doctorprofiles`
 
@@ -224,6 +246,7 @@ Key fields:
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `profile_picture_file_asset_id` | ObjectId | No | References tenant-scoped `fileassets`; absent on legacy records until backfill |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
+| `doctor_operation_fence` | number | No | Latest lifecycle/assignment fence stamped on the doctor resource; stale owners cannot overwrite a successor operation |
 
 ### `patientprofiles`
 
@@ -234,6 +257,7 @@ Key fields:
 | Field | Type | Required | Notes |
 |---|---|---:|---|
 | `assigned_doctor_id` | ObjectId | No | References doctor `users._id`, not `doctorprofiles._id` |
+| `assigned_doctor_fence` | number | No | Doctor lifecycle generation associated with the current assignment; stale rollback must validate it |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 | `demographics` | object | Partly | Contains patient and next-of-kin data |
 | `medical_config` | object | No | Care-plan state and thresholds |
@@ -241,9 +265,12 @@ Key fields:
 | `weekly_dosage` | object | No | Embedded dosage schedule by weekday |
 | `inr_history` | array | No | Embedded report/event history |
 | `health_logs` | array | No | Embedded self-reported health updates |
-| `account_status` | enum | No | `Active`, `Discharged`, `Deceased` |
+| `account_status` | enum | No | `Active`, `Discharged`, `Deceased`, or `AssignmentConflict`; the last is an operational quarantine and is never a clinical discharge |
+| `assignment_conflict` | object | No | Durable conflict-review context when a concurrent doctor lifecycle change prevents a safe reassignment outcome |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `profile_picture_file_asset_id` | ObjectId | No | References tenant-scoped `fileassets`; absent on legacy records until backfill |
+
+`AssignmentConflict` is fail-closed for clinical writes while safe profile/history reads remain available. Reconciliation requires an active same-hospital doctor and an explicit transition back to `Active`; that guarded update clears `assignment_conflict` atomically.
 
 Embedded structures:
 
@@ -298,7 +325,7 @@ Embedded structures:
 | `date` | date | Defaults to current time |
 | `type` | enum | Validator-driven value set |
 | `description` | string | Required |
-| `feedback` | string/boolean-ish | Code currently defaults this field to `false`, which is a schema inconsistency to fix |
+| `feedback` | string | Optional clinician/patient feedback text |
 
 Important implementation note:
 
@@ -346,7 +373,14 @@ Key fields:
 | `location` | string | Yes | Geographic/site descriptor |
 | `admin_email` | string | Yes | Lowercased contact email; not unique today |
 | `status` | enum | No | `active`, `suspended`, `inactive` |
+| `accepting_assignments` | boolean | No | Suspension barrier; set false before doctor operations are drained and user accounts are deactivated |
+| `lifecycle_state` | enum | No | `STABLE`, `SUSPENDING`, or `ACTIVATING`; interrupted transitions remain explicitly resumable |
+| `lifecycle_generation` / `lifecycle_lock` | number / object | No | Fenced lease serializing membership writers with activation and suspension |
 | `metadata` | mixed | No | Free-form extension field |
+
+Default `H###` hospital codes are allocated through the `system_counters` collection. The
+`hospital_code` counter is advanced atomically and reconciled with the highest existing
+numeric hospital code, so concurrent application instances do not allocate the same code.
 
 ### `invoices`
 
@@ -383,6 +417,11 @@ Key fields:
 | `read_at` | date | No | Read timestamp |
 | `action_url` | string | No | Optional deep link |
 | `expires_at` | date | No | Used by TTL auto-expiry index |
+| `push_delivery_required` | boolean | No | Durable intent marker for notifications that require FCM delivery |
+| `push_delivery_enqueued_at` | date | No | Set after the idempotent delivery outbox row is persisted |
+| `push_delivery_cancelled_at` | date | No | Durable cancellation boundary honored by outbox repair, workers, and provider gates |
+| `push_delivery_cancellation_reason` | string | No | Sanitized reason for cancelling previously required push delivery |
+| `delivery_valid_until` | date | No | Clinical validity deadline for scheduled content; distinct from audit-retention expiry |
 
 ### `notificationdeliveries`
 
@@ -398,16 +437,23 @@ Key fields:
 | `user_id` | ObjectId | Yes | Push recipient |
 | `channel` | enum | Yes | Currently `FCM` |
 | `provider` | enum | Yes | Currently `FIREBASE` |
+| `recipient_policy` | enum | No | Immutable delivery authorization policy copied once from the trusted parent notification (`CLINICAL` or `GENERAL`) |
+| `notification_type` | string | No | Immutable notification-type snapshot used with `recipient_policy`; parent mutation cannot relax delivery eligibility |
 | `status` | enum | Yes | `PENDING`, `QUEUED`, `PROCESSING`, `SUCCEEDED`, `FAILED_RETRYABLE`, `DEAD_LETTER`, `SKIPPED` |
 | `attempts` | number | No | Successful claim count |
 | `max_attempts` | number | No | Default 5; exhausted rows become `DEAD_LETTER` |
 | `next_attempt_at` | date | No | Due time for claim/retry |
+| `processing_started_at` / `processing_lease_id` | date / string | No | Expiring worker ownership for provider delivery |
+| `provider_handoff_at` | date | No | Lease-bound irreversible provider boundary; cancellation cannot overwrite an in-flight send after this point |
+| `recovery_lease_id` / `recovery_lease_expires_at` | string / date | No | Crash-expiring recovery reservation that prevents duplicate queue publication across instances |
 | `provider_message_id` | string | No | First FCM message id on success |
+| `delivered_device_token_ids` | ObjectId array | No | Device-token rows already accepted during a partial multicast attempt; excluded from retries |
 | `last_error` | string | No | Sanitized, max 500 chars; no tokens/secrets |
 | `idempotency_key` | string | Yes | Unique `{notificationId}:FCM:FIREBASE` |
 | `title` / `body` | string | Yes | Push copy (length-capped) |
 | `data` | map of string | No | FCM data payload only |
 | `completed_at` | date | No | Set on terminal status |
+| `delivery_valid_until` | date | No | Provider disclosure is forbidden after this instant; expired rows become `SKIPPED` |
 | `expires_at` | date | Yes | TTL retention (default 30 days) |
 
 Indexes: unique `idempotency_key`; `{ status, next_attempt_at }`; TTL on `expires_at`.
@@ -422,7 +468,7 @@ Key fields:
 |---|---|---:|---|
 | `user_id` | ObjectId | Yes | Actor |
 | `user_type` | string | Yes | Actor type |
-| `action` | enum | Yes | Includes login, logout, reset, reassignment, config updates, etc. |
+| `action` | enum | Yes | Includes login/logout, password change/reset, MFA setup/activation/reset, reassignment, config updates, etc. |
 | `description` | string | Yes | Human-readable event summary |
 | `resource_type` | string | No | Logical resource name |
 | `resource_id` | string | No | Logical resource identifier |
@@ -434,7 +480,7 @@ Key fields:
 | `error_message` | string | No | Failure detail |
 | `metadata` | mixed | No | Additional structured context |
 
-Password reset audit records include `metadata.invalidated_sessions` and `metadata.revocation_reason` when active target-user sessions are revoked. Login attempt audit records include `metadata.login_attempt.normalized_login_id`, `metadata.login_attempt.ip_address`, request ID, and outcome for forensic lookup.
+Password and MFA lifecycle records include actor/target identifiers, generation changes, and best-effort cleanup outcomes without recording passwords, OTP/TOTP codes, or authenticator secrets. Password reset audit records include `metadata.invalidated_sessions` and `metadata.revocation_reason` when active target-user sessions are revoked. Login attempt audit records include `metadata.login_attempt.normalized_login_id`, `metadata.login_attempt.ip_address`, request ID, and outcome for forensic lookup.
 
 ### `systemconfigs`
 
@@ -463,6 +509,8 @@ The following uniqueness guarantees exist in the current implementation.
 | `hospitals` | `code` | Unique index | One tenant code per hospital |
 | `invoices` | `invoice_number` | Unique index | One billing identifier per invoice |
 | `fileassets` | `{ bucket, object_key }` | Unique compound index | One metadata record per stored object |
+| `notificationdeliveries` | `idempotency_key` | Unique index | One provider/channel outbox row per notification |
+| `adminmfachallenges` | `user_id` where status is `PENDING` | Unique partial index | At most one pending admin MFA challenge per user |
 
 Current gaps:
 
@@ -497,6 +545,10 @@ Current gaps:
 | `fileassets` | `{ patient_profile_id: 1, createdAt: -1 }` | Patient clinical file history |
 | `fileassets` | `{ bucket: 1, object_key: 1 }` unique | Storage identity and idempotent backfill |
 | `fileassets` | `{ status: 1 }` | Cleanup and failed-delivery operations |
+| `notificationdeliveries` | `{ status: 1, next_attempt_at: 1 }` | Due outbox claims and retries |
+| `notificationdeliveries` | `{ status: 1, processing_started_at: 1 }` | Stale processing-lease recovery |
+| `notificationdeliveries` | `{ recovery_lease_expires_at: 1 }` | Crash recovery for recovery-pass queue publication reservations |
+| `notificationdeliveries` | `{ expires_at: 1 }` TTL | Delivery-attempt retention |
 
 ### How the current indexes support the application
 
@@ -627,9 +679,7 @@ Each migration script should include:
 ## Known Gaps and Risks
 
 - No formal ERD or schema registry existed before this document.
-- The `health_logs.feedback` field has a type/default inconsistency and should be normalized.
 - Patient business identity is split between `users.login_id` and `patientprofiles._id`, which increases integration ambiguity.
-- No dedicated file metadata collection exists yet; file references are embedded as storage keys inside profile documents.
 - No retention indexes exist for audit data, file data, or inactive patient archival.
 - Tenant scoping is implemented in service logic, but not all collections encode tenant context strongly enough for future large-scale analytics and exports.
 

@@ -386,6 +386,11 @@ Notes:
 
 Rotate a valid refresh token and issue a new access token. The previous access token and refresh token for that session are no longer accepted after a successful refresh.
 
+The configurable `session_timeout_minutes` controls the persisted access-token
+window. `REFRESH_TOKEN_EXPIRY_DAYS` controls the absolute refresh-token family
+lifetime and rotation does not extend that absolute deadline. Reuse of a
+previously rotated refresh token revokes the current family.
+
 ### `POST /api/v1/auth/revoke`
 
 Revoke the session associated with a refresh token. The endpoint is idempotent and does not disclose whether the refresh token matched a live session.
@@ -419,6 +424,11 @@ The sanitized user payload includes password-policy state for clients:
 - `password_expires_at`
 - `password_policy.expiry_days`
 - `password_policy.history_count`
+
+When `must_change_password` is true (including password expiry), the server
+rejects clinical, device, statistics, and admin endpoints with `403`. The
+session may access only `/auth/me`, `/auth/logout`, `/auth/change-password`,
+and the admin authenticator enrollment endpoints needed for account recovery.
 
 ### `POST /api/v1/auth/change-password`
 
@@ -462,11 +472,8 @@ Supported body sections:
 
 - `demographics`
 - `medical_history`
-- `medical_config`
 
-Implementation note:
-
-- only a subset of nested `medical_config` fields is currently handled explicitly in the controller
+Therapy configuration, including `therapy_start_date`, is clinician-maintained and is not accepted by this patient self-service endpoint.
 
 ### `GET /api/v1/patient/reports`
 
@@ -680,7 +687,9 @@ Behavior:
 - creates `patientprofiles` document
 - creates linked `users` record
 - initializes patient phone verification as `PENDING`
-- currently uses `contact_no` as the initial temporary password
+- generates a cryptographically strong one-time password
+- returns `temporary_password` once and sets `must_change_password=true`
+- requires the authenticated doctor to belong to an active hospital and assigns the patient to that same tenant
 
 #### `PATCH /api/v1/doctors/patients/:op_num/reassign`
 
@@ -855,6 +864,10 @@ Create patient request body:
 - `demographics`
 - optional `medical_config`
 - optional `hospital_id` or `hospital`
+
+Patient reassignment through `PUT /api/v1/admin/patients/:id` must be submitted
+separately from password or `is_active` changes. Combined requests are rejected
+with `409 Conflict` before any field is changed.
 
 ### Audit and configuration
 

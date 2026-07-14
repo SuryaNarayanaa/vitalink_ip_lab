@@ -3,8 +3,11 @@ import { StatusCodes } from 'http-status-codes'
 import { config } from '@alias/config'
 import { AdminMfaChallenge, User } from '@alias/models'
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model'
+import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
+import { bestEffortRevokeSessionsAfterSecurityVersionBump } from './auth-session.service'
+import logger, { sanitizeLogText } from '@alias/utils/logger'
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 const TOTP_PERIOD_SECONDS = 30
@@ -30,6 +33,8 @@ type TotpSlot = {
   enrolled_at?: Date
   activated_at?: Date
   last_verified_at?: Date
+  last_verified_challenge_id?: unknown
+  factor_generation?: number
 }
 
 export const isAdminTotpRequiredForUnenrolledAdmins = () =>
@@ -149,6 +154,19 @@ const findMatchingTimeStep = (secret: string, code: string): number | null => {
 
 const getTotpSlot = (user: any): TotpSlot => user.admin_mfa?.totp || {}
 
+const exactOptional = (path: string, value: unknown) =>
+  value === undefined || value === null ? { [path]: { $exists: false } } : { [path]: value }
+
+const exactFactorSnapshot = (totp: TotpSlot) => ({
+  ...exactOptional('admin_mfa.totp.status', totp.status),
+  ...exactOptional('admin_mfa.totp.secret_ciphertext', totp.secret_ciphertext),
+  ...exactOptional('admin_mfa.totp.secret_iv', totp.secret_iv),
+  ...exactOptional('admin_mfa.totp.secret_auth_tag', totp.secret_auth_tag),
+  ...exactOptional('admin_mfa.totp.pending_secret_ciphertext', totp.pending_secret_ciphertext),
+  ...exactOptional('admin_mfa.totp.pending_secret_iv', totp.pending_secret_iv),
+  ...exactOptional('admin_mfa.totp.pending_secret_auth_tag', totp.pending_secret_auth_tag),
+})
+
 const getActiveSecret = (user: any): string => {
   const totp = getTotpSlot(user)
   if (!totp.secret_ciphertext || !totp.secret_iv || !totp.secret_auth_tag) {
@@ -212,6 +230,9 @@ export const createAdminTotpEnrollment = async (user: any) => {
   if (isAdminTotpEnabled(currentUser)) {
     throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
   }
+  if (getTotpSlot(currentUser).status === 'PENDING') {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP enrollment is already in progress')
+  }
 
   const secret = generateAdminTotpSecret()
   const encrypted = encryptSecret(secret)
@@ -219,7 +240,10 @@ export const createAdminTotpEnrollment = async (user: any) => {
     {
       _id: currentUser._id,
       user_type: UserType.ADMIN,
-      'admin_mfa.totp.status': { $ne: 'ENABLED' },
+      is_active: true,
+      security_version: Number(currentUser.security_version || 0),
+      'admin_mfa.totp.factor_generation': Number(getTotpSlot(currentUser).factor_generation || 0),
+      ...exactFactorSnapshot(getTotpSlot(currentUser)),
     },
     {
       $set: {
@@ -231,8 +255,8 @@ export const createAdminTotpEnrollment = async (user: any) => {
       },
     }
   )
-  if (result.matchedCount === 0) {
-    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  if (result.modifiedCount !== 1) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP setup changed concurrently; please retry')
   }
 
   const issuer = 'VitaLink'
@@ -259,8 +283,17 @@ export const replaceAdminTotpForRecovery = async (user: any) => {
   const secret = generateAdminTotpSecret()
   const encrypted = encryptSecret(secret)
   const now = new Date()
-  await User.updateOne(
-    { _id: currentUser._id, user_type: UserType.ADMIN, is_active: true },
+  const currentTotp = getTotpSlot(currentUser)
+  const factorGeneration = Number(currentTotp.factor_generation || 0)
+  const replacement = await User.updateOne(
+    {
+      _id: currentUser._id,
+      user_type: UserType.ADMIN,
+      is_active: true,
+      security_version: Number(currentUser.security_version || 0),
+      'admin_mfa.totp.factor_generation': factorGeneration,
+      ...exactFactorSnapshot(currentTotp),
+    },
     {
       $set: {
         'admin_mfa.totp.status': 'ENABLED',
@@ -270,25 +303,45 @@ export const replaceAdminTotpForRecovery = async (user: any) => {
         'admin_mfa.totp.enrolled_at': now,
         'admin_mfa.totp.activated_at': now,
       },
+      $inc: {
+        'admin_mfa.totp.factor_generation': 1,
+        security_version: 1,
+      },
       $unset: {
         'admin_mfa.totp.pending_secret_ciphertext': '',
         'admin_mfa.totp.pending_secret_iv': '',
         'admin_mfa.totp.pending_secret_auth_tag': '',
         'admin_mfa.totp.last_verified_at': '',
         'admin_mfa.totp.last_verified_time_step': '',
+        'admin_mfa.totp.last_verified_challenge_id': '',
       },
     }
   )
+  if (replacement.modifiedCount !== 1) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin authenticator changed concurrently; please retry')
+  }
 
-  await AdminMfaChallenge.updateMany(
-    { user_id: currentUser._id, status: AdminMfaChallengeStatus.PENDING },
-    { $set: { status: AdminMfaChallengeStatus.CANCELLED } }
-  )
+  // The factor/security generation bump above is the authoritative boundary:
+  // an old challenge cannot authenticate even if physical cleanup is delayed.
+  // Never withhold the only plaintext replacement secret after that commit.
+  let challengeCleanupCompleted = true
+  try {
+    await AdminMfaChallenge.updateMany(
+      { user_id: currentUser._id, status: AdminMfaChallengeStatus.PENDING },
+      { $set: { status: AdminMfaChallengeStatus.CANCELLED } }
+    )
+  } catch (error) {
+    challengeCleanupCompleted = false
+    logger.error('admin_mfa.recovery_challenge_cleanup_failed', {
+      user_id: String(currentUser._id),
+      error: sanitizeLogText(error),
+    })
+  }
 
   const issuer = 'VitaLink'
   const accountName = encodeURIComponent(currentUser.login_id)
   const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
-  return { secret, otpauth_url }
+  return { secret, otpauth_url, challenge_cleanup_completed: challengeCleanupCompleted }
 }
 
 export const activateAdminTotpEnrollment = async (user: any, code: string) => {
@@ -309,8 +362,18 @@ export const activateAdminTotpEnrollment = async (user: any, code: string) => {
 
   const encrypted = encryptSecret(secret)
   const activatedAt = new Date()
-  await User.updateOne(
-    { _id: freshUser._id, user_type: UserType.ADMIN },
+  const activation = await User.updateOne(
+    {
+      _id: freshUser._id,
+      user_type: UserType.ADMIN,
+      is_active: true,
+      'admin_mfa.totp.status': 'PENDING',
+      'admin_mfa.totp.pending_secret_ciphertext': getTotpSlot(freshUser).pending_secret_ciphertext,
+      'admin_mfa.totp.pending_secret_iv': getTotpSlot(freshUser).pending_secret_iv,
+      'admin_mfa.totp.pending_secret_auth_tag': getTotpSlot(freshUser).pending_secret_auth_tag,
+      'admin_mfa.totp.factor_generation': Number(getTotpSlot(freshUser).factor_generation || 0),
+      security_version: Number(freshUser.security_version || 0),
+    },
     {
       $set: {
         'admin_mfa.totp.status': 'ENABLED',
@@ -319,7 +382,9 @@ export const activateAdminTotpEnrollment = async (user: any, code: string) => {
         'admin_mfa.totp.secret_auth_tag': encrypted.authTag,
         'admin_mfa.totp.activated_at': activatedAt,
         'admin_mfa.totp.last_verified_at': activatedAt,
+        'admin_mfa.totp.last_verified_time_step': matchingStep,
       },
+      $inc: { 'admin_mfa.totp.factor_generation': 1, security_version: 1 },
       $unset: {
         'admin_mfa.totp.pending_secret_ciphertext': '',
         'admin_mfa.totp.pending_secret_iv': '',
@@ -327,23 +392,61 @@ export const activateAdminTotpEnrollment = async (user: any, code: string) => {
       },
     }
   )
+  if (!activation.modifiedCount) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin MFA enrollment changed while it was being activated')
+  }
+  return bestEffortRevokeSessionsAfterSecurityVersionBump(
+    freshUser._id.toString(),
+    AuthSessionRevocationReason.MFA_RESET,
+  )
 }
 
 export const createAdminMfaLoginChallenge = async (user: any) => {
+  const factorGeneration = Number(getTotpSlot(user).factor_generation || 0)
+  const securityVersion = Number(user.security_version || 0)
   await AdminMfaChallenge.updateMany(
     {
       user_id: user._id,
       status: AdminMfaChallengeStatus.PENDING,
+      $or: [
+        { expires_at: { $lte: new Date() } },
+        { factor_generation: { $ne: factorGeneration } },
+        { security_version: { $ne: securityVersion } },
+      ],
     },
-    { $set: { status: AdminMfaChallengeStatus.CANCELLED } }
+    { $set: { status: AdminMfaChallengeStatus.EXPIRED } }
   )
 
-  return AdminMfaChallenge.create({
+  const existing = await AdminMfaChallenge.findOne({
     user_id: user._id,
-    user_type: UserType.ADMIN,
-    expires_at: new Date(Date.now() + config.adminTotpChallengeExpiryMinutes * 60 * 1000),
-    max_attempts: config.adminTotpMaxAttempts,
+    status: AdminMfaChallengeStatus.PENDING,
+    expires_at: { $gt: new Date() },
+    factor_generation: factorGeneration,
+    security_version: securityVersion,
   })
+  if (existing) return existing
+
+  try {
+    return await AdminMfaChallenge.create({
+      user_id: user._id,
+      user_type: UserType.ADMIN,
+      expires_at: new Date(Date.now() + config.adminTotpChallengeExpiryMinutes * 60 * 1000),
+      max_attempts: config.adminTotpMaxAttempts,
+      factor_generation: factorGeneration,
+      security_version: securityVersion,
+    })
+  } catch (error: any) {
+    if (error?.code !== 11000) throw error
+    const pending = await AdminMfaChallenge.findOne({
+      user_id: user._id,
+      status: AdminMfaChallengeStatus.PENDING,
+      expires_at: { $gt: new Date() },
+      factor_generation: factorGeneration,
+      security_version: securityVersion,
+    })
+    if (!pending) throw error
+    return pending
+  }
 }
 
 export const verifyAdminMfaLoginChallenge = async (challengeId: string, code: string) => {
@@ -369,31 +472,158 @@ export const verifyAdminMfaLoginChallenge = async (challengeId: string, code: st
   }
 
   const secret = getActiveSecret(user)
+  const factorGeneration = Number(getTotpSlot(user).factor_generation || 0)
+  const securityVersion = Number(user.security_version || 0)
+  if (
+    challenge.security_version === undefined ||
+    Number(challenge.security_version) !== securityVersion ||
+    Number(challenge.factor_generation || 0) !== factorGeneration
+  ) {
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA challenge is no longer available')
+  }
   const matchingStep = findMatchingTimeStep(secret, code)
   const lastVerifiedStep = getTotpSlot(user).last_verified_time_step
   if (matchingStep === null || (typeof lastVerifiedStep === 'number' && matchingStep <= lastVerifiedStep)) {
-    challenge.attempt_count += 1
-    if (challenge.attempt_count >= challenge.max_attempts) {
-      challenge.status = AdminMfaChallengeStatus.LOCKED
+    const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
+      {
+        _id: challenge._id,
+        status: AdminMfaChallengeStatus.PENDING,
+        expires_at: { $gt: new Date() },
+        $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+      },
+      [
+        { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
+        {
+          $set: {
+            status: {
+              $cond: [
+                { $gte: ['$attempt_count', '$max_attempts'] },
+                AdminMfaChallengeStatus.LOCKED,
+                AdminMfaChallengeStatus.PENDING,
+              ],
+            },
+          },
+        },
+      ],
+      { new: true, updatePipeline: true },
+    )
+    if (!updatedChallenge) {
+      throw new ApiError(StatusCodes.GONE, 'Admin MFA challenge is no longer available')
     }
-    await challenge.save()
     throw new ApiError(
-      challenge.status === AdminMfaChallengeStatus.LOCKED ? StatusCodes.LOCKED : StatusCodes.UNAUTHORIZED,
+      updatedChallenge.status === AdminMfaChallengeStatus.LOCKED ? StatusCodes.LOCKED : StatusCodes.UNAUTHORIZED,
       'Invalid TOTP code'
     )
   }
 
   const verifiedAt = new Date()
-  challenge.status = AdminMfaChallengeStatus.VERIFIED
-  challenge.verified_at = verifiedAt
-  await challenge.save()
+  // Advance the user replay guard first. Distinct challenges using the same
+  // time step now have one winner before any challenge is recorded VERIFIED.
+  const updatedUser = await User.findOneAndUpdate(
+    {
+      _id: user._id,
+      user_type: UserType.ADMIN,
+      is_active: true,
+      'admin_mfa.totp.factor_generation': factorGeneration,
+      security_version: securityVersion,
+      'admin_mfa.totp.secret_ciphertext': getTotpSlot(user).secret_ciphertext,
+      $or: [
+        { 'admin_mfa.totp.last_verified_time_step': { $exists: false } },
+        { 'admin_mfa.totp.last_verified_time_step': { $lt: matchingStep } },
+      ],
+    },
+    {
+      $set: {
+        'admin_mfa.totp.last_verified_at': verifiedAt,
+        'admin_mfa.totp.last_verified_time_step': matchingStep,
+        'admin_mfa.totp.last_verified_challenge_id': challenge._id,
+      },
+    },
+    { new: true },
+  )
+  if (!updatedUser) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid TOTP code')
+  }
 
-  user.set('admin_mfa.totp.last_verified_at', verifiedAt)
-  user.set('admin_mfa.totp.last_verified_time_step', matchingStep)
-  user.last_login_at = verifiedAt
-  user.failed_login_attempts = 0
-  user.locked_until = undefined
-  await user.save()
+  const consumed = await AdminMfaChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      status: AdminMfaChallengeStatus.PENDING,
+      expires_at: { $gt: verifiedAt },
+      attempt_count: { $lt: challenge.max_attempts },
+      factor_generation: factorGeneration,
+      security_version: securityVersion,
+    },
+    {
+      $set: {
+        status: AdminMfaChallengeStatus.VERIFIED,
+        verified_at: verifiedAt,
+      },
+    },
+    { new: true },
+  )
+  if (!consumed) {
+    const previousTotp = getTotpSlot(user)
+    const restoreSet: Record<string, unknown> = {}
+    const restoreUnset: Record<string, 1> = {}
+    const restore = (path: string, value: unknown) => {
+      if (value === undefined || value === null) restoreUnset[path] = 1
+      else restoreSet[path] = value
+    }
+    restore('admin_mfa.totp.last_verified_at', previousTotp.last_verified_at)
+    restore('admin_mfa.totp.last_verified_time_step', previousTotp.last_verified_time_step)
+    restore('admin_mfa.totp.last_verified_challenge_id', previousTotp.last_verified_challenge_id)
+    await User.updateOne(
+      {
+        _id: user._id,
+        'admin_mfa.totp.last_verified_challenge_id': challenge._id,
+        'admin_mfa.totp.last_verified_time_step': matchingStep,
+        'admin_mfa.totp.factor_generation': factorGeneration,
+        security_version: securityVersion,
+        'admin_mfa.totp.secret_ciphertext': getTotpSlot(user).secret_ciphertext,
+      },
+      {
+        $set: restoreSet,
+        ...(Object.keys(restoreUnset).length ? { $unset: restoreUnset } : {}),
+      },
+    )
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA challenge is no longer available')
+  }
 
-  return user
+  // Account login state changes only after the one-time challenge is consumed.
+  // This avoids compensation clobbering a concurrent password lockout update.
+  const authenticatedUser = await User.findOneAndUpdate(
+    {
+      _id: user._id,
+      is_active: true,
+      'admin_mfa.totp.factor_generation': factorGeneration,
+      security_version: securityVersion,
+      'admin_mfa.totp.secret_ciphertext': getTotpSlot(user).secret_ciphertext,
+      'admin_mfa.totp.last_verified_challenge_id': challenge._id,
+      'admin_mfa.totp.last_verified_time_step': matchingStep,
+    },
+    {
+      $set: { last_login_at: verifiedAt, failed_login_attempts: 0 },
+      $unset: { locked_until: 1 },
+    },
+    { new: true },
+  )
+  if (!authenticatedUser) {
+    // The proof was valid, but its account/factor generation retired before
+    // authentication could commit. Do not retain a misleading VERIFIED audit
+    // state: no session was authorized by this challenge.
+    await AdminMfaChallenge.updateOne(
+      {
+        _id: challenge._id,
+        status: AdminMfaChallengeStatus.VERIFIED,
+        verified_at: verifiedAt,
+        security_version: securityVersion,
+        factor_generation: factorGeneration,
+      },
+      { $set: { status: AdminMfaChallengeStatus.CANCELLED } },
+    )
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA challenge is no longer available')
+  }
+
+  return authenticatedUser
 }

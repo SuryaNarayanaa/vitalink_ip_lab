@@ -20,8 +20,8 @@ class DoctorRepository {
     return [];
   }
 
-  Future<void> addPatient(Map<String, dynamic> payload) async {
-    await _apiClient.post(AppStrings.doctorPatientsPath, data: payload);
+  Future<Map<String, dynamic>> addPatient(Map<String, dynamic> payload) async {
+    return _apiClient.post(AppStrings.doctorPatientsPath, data: payload);
   }
 
   Future<DoctorProfileModel> getDoctorProfile() async {

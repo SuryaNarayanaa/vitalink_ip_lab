@@ -5,6 +5,7 @@ import ApiError from "../utils/ApiError";
 import ApiResponse from "../utils/ApiResponse";
 import { StatusCodes } from "http-status-codes";
 import logger from "@alias/utils/logger";
+import { sanitizeLogText } from "@alias/utils/logger";
 
 const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   if (err?.type === 'entity.too.large') {
@@ -22,23 +23,37 @@ const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response
   }
 
   if (err instanceof mongoose.Error.CastError) {
-    const castDetails = { field: err.path, value: err.value }
+    const castDetails = { field: err.path }
     return res.status(StatusCodes.BAD_REQUEST).json(new ApiResponse(StatusCodes.BAD_REQUEST, 'Invalid value for field', castDetails))
+  }
+
+  if (err instanceof mongoose.Error.ValidationError) {
+    return res.status(StatusCodes.BAD_REQUEST).json(
+      new ApiResponse(StatusCodes.BAD_REQUEST, 'The submitted data violates a persistence constraint')
+    )
   }
 
   let error = err;
   if (!(err instanceof ApiError)) {
     logger.error('Unhandled error', {
-      error,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
       requestId: (req as any).requestId,
       method: req.method,
-      path: req.originalUrl,
+      path: req.originalUrl.split('?')[0],
     })
     const statusCode = error instanceof mongoose.Error ? StatusCodes.BAD_REQUEST : StatusCodes.INTERNAL_SERVER_ERROR
     const message = statusCode === StatusCodes.INTERNAL_SERVER_ERROR
       ? 'The server could not complete the request.'
-      : (error.message || 'Invalid database operation')
+      : sanitizeLogText(error.message || 'Invalid database operation')
     error = new ApiError(statusCode, message)
+  }
+
+  if (err?.name === 'MulterError') {
+    return res.status(StatusCodes.BAD_REQUEST).json(new ApiResponse(StatusCodes.BAD_REQUEST, 'Invalid file upload request'))
+  }
+
+  if (err?.code === 11000) {
+    return res.status(StatusCodes.CONFLICT).json(new ApiResponse(StatusCodes.CONFLICT, 'A resource with the same unique identifier already exists'))
   }
 
   const response = new ApiResponse(error.statusCode, error.message, error.data)

@@ -15,6 +15,7 @@ describe('Patient Routes', () => {
     let patientUser: any;
     let patientProfile: any;
     let doctorProfile: any;
+    let doctorUser: any;
     let primaryHospital: any;
 
     beforeAll(async () => {
@@ -48,9 +49,17 @@ describe('Patient Routes', () => {
             }
         });
 
+        doctorUser = await User.create({
+            login_id: 'patient-suite-doctor',
+            password: 'Doctor123!',
+            user_type: 'DOCTOR',
+            profile_id: doctorProfile._id,
+            is_active: true,
+        });
+
         const therapyStartDate = new Date('2024-01-01');
         patientProfile = await PatientProfile.create({
-            assigned_doctor_id: doctorProfile._id,
+            assigned_doctor_id: doctorUser._id,
             hospital_id: primaryHospital._id,
             demographics: {
                 name: 'Test Patient',
@@ -117,22 +126,28 @@ describe('Patient Routes', () => {
             const response = await api.get('/api/patient/profile', {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
-
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
             expect(response.data.data.patient).toBeDefined();
             expect(response.data.data.patient.user_type).toBe('PATIENT');
             expect(response.data.data.patient.profile_id).toBeDefined();
             expect(response.data.data.patient.profile_id.demographics.name).toBe('Test Patient');
+            expect(response.data.data.patient.password).toBeUndefined();
+            expect(response.data.data.patient.salt).toBeUndefined();
+            expect(response.data.data.patient.password_history).toBeUndefined();
+            expect(response.data.data.patient.admin_mfa).toBeUndefined();
         });
 
         test('should include populated doctor profile', async () => {
             const response = await api.get('/api/patient/profile', {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
-
             expect(response.status).toBe(200);
             expect(response.data.data.patient.profile_id.assigned_doctor_id).toBeDefined();
+            const assignedDoctor = response.data.data.patient.profile_id.assigned_doctor_id;
+            expect(assignedDoctor.password).toBeUndefined();
+            expect(assignedDoctor.salt).toBeUndefined();
+            expect(assignedDoctor.admin_mfa).toBeUndefined();
         });
 
         test('should deny a populated doctor profile picture from another hospital', async () => {
@@ -166,7 +181,7 @@ describe('Patient Routes', () => {
             patientProfile.hospital_id = originalHospitalId;
             await patientProfile.save();
             expect(response.status).toBe(403);
-            expect(response.data.message).toContain('Cross-tenant doctor file access');
+            expect(response.data.message).toContain('Cross-tenant doctor profile access');
         });
 
         test('should fail without authentication', async () => {
@@ -225,6 +240,32 @@ describe('Patient Routes', () => {
     });
 
     describe('POST /api/patient/dosage', () => {
+        test('pauses clinical writes but preserves safe reads during assignment conflict', async () => {
+            const before = await PatientProfile.findById(patientProfile._id).lean();
+            await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                $set: {
+                    account_status: 'AssignmentConflict',
+                    assignment_conflict: { detected_at: new Date(), reason: 'concurrent assignment review' },
+                },
+            });
+            try {
+                const write = await api.post('/api/patient/dosage', { date: '12-02-2026' }, {
+                    headers: { Authorization: `Bearer ${patientToken}` },
+                });
+                const read = await api.get('/api/patient/profile', {
+                    headers: { Authorization: `Bearer ${patientToken}` },
+                });
+                expect(write.status).toBe(409);
+                expect(write.data.message).toMatch(/assignment is under review/i);
+                expect(read.status).toBe(200);
+                const after = await PatientProfile.findById(patientProfile._id).lean();
+                expect(after?.medical_config?.taken_doses).toEqual(before?.medical_config?.taken_doses);
+            } finally {
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { account_status: 'Active' }, $unset: { assignment_conflict: 1 },
+                });
+            }
+        });
         test('should log dosage with valid DD-MM-YYYY date', async () => {
             const response = await api.post('/api/patient/dosage', {
                 date: '11-02-2026'
@@ -385,10 +426,11 @@ describe('Patient Routes', () => {
 
             recent_missed_doses.forEach((date: string) => {
                 const [day, month, year] = date.split('-').map(Number);
-                const dateObj = new Date(year, month - 1, day);
-                const today = new Date();
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(today.getDate() - 7);
+                const dateObj = new Date(Date.UTC(year, month - 1, day));
+                const now = new Date();
+                const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+                const sevenDaysAgo = new Date(today);
+                sevenDaysAgo.setUTCDate(today.getUTCDate() - 7);
 
                 expect(dateObj.getTime()).toBeLessThanOrEqual(today.getTime());
                 expect(dateObj.getTime()).toBeGreaterThanOrEqual(sevenDaysAgo.getTime());
@@ -397,7 +439,8 @@ describe('Patient Routes', () => {
 
         test('should fail without therapy start date', async () => {
             const patientWithoutTherapy = await PatientProfile.create({
-                assigned_doctor_id: doctorProfile._id,
+                assigned_doctor_id: doctorUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: {
                     name: 'Patient Without Therapy',
                     age: 50,
@@ -438,7 +481,8 @@ describe('Patient Routes', () => {
 
         test('should fail without dosage schedule', async () => {
             const patientNoDosage = await PatientProfile.create({
-                assigned_doctor_id: doctorProfile._id,
+                assigned_doctor_id: doctorUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: {
                     name: 'Patient No Dosage',
                     age: 55,
@@ -486,6 +530,19 @@ describe('Patient Routes', () => {
     });
 
     describe('POST /api/patient/health-logs', () => {
+        test('tenantless patients cannot use an existing session for clinical mutation', async () => {
+            await PatientProfile.updateOne({ _id: patientProfile._id }, { $unset: { hospital_id: 1 } });
+            try {
+                const response = await api.post('/api/patient/health-logs', {
+                    type: 'SIDE_EFFECT', description: 'Must be denied without tenant',
+                }, { headers: { Authorization: `Bearer ${patientToken}` } });
+                expect(response.status).toBe(403);
+            } finally {
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { hospital_id: primaryHospital._id },
+                });
+            }
+        });
         test('should add health log successfully', async () => {
             const response = await api.post('/api/patient/health-logs', {
                 type: 'SIDE_EFFECT',
@@ -549,6 +606,39 @@ describe('Patient Routes', () => {
 
             expect(response.status).toBe(400);
             expect(response.data.success).toBe(false);
+        });
+
+        test('reports a concurrent assignment quarantine as conflict, not missing profile', async () => {
+            const original = PatientProfile.findOneAndUpdate.bind(PatientProfile);
+            const spy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockImplementationOnce((async (...args: any[]) => {
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: {
+                        account_status: 'AssignmentConflict',
+                        assignment_conflict: { detected_at: new Date(), reason: 'concurrent test quarantine' },
+                    },
+                });
+                return original(...args) as any;
+            }) as any);
+            try {
+                const response = await api.post('/api/patient/health-logs', {
+                    type: 'SIDE_EFFECT', description: 'Must not be retained',
+                }, { headers: { Authorization: `Bearer ${patientToken}` } });
+                expect(response.status).toBe(409);
+                expect(response.data.message).toMatch(/assignment is under review/i);
+            } finally {
+                spy.mockRestore();
+                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                    $set: { account_status: 'Active' }, $unset: { assignment_conflict: 1 },
+                });
+            }
+        });
+
+        test('should reject a whitespace-only health description', async () => {
+            const response = await api.post('/api/patient/health-logs', {
+                type: 'FEVER', description: '   '
+            }, { headers: { Authorization: `Bearer ${patientToken}` } });
+
+            expect(response.status).toBe(400);
         });
 
         test('should fail without authentication', async () => {
@@ -806,29 +896,11 @@ describe('Patient Routes', () => {
             expect(response.data.success).toBe(false);
         });
 
-        test('should allow patient to update therapy_start_date', async () => {
-            const pastDate = new Date();
-            pastDate.setDate(pastDate.getDate() - 7); // 7 days ago
-
+        test('should reject patient changes to clinician-maintained therapy start', async () => {
+            const before = await PatientProfile.findById(patientProfile._id).lean();
             const response = await api.put('/api/patient/profile', {
                 medical_config: {
-                    therapy_start_date: pastDate
-                }
-            }, {
-                headers: { Authorization: `Bearer ${patientToken}` }
-            });
-
-            expect(response.status).toBe(200);
-            expect(response.data.success).toBe(true);
-        });
-
-        test('should fail when therapy_start_date is in the future', async () => {
-            const futureDate = new Date();
-            futureDate.setDate(futureDate.getDate() + 7); // 7 days in the future
-
-            const response = await api.put('/api/patient/profile', {
-                medical_config: {
-                    therapy_start_date: futureDate
+                    therapy_start_date: new Date('2026-01-01T00:00:00.000Z')
                 }
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
@@ -837,6 +909,9 @@ describe('Patient Routes', () => {
             expect(response.status).toBe(400);
             expect(response.data.success).toBe(false);
             expect(response.data.message).toBe('Validation failed');
+            const after = await PatientProfile.findById(patientProfile._id).lean();
+            expect(after?.medical_config?.therapy_start_date?.toISOString())
+                .toBe(before?.medical_config?.therapy_start_date?.toISOString());
         });
 
         test('should fail when trying to update weekly_dosage (doctor only)', async () => {
@@ -1207,6 +1282,18 @@ describe('Patient Routes', () => {
             expect(response.data.data.date_range.end).toBe(startDate);
         });
 
+        test('should reject malformed dosage calendar query values', async () => {
+            const invalidDate = await api.get('/api/patient/dosage-calendar?start_date=31-02-2026', {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+            const invalidMonths = await api.get('/api/patient/dosage-calendar?months=abc', {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            expect(invalidDate.status).toBe(400);
+            expect(invalidMonths.status).toBe(400);
+        });
+
         test('should return only scheduled doses for the configured days', async () => {
             const response = await api.get('/api/patient/dosage-calendar?months=1', {
                 headers: { Authorization: `Bearer ${patientToken}` }
@@ -1254,7 +1341,8 @@ describe('Patient Routes', () => {
         test('should return 400 if therapy_start_date is missing', async () => {
             // Create a patient without therapy_start_date
             const incompleteProfile = await PatientProfile.create({
-                assigned_doctor_id: doctorProfile._id,
+                assigned_doctor_id: doctorUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: {
                     name: 'Incomplete Patient',
                     age: 40,

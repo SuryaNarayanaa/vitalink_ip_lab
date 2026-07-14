@@ -109,35 +109,63 @@ describe('phone verification groundwork', () => {
             verified_at: new Date('2026-01-01T00:00:00.000Z'),
           },
         },
+        toObject: jest.fn().mockReturnValue({
+          _id: profileId,
+          demographics: {
+            name: 'Existing Patient',
+            phone: '9888888888',
+            phone_verification: {
+              status: 'VERIFIED',
+              verified_at: new Date('2026-01-01T00:00:00.000Z'),
+            },
+          },
+        }),
       },
       save: jest.fn().mockResolvedValue(undefined),
+      toObject: jest.fn().mockReturnValue({
+        _id: 'patient-user-id',
+        user_type: 'PATIENT',
+        profile_id: profileId,
+        is_active: true,
+      }),
     }
     const updatedUser = { ...patientUser }
+    const adminUser: any = {
+      _id: 'admin-user-id',
+      user_type: 'ADMIN',
+      profile_id: { admin_role: 'app_admin' },
+    }
 
     const findByIdMock = jest.spyOn(User, 'findById' as any) as jest.Mock
     findByIdMock
-      .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(patientUser) })
+      .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(adminUser) })
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(patientUser) }),
+      })
       .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(updatedUser) })
     jest.spyOn(User, 'findOne').mockReturnValue({ populate: jest.fn() } as any)
     const updateSpy = jest
-      .spyOn(PatientProfile, 'findByIdAndUpdate')
+      .spyOn(PatientProfile, 'findOneAndUpdate')
       .mockResolvedValue({} as any)
 
     await updatePatient('patient-user-id', {
       demographics: {
         name: 'Updated Name',
       },
-    })
+    }, 'admin-user-id')
 
     expect(updateSpy).toHaveBeenCalledWith(
-      patientUser.profile_id,
+      { _id: profileId },
       {
-        'demographics.name': 'Updated Name',
-      }
+        $set: {
+          'demographics.name': 'Updated Name',
+        },
+      },
+      { runValidators: true, new: true },
     )
     const [, update] = updateSpy.mock.calls[0]
-    expect(update).not.toHaveProperty('demographics')
-    expect(update).not.toHaveProperty('demographics.phone')
-    expect(update).not.toHaveProperty('demographics.phone_verification')
+    expect(update.$set).not.toHaveProperty('demographics')
+    expect(update.$set).not.toHaveProperty('demographics.phone')
+    expect(update.$set).not.toHaveProperty('demographics.phone_verification')
   })
 })

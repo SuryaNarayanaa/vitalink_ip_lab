@@ -5,6 +5,7 @@ export enum AuthSessionRevocationReason {
   LOGOUT = 'LOGOUT',
   USER_REVOKED = 'USER_REVOKED',
   REFRESH_ROTATED = 'REFRESH_ROTATED',
+  REFRESH_TOKEN_REUSE = 'REFRESH_TOKEN_REUSE',
   PASSWORD_CHANGED = 'PASSWORD_CHANGED',
   PASSWORD_RESET = 'PASSWORD_RESET',
   MFA_RESET = 'MFA_RESET',
@@ -23,6 +24,11 @@ const AuthSessionSchema = new mongoose.Schema({
     enum: Object.values(UserType),
     required: true,
   },
+  security_version: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
   access_token_id: {
     type: String,
     required: true,
@@ -33,9 +39,19 @@ const AuthSessionSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  /** Recently rotated token hashes used to detect refresh-token family reuse. */
+  refresh_token_history_hashes: {
+    type: [String],
+    default: [],
+    select: false,
+  },
   expires_at: {
     type: Date,
     required: true,
+  },
+  /** Sliding access-session expiry; expires_at is the absolute refresh-family expiry. */
+  access_expires_at: {
+    type: Date,
   },
   revoked_at: {
     type: Date,
@@ -58,6 +74,8 @@ const AuthSessionSchema = new mongoose.Schema({
 
 AuthSessionSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
 AuthSessionSchema.index({ user_id: 1, revoked_at: 1, expires_at: 1 })
+AuthSessionSchema.index({ access_expires_at: 1 })
+AuthSessionSchema.index({ refresh_token_history_hashes: 1 })
 
 export interface AuthSessionDocument extends mongoose.InferSchemaType<typeof AuthSessionSchema> { }
 

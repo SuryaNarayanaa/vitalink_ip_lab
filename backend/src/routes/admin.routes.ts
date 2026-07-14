@@ -22,6 +22,7 @@ import {
   broadcastNotificationSchema, batchOperationSchema, resetPasswordSchema,
   updateAdminUserSchema, updateRoleSchema, createHospitalSchema, updateHospitalSchema,
   updateHospitalStatusSchema, inviteAdminUserSchema, generateInvoicesSchema, invoiceIdParamSchema,
+  auditLogsQuerySchema, hospitalListQuerySchema,
 } from '@alias/validators/admin.validator'
 
 const router = Router()
@@ -36,7 +37,7 @@ router.use(auditLogger)
 router.get('/roles', getRoles)
 router.put('/roles/:roleKey', requireAdminPermission('manage_roles'), validate(updateRoleSchema), updateRole)
 
-router.get('/hospitals', requireAdminPermission('manage_hospitals'), listHospitals)
+router.get('/hospitals', requireAdminPermission('manage_hospitals'), validate(hospitalListQuerySchema), listHospitals)
 router.post('/hospitals', requireAdminPermission('manage_hospitals'), validate(createHospitalSchema), createHospital)
 router.get('/hospitals/:id', requireAdminPermission('manage_hospitals'), getHospital)
 router.put('/hospitals/:id', requireAdminPermission('manage_hospitals'), validate(updateHospitalSchema), updateHospital)
@@ -68,7 +69,7 @@ router.delete('/patients/:id', requireAdminPermission('manage_patients'), valida
 router.put('/reassign/:op_num', requireAdminPermission('manage_patients'), validate(reassignPatientSchema), reassignPatient)
 
 // ─── Audit Logs ───
-router.get('/audit-logs', requireAdminPermission('view_audit'), getAuditLogs)
+router.get('/audit-logs', requireAdminPermission('view_audit'), validate(auditLogsQuerySchema), getAuditLogs)
 
 // ─── System Config ───
 router.get('/config', requireAdminPermission('manage_system'), getSystemConfig)

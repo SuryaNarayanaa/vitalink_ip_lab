@@ -18,6 +18,11 @@ export enum NotificationDeliveryStatus {
   SKIPPED = 'SKIPPED',
 }
 
+export enum NotificationRecipientPolicy {
+  CLINICAL = 'CLINICAL',
+  GENERAL = 'GENERAL',
+}
+
 const NotificationDeliverySchema = new mongoose.Schema({
   notification_id: {
     type: mongoose.Schema.Types.ObjectId,
@@ -43,6 +48,12 @@ const NotificationDeliverySchema = new mongoose.Schema({
     default: NotificationDeliveryProvider.FIREBASE,
     required: true,
   },
+  /** Immutable authorization contract copied from the trusted parent notification. */
+  recipient_policy: {
+    type: String,
+    enum: Object.values(NotificationRecipientPolicy),
+  },
+  notification_type: { type: String },
   status: {
     type: String,
     enum: Object.values(NotificationDeliveryStatus),
@@ -72,9 +83,29 @@ const NotificationDeliverySchema = new mongoose.Schema({
   processing_lease_id: {
     type: String,
   },
+  /**
+   * Irreversible handoff boundary owned by the processing lease. Once set,
+   * cancellation must not overwrite the row; the sender owns recording the
+   * provider outcome even if the parent notification is cancelled meanwhile.
+   */
+  provider_handoff_at: {
+    type: Date,
+  },
+  /** Short-lived reservation held by a recovery pass while publishing work. */
+  recovery_lease_id: {
+    type: String,
+  },
+  recovery_lease_expires_at: {
+    type: Date,
+  },
   provider_message_id: {
     type: String,
   },
+  /** Device-token document IDs already accepted by FCM on an earlier partial attempt. */
+  delivered_device_token_ids: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DeviceToken',
+  }],
   last_error: {
     type: String,
     maxlength: 500,
@@ -102,6 +133,11 @@ const NotificationDeliverySchema = new mongoose.Schema({
   completed_at: {
     type: Date,
   },
+  /** Clinical validity boundary. Work after this instant must never be disclosed. */
+  delivery_valid_until: {
+    type: Date,
+    index: true,
+  },
   /** TTL retention for delivery history (MongoDB expireAfterSeconds). */
   expires_at: {
     type: Date,
@@ -112,6 +148,7 @@ const NotificationDeliverySchema = new mongoose.Schema({
 NotificationDeliverySchema.index({ idempotency_key: 1 }, { unique: true })
 NotificationDeliverySchema.index({ status: 1, next_attempt_at: 1 })
 NotificationDeliverySchema.index({ status: 1, processing_started_at: 1 })
+NotificationDeliverySchema.index({ recovery_lease_expires_at: 1 })
 NotificationDeliverySchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
 NotificationDeliverySchema.index({ user_id: 1, createdAt: -1 })
 

@@ -33,12 +33,19 @@ export const takeDosageSchema = z.object({
 })
 export type TakeDosageInput = z.infer<typeof takeDosageSchema>
 
+export const dosageCalendarQuerySchema = z.object({
+    query: z.object({
+        months: z.string().regex(/^[1-9]\d{0,2}$/, 'months must be a positive integer').optional(),
+        start_date: z.string().refine(value => Boolean(parseStrictDateOnly(value)), 'start_date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format').optional(),
+    }).strict()
+})
+
 
 export const updateHealthLogSchema = z.object({
     body: z.object({
         type: z.enum(HealthLog, "The Health Log Type should be a valid One"),
-        description: z.string("Description Should be a string")
-    })
+        description: z.string("Description Should be a string").trim().min(1, 'Description must not be empty').max(2000, 'Description is too long')
+    }).strict()
 })
 
 export type UpdateHealthLog = z.infer<typeof updateHealthLogSchema>
@@ -58,20 +65,10 @@ export const updateProfileSchema = z.object({
             }).optional()
         }).optional(),
         medical_history: z.array(z.object({
-            diagnosis: z.string().optional(),
-            duration_value: z.number().positive().optional(),
+            diagnosis: z.string().trim().max(500).optional(),
+            duration_value: z.number().finite().positive().optional(),
             duration_unit: z.enum(['Days', 'Weeks', 'Months', 'Years']).optional()
-        })).optional(),
-        medical_config: z.object({
-            therapy_start_date: z.union([
-                z.date(),
-                ddmmyyyy,
-                isoDateTime,
-            ]).refine(
-                (date) => date <= new Date(),
-                { message: "Therapy start date cannot be in the future" }
-            ).optional()
-        }).strict().optional()
+        }).strict()).max(50).optional(),
     }).strict()
 })
 

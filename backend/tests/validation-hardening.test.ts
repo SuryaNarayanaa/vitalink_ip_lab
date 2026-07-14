@@ -6,7 +6,7 @@ import ApiError from '@alias/utils/ApiError'
 import errorHandler from '@alias/middlewares/errorHandler'
 import { validate } from '@alias/middlewares/ValidateResource'
 import { getDoctorsSchema } from '@alias/validators/admin.validator'
-import { calendarDateKeyInTimeZone, dateOnlyStringKey } from '@alias/utils/dateOnly'
+import { calendarDateKeyInTimeZone, dateOnlyStringKey, parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 describe('validation and error hardening', () => {
   test.each(['short', 'alllowercase1!', 'ALLUPPERCASE1!', 'NoNumber!', 'NoSpecial1']) (
@@ -50,6 +50,8 @@ describe('validation and error hardening', () => {
     })
 
     expect(result.body.medical_config?.therapy_start_date).toBeInstanceOf(Date)
+    expect(result.body.medical_config?.therapy_start_date?.toISOString()).toBe('2025-06-20T00:00:00.000Z')
+    expect(parseStrictDateOnly('20-06-2025')?.toISOString()).toBe('2025-06-20T00:00:00.000Z')
   })
 
   test('clinical today is not treated as future before UTC reaches local midnight', async () => {

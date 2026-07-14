@@ -1,4 +1,7 @@
 import type { Response } from 'express'
+import User from '@alias/models/user.model'
+import { hasActiveClinicalHospitalAccess, hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
+import { isFeatureEnabled } from '@alias/services/config.service'
 
 type StreamEnvelope = {
   event: string
@@ -75,5 +78,35 @@ export function publishNotificationToUser(userId: string, event: string, data: u
       removeClient(userId, res)
     }
   }
+}
+
+/** Final kill-switch gate for nonclinical/general realtime notifications. */
+export async function publishGeneralNotificationToUser(userId: string, event: string, data: unknown) {
+  if (!await isFeatureEnabled('notifications_enabled')) return false
+  let user = await User.findById(userId).select('is_active user_type profile_id').lean()
+  if (!user?.is_active || !await hasActiveHospitalAccess(user)) return false
+  if (!await isFeatureEnabled('notifications_enabled')) return false
+  // The feature read above is awaited. Refresh recipient state afterward so a
+  // deactivation/suspension that wins during that read cannot leak to an
+  // already-open stream. No awaited work remains before the SSE write.
+  user = await User.findById(userId).select('is_active user_type profile_id').lean()
+  if (!user?.is_active || !await hasActiveHospitalAccess(user)) return false
+  publishNotificationToUser(userId, event, data)
+  return true
+}
+
+/** Revalidate tenant state at the last boundary before clinical SSE disclosure. */
+export async function publishClinicalNotificationToUser(userId: string, event: string, data: unknown) {
+  if (!await isFeatureEnabled('notifications_enabled')) return false
+  let user = await User.findById(userId).select('is_active user_type profile_id').lean()
+  if (!user?.is_active || !await hasActiveClinicalHospitalAccess(user)) return false
+  // Final provider-independent kill-switch boundary. Eligibility includes
+  // awaited profile/hospital reads, during which an operator may pause all
+  // notification disclosure.
+  if (!await isFeatureEnabled('notifications_enabled')) return false
+  user = await User.findById(userId).select('is_active user_type profile_id').lean()
+  if (!user?.is_active || !await hasActiveClinicalHospitalAccess(user)) return false
+  publishNotificationToUser(userId, event, data)
+  return true
 }
 

@@ -261,8 +261,12 @@ export const config: Config = {
   twilioVerifyChannel: getEnv('TWILIO_VERIFY_CHANNEL', { defaultValue: 'sms' }),
   twilioVerifyTemplateSid: getEnv('TWILIO_VERIFY_TEMPLATE_SID'),
   twilioVerifyTemplateTtlMinutes: getIntEnv('TWILIO_VERIFY_TEMPLATE_TTL_MINUTES', getIntEnv('OTP_EXPIRY_MINUTES', 10)),
-  redisUrl: getEnv('REDIS_URL', { defaultValue: isTest ? '' : '' }),
-  notificationDeliveryEnabled: getBoolEnv('NOTIFICATION_DELIVERY_ENABLED', !isTest),
+  // Never let Jest inherit a developer/production Redis endpoint from `.env`.
+  // Queue integration tests opt in explicitly by mutating this runtime config.
+  redisUrl: isTest ? '' : getEnv('REDIS_URL', { defaultValue: '' }),
+  notificationDeliveryEnabled: isTest
+    ? false
+    : getBoolEnv('NOTIFICATION_DELIVERY_ENABLED', true),
   notificationDeliveryMaxAttempts: getIntEnv('NOTIFICATION_DELIVERY_MAX_ATTEMPTS', 5),
   notificationDeliveryBaseBackoffMs: getIntEnv('NOTIFICATION_DELIVERY_BASE_BACKOFF_MS', 2_000),
   notificationDeliveryRetentionDays: getIntEnv('NOTIFICATION_DELIVERY_RETENTION_DAYS', 30),
