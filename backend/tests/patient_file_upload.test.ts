@@ -13,6 +13,8 @@ import { getDownloadUrl, purgeFilePermanently } from '@alias/utils/fileUpload';
 import { purgePatientFileAssets } from '@alias/services/patient-file-purge.service';
 
 describe('Patient File Upload Routes', () => {
+    const previousBucketName = config.bucketName;
+    const testBucketName = 'mock-filebase-bucket';
     let mongoContainer: StartedTestContainer;
     let server: Server;
     let api: AxiosInstance;
@@ -40,6 +42,7 @@ describe('Patient File Upload Routes', () => {
     };
 
     beforeAll(async () => {
+        config.bucketName = testBucketName;
         mongoContainer = await new GenericContainer('mongo:7.0')
             .withExposedPorts(27017)
             .start();
@@ -136,6 +139,7 @@ describe('Patient File Upload Routes', () => {
         await new Promise<void>((resolve, reject) => {
             server.close((error) => error ? reject(error) : resolve());
         });
+        config.bucketName = previousBucketName;
     });
 
     describe('POST /api/patient/reports', () => {
@@ -591,7 +595,7 @@ describe('Patient File Upload Routes', () => {
                 patient_profile_id: patientProfile._id,
                 purpose: 'INR_REPORT',
                 storage_provider: 'S3_COMPATIBLE',
-                bucket: config.bucketName,
+                bucket: testBucketName,
                 object_key: aliasKey,
                 original_filename: 'external.pdf',
                 detected_mime: 'application/pdf',
