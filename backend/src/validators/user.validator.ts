@@ -4,11 +4,14 @@ export const loginSchema = z.object({
   body: z.object({
     login_id: z
       .string()
-      .min(1, 'Login ID is required'),
+      .trim()
+      .min(1, 'Login ID is required')
+      .max(254, 'Login ID is too long'),
     password: z
       .string()
-      .min(1, 'Password is required'),
-  }),
+      .min(1, 'Password is required')
+      .max(1024, 'Password is too long'),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })
@@ -17,9 +20,9 @@ export type LoginInput = z.infer<typeof loginSchema>
 
 export const verifyLoginOtpSchema = z.object({
   body: z.object({
-    challenge_id: z.string().min(1, 'Challenge ID is required'),
-    code: z.string().min(1, 'OTP code is required'),
-  }),
+    challenge_id: z.string().regex(/^[a-f\d]{24}$/i, 'Challenge ID must be a valid ObjectId'),
+    code: z.string().regex(/^\d{6}$/, 'OTP code must be 6 digits'),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })
@@ -28,8 +31,8 @@ export type VerifyLoginOtpInput = z.infer<typeof verifyLoginOtpSchema>
 
 export const resendLoginOtpSchema = z.object({
   body: z.object({
-    challenge_id: z.string().min(1, 'Challenge ID is required'),
-  }),
+    challenge_id: z.string().regex(/^[a-f\d]{24}$/i, 'Challenge ID must be a valid ObjectId'),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })
@@ -38,9 +41,9 @@ export type ResendLoginOtpInput = z.infer<typeof resendLoginOtpSchema>
 
 export const verifyLoginTotpSchema = z.object({
   body: z.object({
-    challenge_id: z.string().min(1, 'Challenge ID is required'),
+    challenge_id: z.string().regex(/^[a-f\d]{24}$/i, 'Challenge ID must be a valid ObjectId'),
     code: z.string().regex(/^\d{6}$/, 'TOTP code must be 6 digits'),
-  }),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })
@@ -49,8 +52,8 @@ export type VerifyLoginTotpInput = z.infer<typeof verifyLoginTotpSchema>
 
 export const refreshTokenSchema = z.object({
   body: z.object({
-    refresh_token: z.string().min(1, 'Refresh token is required'),
-  }),
+    refresh_token: z.string().min(1, 'Refresh token is required').max(4096, 'Refresh token is too long'),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })
@@ -59,8 +62,8 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>
 
 export const revokeTokenSchema = z.object({
   body: z.object({
-    refresh_token: z.string().min(1, 'Refresh token is required'),
-  }),
+    refresh_token: z.string().min(1, 'Refresh token is required').max(4096, 'Refresh token is too long'),
+  }).strict(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 })

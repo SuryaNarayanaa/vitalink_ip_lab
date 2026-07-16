@@ -7,6 +7,8 @@ export const NOTIFICATION_DELIVERY_QUEUE = 'notification-delivery'
 let queue: Queue | null = null
 let queueInitFailed = false
 let connectionOptions: ConnectionOptions | null = null
+let queueUnavailableUntil = 0
+const QUEUE_RETRY_COOLDOWN_MS = 30_000
 
 function getRedisConnection(): ConnectionOptions | null {
   const url = config.redisUrl?.trim()
@@ -21,8 +23,12 @@ function getRedisConnection(): ConnectionOptions | null {
       port: parsed.port ? Number(parsed.port) : 6379,
       username: parsed.username || undefined,
       password: parsed.password || undefined,
-      maxRetriesPerRequest: null,
+      // API producers must fail promptly when Redis is unavailable. MongoDB is
+      // the durable outbox and the recovery poller will publish the row later.
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2_000,
       enableReadyCheck: true,
+      retryStrategy: () => null,
     }
     if (parsed.protocol === 'rediss:') {
       ;(connectionOptions as any).tls = {}
@@ -34,19 +40,24 @@ function getRedisConnection(): ConnectionOptions | null {
     connectionOptions = {
       host: host || '127.0.0.1',
       port: portRaw ? Number(portRaw) : 6379,
-      maxRetriesPerRequest: null,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2_000,
+      retryStrategy: () => null,
     }
     return connectionOptions
   }
 }
 
 export function isNotificationQueueAvailable(): boolean {
-  return Boolean(config.redisUrl?.trim()) && !queueInitFailed
+  return Boolean(config.redisUrl?.trim())
+    && !queueInitFailed
+    && Date.now() >= queueUnavailableUntil
 }
 
 export function getNotificationDeliveryQueue(): Queue | null {
   if (!config.notificationDeliveryEnabled) return null
   if (queueInitFailed) return null
+  if (Date.now() < queueUnavailableUntil) return null
   if (queue) return queue
 
   const connection = getRedisConnection()
@@ -107,6 +118,9 @@ export async function publishDeliveryJob(
     )
     return true
   } catch (error) {
+    queueUnavailableUntil = Date.now() + QUEUE_RETRY_COOLDOWN_MS
+    if (queue === q) queue = null
+    await q.disconnect().catch(() => undefined)
     logger.warn('notification_delivery.publish_failed', {
       deliveryId,
       error: error instanceof Error ? error.message : String(error),
@@ -122,6 +136,7 @@ export async function closeNotificationDeliveryQueue(): Promise<void> {
   }
   connectionOptions = null
   queueInitFailed = false
+  queueUnavailableUntil = 0
 }
 
 /** Test helper to force re-init after env changes. */
@@ -129,4 +144,5 @@ export function resetNotificationQueueStateForTests(): void {
   queue = null
   connectionOptions = null
   queueInitFailed = false
+  queueUnavailableUntil = 0
 }

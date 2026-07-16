@@ -1,7 +1,8 @@
 import { Request, Response } from 'express'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
-import { DoctorProfile, Notification, PatientProfile, User } from '@alias/models'
+import { AuditLog, DoctorProfile, Hospital, Notification, PatientProfile, User } from '@alias/models'
+import { AuditAction } from '@alias/models/auditlog.model'
 import { UserType } from '@alias/validators'
 import type {
   CreatePatientInput,
@@ -19,7 +20,7 @@ import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
-import logger from '@alias/utils/logger'
+import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
 import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
@@ -29,7 +30,8 @@ import {
   DoctorChangeType,
   createDoctorUpdateNotification
 } from '@alias/services/doctor-update-notification.service'
-import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { generateTemporaryPassword } from '@alias/services/password.service'
+import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
 
 const normalizeLoginId = (value: string) => value.trim()
 
@@ -69,15 +71,36 @@ const ensureSameHospital = async (
   const patientHospitalId = patient.hospital_id ? String(patient.hospital_id) : undefined
   const targetHospitalId = targetDoctor ? await getDoctorHospitalId(targetDoctor) : undefined
 
-  if (currentHospitalId && patientHospitalId && currentHospitalId !== patientHospitalId) {
+  if (!currentHospitalId || !patientHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Doctor and patient must both be assigned to a hospital')
+  }
+  if (currentHospitalId !== patientHospitalId) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant patient access is not allowed')
   }
-  if (targetHospitalId && patientHospitalId && targetHospitalId !== patientHospitalId) {
+  if (targetDoctor && !targetHospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'All doctors must be assigned to a hospital before reassignment')
+  }
+  if (targetHospitalId && targetHospitalId !== patientHospitalId) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor reassignment is not allowed')
   }
   if (currentHospitalId && targetHospitalId && currentHospitalId !== targetHospitalId) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor reassignment is not allowed')
   }
+}
+
+const doctorOwnedPatientFilter = (
+  patientProfileId: unknown,
+  doctor: { _id: unknown; profile_id?: unknown },
+  hospitalId?: unknown,
+) => ({
+  _id: patientProfileId,
+  assigned_doctor_id: { $in: getDoctorOwnershipIds(doctor) },
+  account_status: 'Active',
+  ...(hospitalId ? { hospital_id: hospitalId } : {}),
+})
+
+const throwOwnershipChanged = (): never => {
+  throw new ApiError(StatusCodes.CONFLICT, 'Patient assignment changed while the request was being processed')
 }
 
 const ensureReassignmentHospitalAccess = async (
@@ -113,12 +136,13 @@ async function createPatientProfileAndUser(
 ) {
   const session = await mongoose.startSession()
   let profile: any
+  let user: any
   try {
     await session.withTransaction(async () => {
       profile = await createProfile(session)
-      await createUser(profile._id, session)
+      user = await createUser(profile._id, session)
     })
-    return profile
+    return { profile, user }
   } catch (error: any) {
     if (!/Transaction numbers are only allowed|replica set member|Transaction support/i.test(String(error?.message))) {
       throw error
@@ -126,8 +150,8 @@ async function createPatientProfileAndUser(
     profile = undefined
     try {
       profile = await createProfile()
-      await createUser(profile._id)
-      return profile
+      user = await createUser(profile._id)
+      return { profile, user }
     } catch (fallbackError) {
       if (profile?._id) await profile.deleteOne()
       throw fallbackError
@@ -166,8 +190,9 @@ const notifyPatientDoctorUpdate = async (
   message: string,
   changedFields: string[] = []
 ) => {
-  // In-app notification + SSE for immediate foreground updates.
-  const created = await createDoctorUpdateNotification({
+  // Persists both the in-app notification and durable push outbox before the
+  // request completes; queue publication itself remains best-effort.
+  await createDoctorUpdateNotification({
     patientUserId,
     changedByDoctorId: doctorId,
     changeType,
@@ -176,22 +201,6 @@ const notifyPatientDoctorUpdate = async (
     changedFields,
   })
 
-  // Durable FCM outbox: persist delivery state and enqueue asynchronously.
-  // Must not fail or block the clinical HTTP response after persistence.
-  void enqueueNotificationPush({
-    notificationId: String(created._id),
-    userId: String(patientUserId),
-    title,
-    body: message,
-    data: { change_type: changeType },
-  }).catch((error) => {
-    logger.error('notification_delivery.doctor_update_enqueue_failed', {
-      error: error instanceof Error ? error.message : String(error),
-      patientUserId: String(patientUserId),
-      changeType,
-      notificationId: String(created._id),
-    })
-  })
 }
 
 const mapNotificationToAppNotificationItem = (notification: any) => ({
@@ -296,7 +305,7 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
   }
 
   const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
-  const hospitalId = await getDoctorHospitalId(doctorUser)
+  const hospitalId = await getRequiredDoctorHospitalId(doctorUser)
 
   const { name, op_num, age, gender, contact_no, target_inr_min, target_inr_max, therapy, therapy_start_date,
     prescription, medical_history, kin_name, kin_relation, kin_contact_number } = req.body
@@ -317,10 +326,25 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
     }
   }
 
-  const tempPassword = contact_no
-  const patientProfile = await createPatientProfileAndUser(
-    session => PatientProfile.create([{
+  // A phone number is public/predictable patient data and must never be an
+  // account password. Issue a strong one-time password and force replacement.
+  const tempPassword = generateTemporaryPassword()
+  const releaseAssignmentGuard = await acquireDoctorAssignmentGuard(doctorUser._id)
+  let patientProfile
+  try {
+    const guardedDoctorProfile = await DoctorProfile.findById(doctorUser.profile_id).select('hospital_id')
+    if (!guardedDoctorProfile?.hospital_id || String(guardedDoctorProfile.hospital_id) !== hospitalId) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Doctor hospital changed while the patient was being assigned')
+    }
+    await stampDoctorProfileFence(doctorUser.profile_id, {
+      fenceToken: releaseAssignmentGuard.fenceToken,
+      assertOwned: releaseAssignmentGuard.assertOwned,
+    })
+    await releaseAssignmentGuard.assertOwned()
+    const createdPatient = await createPatientProfileAndUser(
+      session => PatientProfile.create([{
       assigned_doctor_id: doctorUser._id,
+      assigned_doctor_fence: releaseAssignmentGuard.fenceToken,
       hospital_id: hospitalId,
       demographics: {
         name,
@@ -339,17 +363,46 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
       },
       medical_history: medical_history ?? undefined,
       weekly_dosage: prescription ?? undefined,
-    }], session ? { session } : undefined).then(([profile]) => profile),
-    (profileId, session) => User.create([{
+      }], session ? { session } : undefined).then(([profile]) => profile),
+      (profileId, session) => User.create([{
       login_id: normalizedOpNum,
       password: tempPassword,
       user_type: UserType.PATIENT,
       profile_id: profileId,
       user_type_model: 'PatientProfile',
-    }], session ? { session } : undefined).then(([user]) => user),
-  )
+      must_change_password: true,
+      }], session ? { session } : undefined).then(([user]) => user),
+    )
+    patientProfile = createdPatient.profile
+    try {
+      await releaseAssignmentGuard.assertOwned()
+    } catch (error) {
+      const terminal = await terminalizePatientAssignment({
+        patientProfileId: createdPatient.profile._id,
+        targetDoctorUserId: doctorUser._id,
+        targetFence: releaseAssignmentGuard.fenceToken,
+        patientHospitalId: hospitalId,
+        reason: 'Doctor lifecycle changed after patient creation committed',
+        targetGuard: releaseAssignmentGuard,
+      })
+      patientProfile = terminal.patient
+      if (terminal.state === 'QUARANTINED') {
+        await User.updateOne(
+          { _id: createdPatient.user._id, profile_id: createdPatient.profile._id },
+          { $set: { is_active: false } },
+        )
+        throw error
+      }
+    }
+  } finally {
+    await releaseAssignmentGuard()
+  }
 
-  res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Patient created successfully', { patient: patientProfile }))
+  res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Patient created successfully', {
+    patient: patientProfile,
+    temporary_password: tempPassword,
+    must_change_password: true,
+  }))
 })
 
 export const reassignPatient = asyncHandler(async (
@@ -375,13 +428,116 @@ export const reassignPatient = asyncHandler(async (
   }
   await ensureReassignmentHospitalAccess(currentDoctorUser, existingPatientProfile, doctorUser)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
-    {
-      $set: { assigned_doctor_id: doctorUser._id },
-    },
-    { new: true }
-  )
+  const releaseCurrentDoctorGuard = await acquireDoctorAssignmentGuard(currentDoctorUser._id)
+  let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>>
+  if (String(currentDoctorUser._id) === String(doctorUser._id)) {
+    releaseAssignmentGuard = releaseCurrentDoctorGuard
+  } else {
+    try {
+      releaseAssignmentGuard = await acquireDoctorAssignmentGuard(doctorUser._id)
+    } catch (error) {
+      await releaseCurrentDoctorGuard()
+      throw error
+    }
+  }
+  let patient
+  try {
+    const guardedTargetProfile = await DoctorProfile.findById(doctorUser.profile_id).select('hospital_id')
+    if (
+      !guardedTargetProfile?.hospital_id ||
+      String(guardedTargetProfile.hospital_id) !== String(existingPatientProfile.hospital_id)
+    ) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Target doctor hospital changed while reassignment was being applied')
+    }
+    await stampDoctorProfileFence(doctorUser.profile_id, {
+      fenceToken: releaseAssignmentGuard.fenceToken,
+      assertOwned: releaseAssignmentGuard.assertOwned,
+    })
+    if (String(currentDoctorUser._id) !== String(doctorUser._id)) {
+      await stampDoctorProfileFence(currentDoctorUser.profile_id, {
+        fenceToken: releaseCurrentDoctorGuard.fenceToken,
+        assertOwned: releaseCurrentDoctorGuard.assertOwned,
+      })
+    }
+    await releaseAssignmentGuard.assertOwned()
+    await releaseCurrentDoctorGuard.assertOwned()
+    patient = await PatientProfile.findOneAndUpdate(
+      doctorOwnedPatientFilter(patientUser.profile_id, currentDoctorUser, existingPatientProfile.hospital_id),
+      {
+        $set: {
+          assigned_doctor_id: doctorUser._id,
+          assigned_doctor_fence: releaseAssignmentGuard.fenceToken,
+        },
+      },
+      { new: true, runValidators: true }
+    )
+    if (patient) {
+      try {
+        await releaseAssignmentGuard.assertOwned()
+        await releaseCurrentDoctorGuard.assertOwned()
+      } catch (error) {
+        const terminal = await terminalizePatientAssignment({
+          patientProfileId: patient._id,
+          targetDoctorUserId: doctorUser._id,
+          targetFence: releaseAssignmentGuard.fenceToken,
+          patientHospitalId: existingPatientProfile.hospital_id,
+          previousDoctorId: currentDoctorUser._id,
+          reason: 'Target doctor lifecycle changed after reassignment commit',
+          targetGuard: releaseAssignmentGuard,
+        })
+        if (terminal.state === 'COMMITTED') {
+          patient = terminal.patient
+          // The clinical write is already valid and committed. A superseded
+          // cleanup lease must not turn that success into a retryable failure.
+          logger.warn('patient_reassignment.committed_after_lease_superseded', {
+            patient_id: String(patient._id),
+            target_doctor_id: String(doctorUser._id),
+          })
+        } else if (terminal.state === 'QUARANTINED') {
+          const quarantined = terminal.patient
+          logger.error('patient_reassignment.assignment_conflict', {
+            patient_id: String(patient._id),
+            attempted_doctor_id: String(doctorUser._id),
+            quarantine_persisted: Boolean(quarantined),
+            error: sanitizeLogText(error),
+          })
+          try {
+            await AuditLog.create({
+              user_id: currentDoctorUser._id,
+              user_type: currentDoctorUser.user_type,
+              action: AuditAction.PATIENT_REASSIGN,
+              description: 'Doctor reassignment entered assignment-conflict review',
+              resource_type: 'Patient',
+              resource_id: String(patient._id),
+              success: false,
+              error_message: 'assignment_conflict',
+              ip_address: req.ip || req.socket?.remoteAddress,
+              user_agent: req.headers['user-agent'],
+              metadata: {
+                patient_user_id: String(patientUser._id),
+                previous_doctor_id: String(currentDoctorUser._id),
+                attempted_doctor_id: String(doctorUser._id),
+                quarantine_persisted: Boolean(quarantined),
+              },
+            })
+          } catch (auditError) {
+            logger.error('patient_reassignment.conflict_audit_failed', {
+              patient_id: String(patient._id),
+              error: sanitizeLogText(auditError),
+            })
+          }
+          throw new ApiError(StatusCodes.CONFLICT,
+            'Patient assignment entered conflict review; no clinical discharge was recorded')
+        } else {
+          throw new ApiError(StatusCodes.CONFLICT, 'Patient assignment was superseded by another request')
+        }
+      }
+    }
+  } finally {
+    await releaseAssignmentGuard()
+    if (releaseCurrentDoctorGuard !== releaseAssignmentGuard) await releaseCurrentDoctorGuard()
+  }
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -391,6 +547,32 @@ export const reassignPatient = asyncHandler(async (
     `Your case was reassigned to doctor ${new_doctor_id}.`,
     ['assigned_doctor_id']
   )
+
+  try {
+    await AuditLog.create({
+      user_id: currentDoctorUser._id,
+      user_type: currentDoctorUser.user_type,
+      action: AuditAction.PATIENT_REASSIGN,
+      description: 'Doctor reassigned patient successfully',
+      resource_type: 'Patient',
+      resource_id: String(patient._id),
+      success: true,
+      ip_address: req.ip || req.socket?.remoteAddress,
+      user_agent: req.headers['user-agent'],
+      metadata: {
+        patient_user_id: String(patientUser._id),
+        previous_doctor_id: String(currentDoctorUser._id),
+        assigned_doctor_id: String(doctorUser._id),
+      },
+    })
+  } catch (auditError) {
+    // The assignment is already committed and valid. Preserve truthful API
+    // success while surfacing the audit durability failure operationally.
+    logger.error('patient_reassignment.success_audit_failed', {
+      patient_id: String(patient._id),
+      error: sanitizeLogText(auditError),
+    })
+  }
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient reassigned successfully', { patient }))
 })
@@ -410,13 +592,14 @@ export const editPatientDosage = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
     {
       $set: { weekly_dosage: prescription },
     },
-    { new: true }
+    { new: true, runValidators: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -480,19 +663,31 @@ export const updateReport = asyncHandler(async (req: Request<UpdateReportInput['
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const report = patientProfile.inr_history.id(report_id)
-  if (!report) {
+  const existingReport = patientProfile.inr_history.id(report_id)
+  if (!existingReport) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Report not found')
   }
-
-  if (notes !== undefined) report.notes = notes;
-  if (is_critical !== undefined) report.is_critical = is_critical;
 
   const changedFields: string[] = []
   if (notes !== undefined) changedFields.push('inr_history.notes')
   if (is_critical !== undefined) changedFields.push('inr_history.is_critical')
 
-  await patientProfile.save()
+  const reportSet: Record<string, unknown> = {}
+  if (notes !== undefined) reportSet['inr_history.$.notes'] = notes
+  if (is_critical !== undefined) reportSet['inr_history.$.is_critical'] = is_critical
+  let report = existingReport
+  if (changedFields.length > 0) {
+    const updatedPatient = await PatientProfile.findOneAndUpdate(
+      {
+        ...doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
+        'inr_history._id': report_id,
+      },
+      { $set: reportSet },
+      { new: true, runValidators: true },
+    )
+    if (!updatedPatient) throwOwnershipChanged()
+    report = updatedPatient.inr_history.id(report_id)!
+  }
 
   if (changedFields.length > 0) {
     await notifyPatientDoctorUpdate(
@@ -525,13 +720,33 @@ export const updateNextReview = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const therapyStart = patientProfile.medical_config?.therapy_start_date
+  if (therapyStart && parsedDate.getTime() < new Date(therapyStart).getTime()) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Next review date cannot be before therapy started')
+  }
+
+  const reviewFilter: any = doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id)
+  reviewFilter.$and = [{
+    $or: [
+      { 'medical_config.therapy_start_date': { $exists: false } },
+      { 'medical_config.therapy_start_date': null },
+      { 'medical_config.therapy_start_date': { $lte: parsedDate } },
+    ],
+  }]
+  const patient = await PatientProfile.findOneAndUpdate(
+    reviewFilter,
     {
       $set: { 'medical_config.next_review_date': parsedDate },
     },
-    { new: true }
+    { new: true, runValidators: true }
   )
+  if (!patient) {
+    const stillOwned = await PatientProfile.exists(
+      doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
+    )
+    if (stillOwned) throw new ApiError(StatusCodes.CONFLICT, 'Therapy start changed while the review date was being applied')
+    throwOwnershipChanged()
+  }
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -560,13 +775,14 @@ export const UpdateInstructions = asyncHandler(async (
   }
   await ensureSameHospital(doctor, patientProfile)
 
-  const patient = await PatientProfile.findByIdAndUpdate(
-    patientUser.profile_id,
+  const patient = await PatientProfile.findOneAndUpdate(
+    doctorOwnedPatientFilter(patientUser.profile_id, doctor, patientProfile.hospital_id),
     {
       $set: { 'medical_config.instructions': instructions },
     },
-    { new: true }
+    { new: true, runValidators: true }
   )
+  if (!patient) throwOwnershipChanged()
 
   await notifyPatientDoctorUpdate(
     patientUser._id,
@@ -601,11 +817,23 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
     })
   }
 
-  const patientsCount = await PatientProfile.countDocuments({ assigned_doctor_id: { $in: getDoctorOwnershipIds(doctor) } })
+  const patientsCount = await PatientProfile.countDocuments({
+    assigned_doctor_id: { $in: getDoctorOwnershipIds(doctor) },
+    ...(doctorProfile?.hospital_id ? { hospital_id: doctorProfile.hospital_id } : {}),
+  })
+
+  const doctorData = doctor.toObject() as any
+  delete doctorData.password
+  delete doctorData.salt
+  delete doctorData.password_history
+  delete doctorData.admin_mfa
+  delete doctorData.failed_login_attempts
+  delete doctorData.locked_until
+  delete doctorData.last_failed_login_at
 
   const response = {
     doctor: {
-      ...doctor.toObject(),
+      ...doctorData,
       profile_id: {
         ...doctorProfile?.toObject(),
         profile_picture_url: profilePictureUrl
@@ -637,7 +865,7 @@ export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
   const updatedProfile = await DoctorProfile.findByIdAndUpdate(
     currentProfile?._id ?? doctorUser.profile_id,
     profileUpdate,
-    { new: true }
+    { new: true, runValidators: true }
   )
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile updated successfully'))
 })
@@ -645,7 +873,9 @@ export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 export const getDoctors = asyncHandler(async (req: Request, res: Response) => {
   const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
   const hospitalId = await getDoctorHospitalId(doctorUser)
-  let doctorsQuery = User.find({ user_type: UserType.DOCTOR }).populate('profile_id').select('-password -salt')
+  let doctorsQuery = User.find({ user_type: UserType.DOCTOR, is_active: true })
+    .populate('profile_id')
+    .select('-password -salt -password_history -admin_mfa')
   const doctors = (await doctorsQuery.lean()).filter((doctor: any) => {
     const doctorHospitalId = doctor?.profile_id?.hospital_id ? String(doctor.profile_id.hospital_id) : undefined
     return hospitalId ? doctorHospitalId === hospitalId : String(doctor._id) === String(doctorUser._id)
@@ -716,7 +946,7 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
       createdBy: user._id,
     })
   } catch (error) {
-    logger.error("Error While Uploading profile to filebase", { error })
+    logger.error("Error While Uploading profile to filebase", { error: sanitizeLogText(error) })
     if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
     throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
   }
@@ -750,11 +980,12 @@ export const getDoctorNotifications = asyncHandler(async (
 ) => {
   const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
 
-  const parsedPage = req.query.page ? parseInt(req.query.page, 10) : 1
-  const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+  const query = (req.validatedQuery ?? req.query) as NotificationsQueryInput['query']
+  const parsedPage = query.page ? parseInt(query.page, 10) : 1
+  const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
   const page = Number.isFinite(parsedPage) ? Math.max(parsedPage, 1) : 1
   const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
-  const isReadFilter = req.query.is_read === undefined ? undefined : req.query.is_read === 'true'
+  const isReadFilter = query.is_read === undefined ? undefined : query.is_read === 'true'
 
   const { notifications, pagination } = await notificationService.getUserNotifications(
     String(doctorUser._id),

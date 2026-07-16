@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { calendarDateKeyInTimeZone, dateOnlyStringKey, parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { config } from '@alias/config'
 
 const adminRoleSchema = z.enum(['app_admin', 'hospital_admin', 'auditor'])
 const roleKeySchema = z.enum(['app_admin', 'hospital_admin', 'doctor', 'patient', 'auditor'])
@@ -17,6 +19,19 @@ const rolePermissionsSchema = z.object({
 }).strict().refine(value => Object.keys(value).length > 0, {
   message: 'At least one permission is required',
 })
+
+const dateOnlySchema = z.string().transform((value, ctx) => {
+  const parsed = parseStrictDateOnly(value)
+  const key = dateOnlyStringKey(value)
+  if (!parsed || !key) {
+    ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format' })
+    return z.NEVER
+  }
+  return { parsed, key }
+}).refine(
+  value => value.key <= calendarDateKeyInTimeZone(new Date(), config.dosageReminderTimezone),
+  'Therapy start date cannot be in the future'
+).transform(value => value.parsed)
 
 // ─── Param Schemas ───
 
@@ -108,7 +123,7 @@ export const createPatientSchema = z.object({
       .object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
-        therapy_start_date: z.string().optional(),
+        therapy_start_date: dateOnlySchema.optional(),
         target_inr: targetInrSchema.optional(),
       })
       .optional(),
@@ -142,7 +157,7 @@ export const updatePatientSchema = z.object({
       .object({
         diagnosis: z.string().optional(),
         therapy_drug: z.string().optional(),
-        therapy_start_date: z.string().optional(),
+        therapy_start_date: dateOnlySchema.optional(),
         target_inr: targetInrSchema.optional(),
       })
       .optional(),
@@ -201,6 +216,36 @@ export const updateSystemConfigSchema = z.object({
       })
     }
   }),
+})
+
+const boundedQueryText = z.string().trim().min(1).max(100)
+
+export const auditLogsQuerySchema = z.object({
+  query: z.object({
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(100).optional(),
+    user_id: z.string().regex(/^[a-f\d]{24}$/i, 'user_id must be a valid ObjectId').optional(),
+    action: z.enum([
+      'LOGIN', 'LOGIN_CHALLENGE', 'LOGOUT', 'LOGIN_FAILED', 'USER_CREATE', 'USER_UPDATE',
+      'USER_DEACTIVATE', 'USER_ACTIVATE', 'USER_DELETE', 'PASSWORD_RESET',
+      'PASSWORD_CHANGE', 'MFA_SETUP', 'MFA_ACTIVATE', 'MFA_RESET', 'PATIENT_REASSIGN', 'PATIENT_DISCHARGE', 'INR_SUBMIT',
+      'INR_UPDATE', 'DOSAGE_UPDATE', 'HEALTH_LOG_CREATE', 'CONFIG_UPDATE',
+      'NOTIFICATION_BROADCAST', 'BATCH_OPERATION', 'PROFILE_UPDATE', 'REPORT_UPDATE',
+    ]).optional(),
+    start_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), 'start_date must be a valid date').optional(),
+    end_date: z.string().refine(value => !Number.isNaN(Date.parse(value)), 'end_date must be a valid date').optional(),
+    success: z.enum(['true', 'false']).optional(),
+  }).strict().refine(
+    value => !value.start_date || !value.end_date || new Date(value.end_date) >= new Date(value.start_date),
+    'end_date must be greater than or equal to start_date',
+  ),
+})
+
+export const hospitalListQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['active', 'suspended', 'inactive']).optional(),
+    search: boundedQueryText.optional(),
+  }).strict(),
 })
 
 const hospitalStatusSchema = z.enum(['active', 'suspended', 'inactive'])
@@ -270,7 +315,7 @@ export const broadcastNotificationSchema = z.object({
     title: z.string().min(1, 'Title is required').max(200),
     message: z.string().min(1, 'Message is required').max(2000),
     target: z.enum(['ALL', 'DOCTORS', 'PATIENTS', 'SPECIFIC']),
-    user_ids: z.array(z.string().min(1)).optional(),
+    user_ids: z.array(z.string().regex(/^[a-f\d]{24}$/i, 'user ID must be a valid ObjectId')).max(1000).optional(),
     priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   }).strict().superRefine((value, ctx) => {
     if (value.target === 'SPECIFIC' && (!value.user_ids || value.user_ids.length === 0)) {
@@ -286,7 +331,8 @@ export const broadcastNotificationSchema = z.object({
 export const batchOperationSchema = z.object({
   body: z.object({
     operation: z.enum(['activate', 'deactivate', 'reset_password']),
-    user_ids: z.array(z.string().min(1)).min(1, 'At least one user ID is required'),
+    user_ids: z.array(z.string().regex(/^[a-f\d]{24}$/i, 'user ID must be a valid ObjectId'))
+      .min(1, 'At least one user ID is required').max(100),
   }).strict(),
 })
 

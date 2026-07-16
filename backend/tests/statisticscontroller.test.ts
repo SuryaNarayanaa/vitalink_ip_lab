@@ -242,7 +242,9 @@ describe('Statistics Routes', () => {
         await mongoose.connection.dropDatabase();
         await mongoose.connection.close();
         await mongoContainer.stop();
-        server.close();
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => error ? reject(error) : resolve());
+        });
     });
 
     describe('Authorization', () => {

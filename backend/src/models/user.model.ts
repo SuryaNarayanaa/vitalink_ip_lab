@@ -48,6 +48,19 @@ const UserSchema = new mongoose.Schema({
     required: [true, "user_type_model is required"],
   },
   is_active: { type: Boolean, default: true },
+  /** Invalidates every pre-existing authentication session at a security boundary. */
+  security_version: { type: Number, default: 0, min: 0 },
+  /**
+   * Short-lived distributed lease serializing doctor assignment, tenant moves,
+   * and deactivation. Expiry allows another instance to recover abandoned work.
+   */
+  doctor_operation_lock: {
+    lease_id: { type: String },
+    mode: { type: String, enum: ['ASSIGNING', 'MOVING', 'DEACTIVATING'] },
+    expires_at: { type: Date },
+  },
+  /** Monotonic token preventing an expired doctor-operation owner from resuming. */
+  doctor_operation_fence: { type: Number, default: 0, min: 0 },
   must_change_password: { type: Boolean, default: false },
   password_changed_at: { type: Date, default: Date.now },
   password_history: {
@@ -76,6 +89,8 @@ const UserSchema = new mongoose.Schema({
       activated_at: { type: Date },
       last_verified_at: { type: Date },
       last_verified_time_step: { type: Number },
+      last_verified_challenge_id: { type: mongoose.Schema.Types.ObjectId, ref: 'AdminMfaChallenge' },
+      factor_generation: { type: Number, default: 0, min: 0 },
     },
   },
 }, { timestamps: true });

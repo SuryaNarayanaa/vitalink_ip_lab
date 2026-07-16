@@ -92,7 +92,7 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
           user_id: req.user.user_id,
           user_type: req.user.user_type,
           action,
-          description: `${req.method} ${req.originalUrl}`,
+          description: `${req.method} ${req.originalUrl.split('?')[0]}`,
           resource_type: req.originalUrl.includes('/doctors') ? 'Doctor'
             : req.originalUrl.includes('/patients') ? 'Patient'
             : req.originalUrl.includes('/hospitals') ? 'Hospital'

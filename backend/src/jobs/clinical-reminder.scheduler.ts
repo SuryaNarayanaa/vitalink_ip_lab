@@ -1,11 +1,14 @@
 import Notification, { NotificationPriority, NotificationType } from '@alias/models/notification.model'
 import PatientProfile from '@alias/models/patientprofile.model'
+import DoctorProfile from '@alias/models/doctorprofile.model'
 import User from '@alias/models/user.model'
 import { config } from '@alias/config'
-import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
-import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
+import { cancelNotificationPush, enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { publishClinicalNotificationToUser } from '@alias/services/realtime-notification.service'
 import logger from '@alias/utils/logger'
 import { isFeatureEnabled } from '@alias/services/config.service'
+import { hasActiveClinicalHospitalAccess } from '@alias/services/hospital-access.service'
+import { endOfLocalClinicalDay, endOfLocalClinicalDateKey } from '@alias/services/notification-validity.service'
 
 type ReminderResult = { created: number; skipped: number; failed: number }
 
@@ -28,16 +31,28 @@ async function createReminder(input: {
   title: string
   message: string
   data: Record<string, string>
+  deliveryValidUntil: Date
 }): Promise<boolean> {
+  const recipientEligible = async () => {
+    if (!await isFeatureEnabled('notifications_enabled')) return false
+    const user = await User.findById(input.userId).select('is_active user_type profile_id').lean()
+    if (!user?.is_active || !await hasActiveClinicalHospitalAccess(user)) return false
+    return isFeatureEnabled('notifications_enabled')
+  }
+
   let notification = await Notification.findOne({ reminder_key: input.key }).lean()
   if (notification) {
     // Re-running the pass repairs an outbox write that failed after the
-    // in-app notification was safely persisted.
+    // in-app notification was safely persisted. Preserve the original
+    // clinical deadline; a later scheduler pass must never extend stale work.
+    if (!await recipientEligible()) return false
     await enqueueNotificationPush({
       notificationId: String(notification._id), userId: input.userId, title: input.title, body: input.message, data: input.data,
+      deliveryValidUntil: notification.delivery_valid_until ?? input.deliveryValidUntil,
     })
     return false
   }
+  if (!await recipientEligible()) return false
   try {
     const created = await Notification.create({
       user_id: input.userId,
@@ -47,6 +62,8 @@ async function createReminder(input: {
       message: input.message,
       data: input.data,
       reminder_key: input.key,
+      push_delivery_required: true,
+      delivery_valid_until: input.deliveryValidUntil,
     })
     notification = created.toObject()
   } catch (error: any) {
@@ -54,10 +71,16 @@ async function createReminder(input: {
     throw error
   }
 
+  if (!await recipientEligible()) {
+    await cancelNotificationPush(String(notification._id), 'recipient_became_ineligible')
+    return false
+  }
   await enqueueNotificationPush({
     notificationId: String(notification._id), userId: input.userId, title: input.title, body: input.message, data: input.data,
+    deliveryValidUntil: input.deliveryValidUntil,
   })
-  publishNotificationToUser(input.userId, 'notification', {
+  if (!await recipientEligible()) return true
+  await publishClinicalNotificationToUser(input.userId, 'notification', {
     id: String(notification._id), title: input.title, message: input.message,
     type: input.type, priority: NotificationPriority.HIGH, is_read: false,
     created_at: notification.createdAt?.toISOString() ?? new Date().toISOString(), data: input.data,
@@ -69,8 +92,10 @@ async function createReminder(input: {
 export async function runClinicalReminderPass(now = new Date()): Promise<ReminderResult> {
   const result: ReminderResult = { created: 0, skipped: 0, failed: 0 }
   if (!await isFeatureEnabled('notifications_enabled')) return result
+  await Notification.init()
   const today = startOfLocalDay(now)
   const dueWindow = dateKey(now)
+  const deliveryValidUntil = endOfLocalClinicalDay(now, config.dosageReminderTimezone)
   const inrCutoff = new Date(today)
   inrCutoff.setUTCDate(inrCutoff.getUTCDate() - config.inrReminderIntervalDays)
   const reviewHorizon = new Date(today)
@@ -80,7 +105,7 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
   for (const patient of patients) {
     try {
       const patientUser = await User.findOne({ profile_id: patient._id, user_type: 'PATIENT', is_active: true }).lean()
-      if (!patientUser) continue
+      if (!patientUser || !await hasActiveClinicalHospitalAccess(patientUser)) continue
       const patientId = String(patient._id)
       const patientUserId = String(patientUser._id)
       const therapyStart = patient.medical_config?.therapy_start_date
@@ -93,15 +118,20 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
           userId: patientUserId, key: `inr:${patientUserId}:${dueWindow}`, type: NotificationType.INR_REMINDER,
           title: 'INR test due', message: 'Please submit your INR test result so your care team can review it.',
           data: { route: 'patient-update-inr', patientId, reminderType: 'inr', dueWindow },
+          deliveryValidUntil,
         })
         created ? result.created++ : result.skipped++
       }
       const reviewDate = patient.medical_config?.next_review_date
       if (reviewDate && new Date(reviewDate) >= today && new Date(reviewDate) <= reviewHorizon) {
+        const reviewDateKey = dateKey(new Date(reviewDate))
         const created = await createReminder({
-          userId: patientUserId, key: `review:${patientUserId}:${dateKey(new Date(reviewDate))}`, type: NotificationType.APPOINTMENT_REMINDER,
-          title: 'Review appointment approaching', message: `Your next care review is scheduled for ${dateKey(new Date(reviewDate))}.`,
+          userId: patientUserId, key: `review:${patientUserId}:${reviewDateKey}`, type: NotificationType.APPOINTMENT_REMINDER,
+          title: 'Review appointment approaching', message: `Your next care review is scheduled for ${reviewDateKey}.`,
           data: { route: 'patient-details', patientId, reminderType: 'review', dueWindow },
+          // Appointment reminders remain clinically relevant throughout the
+          // review date, not merely on the first lead-window scheduler day.
+          deliveryValidUntil: endOfLocalClinicalDateKey(reviewDateKey, config.dosageReminderTimezone),
         })
         created ? result.created++ : result.skipped++
       }
@@ -125,13 +155,23 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
               { profile_id: patient.assigned_doctor_id },
             ],
           }).lean()
-          if (doctor) recipients.push(String(doctor._id))
+          if (doctor && await hasActiveClinicalHospitalAccess(doctor)) {
+            const doctorProfile = await DoctorProfile.findById(doctor.profile_id).select('hospital_id').lean()
+            const patientHospitalId = patient.hospital_id ? String(patient.hospital_id) : undefined
+            const doctorHospitalId = doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined
+            // Never disclose a patient's adherence/name to a doctor in another
+            // tenant, even if legacy/corrupt assignment data points there.
+            if (patientHospitalId && doctorHospitalId && doctorHospitalId === patientHospitalId) {
+              recipients.push(String(doctor._id))
+            }
+          }
         }
         for (const userId of recipients) {
           const created = await createReminder({
             userId, key: `missed-dose:${userId}:${patientId}:${dueWindow}`, type: NotificationType.CRITICAL_ALERT,
             title: 'Medication doses need attention', message: `${patient.demographics?.name ?? 'A patient'} has missed ${missed} scheduled doses in the last ${config.missedDoseEscalationWindowDays} days.`,
             data: { route: userId === patientUserId ? 'patient-take-dosage' : 'doctor-dashboard', patientId, reminderType: 'missed-dose', dueWindow },
+            deliveryValidUntil,
           })
           created ? result.created++ : result.skipped++
         }

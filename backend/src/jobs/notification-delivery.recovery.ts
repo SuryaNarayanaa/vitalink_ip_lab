@@ -1,8 +1,9 @@
 import { config } from '@alias/config'
-import { recoverDueDeliveries } from '@alias/services/notification-delivery.service'
+import { reconcileMissingPushOutboxes, recoverDueDeliveries } from '@alias/services/notification-delivery.service'
 import logger from '@alias/utils/logger'
 
 let recoveryTimer: ReturnType<typeof setInterval> | null = null
+let initialRecoveryTimer: ReturnType<typeof setTimeout> | null = null
 let running = false
 
 export function startNotificationDeliveryRecovery(): void {
@@ -15,6 +16,7 @@ export function startNotificationDeliveryRecovery(): void {
     if (running) return
     running = true
     try {
+      await reconcileMissingPushOutboxes(50)
       await recoverDueDeliveries(50)
     } catch (error) {
       logger.error('notification_delivery.recovery_error', {
@@ -26,9 +28,13 @@ export function startNotificationDeliveryRecovery(): void {
   }
 
   // First pass shortly after boot to drain pending outbox rows.
-  setTimeout(() => {
+  initialRecoveryTimer = setTimeout(() => {
+    initialRecoveryTimer = null
     void tick()
   }, 2_000)
+  if (typeof initialRecoveryTimer.unref === 'function') {
+    initialRecoveryTimer.unref()
+  }
 
   recoveryTimer = setInterval(() => {
     void tick()
@@ -43,6 +49,10 @@ export function startNotificationDeliveryRecovery(): void {
 }
 
 export function stopNotificationDeliveryRecovery(): void {
+  if (initialRecoveryTimer) {
+    clearTimeout(initialRecoveryTimer)
+    initialRecoveryTimer = null
+  }
   if (recoveryTimer) {
     clearInterval(recoveryTimer)
     recoveryTimer = null

@@ -32,6 +32,7 @@ import {
 import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
 import {
   createAuthSession,
+  bestEffortRevokeSessionsAfterSecurityVersionBump,
   refreshAuthSession,
   revokeActiveAuthSessionsForUser,
   revokeAuthSessionById,
@@ -43,6 +44,7 @@ import {
   setUserPasswordWithPolicy,
 } from '@alias/services/password.service'
 import logger from '@alias/utils/logger'
+import crypto from 'crypto'
 
 const getRequestIp = (req: Request) => req.ip || req.socket?.remoteAddress
 
@@ -60,7 +62,8 @@ const getLoginAttemptMetadata = (req: Request, loginId?: string, extra: Record<s
 const createAuthAuditLog = async (
   req: Request,
   user: any,
-  action: AuditAction.LOGIN | AuditAction.LOGOUT | AuditAction.LOGIN_FAILED,
+  action: AuditAction.LOGIN | AuditAction.LOGIN_CHALLENGE | AuditAction.LOGOUT | AuditAction.LOGIN_FAILED |
+    AuditAction.PASSWORD_CHANGE | AuditAction.MFA_SETUP | AuditAction.MFA_ACTIVATE,
   success: boolean,
   description: string,
   errorMessage?: string,
@@ -84,16 +87,23 @@ const createAuthAuditLog = async (
 }
 
 const logUnmatchedLoginAttempt = (req: Request, loginId: string, outcome: string) => {
+  const loginIdFingerprint = crypto
+    .createHash('sha256')
+    .update(normalizeLoginTelemetryId(loginId))
+    .digest('hex')
+    .slice(0, 16)
   logger.warn('Login attempt could not be associated with a user', {
     event: 'auth.login_attempt',
     outcome,
     ip_address: getRequestIp(req),
-    normalized_login_id: normalizeLoginTelemetryId(loginId),
+    login_id_fingerprint: loginIdFingerprint,
     request_id: (req as any).requestId,
   })
 }
 
 const OTP_ELIGIBLE_USER_TYPES = new Set<UserType>([UserType.DOCTOR, UserType.PATIENT])
+const DUMMY_PASSWORD_SALT = '00000000000000000000000000000000'
+const DUMMY_PASSWORD_HASH = '0'.repeat(128)
 
 const sanitizeAuthUser = (user: any) => {
   if (!user) return user
@@ -102,6 +112,9 @@ const sanitizeAuthUser = (user: any) => {
   delete safeUser.salt
   delete safeUser.password_history
   delete safeUser.admin_mfa
+  delete safeUser.failed_login_attempts
+  delete safeUser.locked_until
+  delete safeUser.last_failed_login_at
   Object.assign(safeUser, getPasswordPolicyState(safeUser))
   return safeUser
 }
@@ -112,11 +125,49 @@ const getSessionPayload = async (req: Request, user: any) => {
     ipAddress: req.ip || req.socket?.remoteAddress,
     userAgent: req.headers['user-agent'],
   })
+  if (!sessionPayload) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Account state changed before session creation')
   const populatedUser = await User.findById(user._id)
-    .populate({ path: 'profile_id', populate: { path: 'hospital_id' } })
+    .populate({ path: 'profile_id', populate: { path: 'hospital_id', select: 'code name status' } })
     .select('-password -salt')
 
   return { ...sessionPayload, user: sanitizeAuthUser(populatedUser) }
+}
+
+const getAuditedSessionPayload = async (
+  req: Request,
+  user: any,
+  description: string,
+  metadata?: Record<string, unknown>,
+) => {
+  const payload = await getSessionPayload(req, user)
+  try {
+    await createAuthAuditLog(req, user, AuditAction.LOGIN, true, description, undefined, metadata)
+  } catch (error) {
+    // A successful LOGIN audit is part of completing authentication. If the
+    // immutable record cannot be written, retire the just-created session so
+    // the client does not receive usable credentials for an unaudited login.
+    try {
+      await revokeAuthSessionById(
+        payload.session.session_id,
+        AuthSessionRevocationReason.USER_REVOKED,
+      )
+    } catch (revocationError) {
+      logger.error('Failed to retire an unaudited authentication session', {
+        event: 'auth.login_audit_cleanup_failed',
+        user_id: String(user._id),
+        session_id: payload.session.session_id,
+        error: revocationError instanceof Error ? revocationError.message : 'unknown_error',
+      })
+    }
+    logger.error('Authentication session retired because LOGIN audit persistence failed', {
+      event: 'auth.login_audit_failed',
+      user_id: String(user._id),
+      session_id: payload.session.session_id,
+      error: error instanceof Error ? error.message : 'unknown_error',
+    })
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Unable to complete login securely')
+  }
+  return payload
 }
 
 const getRegisteredPhoneState = async (user: any): Promise<{
@@ -181,11 +232,16 @@ const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string
   if (challenge.purpose !== OtpChallengePurpose.PHONE_FIRST_LOGIN) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid OTP challenge')
   }
+  if (typeof challenge.security_version !== 'number' || !challenge.profile_id) {
+    throw new ApiError(StatusCodes.GONE, 'OTP challenge is no longer available')
+  }
 
   const user = await User.findOne({
     _id: challenge.user_id,
     user_type: challenge.user_type,
     is_active: true,
+    security_version: challenge.security_version,
+    profile_id: challenge.profile_id,
   })
 
   if (!user || !OTP_ELIGIBLE_USER_TYPES.has(user.user_type as UserType)) {
@@ -254,8 +310,10 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
   const matchedUsers = await User.find({ login_id: normalizedLoginId }).limit(2)
   if (matchedUsers.length === 0) {
+    // Keep the expensive password path comparable for unknown and known IDs.
+    await comparePasswords({ password, salt: DUMMY_PASSWORD_SALT, hashedPassword: DUMMY_PASSWORD_HASH })
     logUnmatchedLoginAttempt(req, normalizedLoginId, 'unknown_login_id')
-    throw new ApiError(StatusCodes.BAD_REQUEST, "User Doesn't exist")
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
   if (matchedUsers.length > 1) {
     logUnmatchedLoginAttempt(req, normalizedLoginId, 'duplicate_login_id')
@@ -263,6 +321,13 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   }
 
   const user = matchedUsers[0]
+  const isPasswordValid = await comparePasswords({
+    password,
+    salt: user.salt,
+    hashedPassword: user.password,
+  })
+  // Do not disclose account/hospital/lock state to a caller that has not
+  // demonstrated knowledge of the password.
   if (!user.is_active) {
     await createAuthAuditLog(
       req,
@@ -273,10 +338,10 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       'Account inactive',
       loginAttemptMetadata('inactive_account')
     )
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive. Please contact support.')
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
-
-  if (!await hasActiveHospitalAccess(user)) {
+  const hasHospitalAccess = await hasActiveHospitalAccess(user)
+  if (!hasHospitalAccess) {
     await createAuthAuditLog(
       req,
       user,
@@ -286,7 +351,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       'Hospital inactive',
       loginAttemptMetadata('inactive_hospital')
     )
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
 
   const lockedUntil = user.locked_until ? new Date(user.locked_until) : null
@@ -300,24 +365,39 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       'Account locked',
       loginAttemptMetadata('locked')
     )
-    throw new ApiError(StatusCodes.LOCKED, 'Account is temporarily locked due to repeated failed login attempts. Please try again later.')
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
 
-  const isPasswordValid = await comparePasswords({
-    password,
-    salt: user.salt,
-    hashedPassword: user.password,
-  })
-
   if (!isPasswordValid) {
-    const failedAttempts = (user.failed_login_attempts ?? 0) + 1
+    const failedAt = new Date()
+    const lockedUntil = new Date(failedAt.getTime() + config.accountLockoutMinutes * 60 * 1000)
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: user._id, is_active: true },
+      [
+        {
+          $set: {
+            failed_login_attempts: { $add: [{ $ifNull: ['$failed_login_attempts', 0] }, 1] },
+            last_failed_login_at: failedAt,
+          },
+        },
+        {
+          $set: {
+            locked_until: {
+              $cond: [
+                { $gte: ['$failed_login_attempts', config.maxFailedLoginAttempts] },
+                lockedUntil,
+                '$locked_until',
+              ],
+            },
+          },
+        },
+      ],
+      { new: true, updatePipeline: true },
+    )
+    const failedAttempts = updatedUser?.failed_login_attempts ?? (user.failed_login_attempts ?? 0) + 1
     user.failed_login_attempts = failedAttempts
-    user.last_failed_login_at = new Date()
-
-    if (failedAttempts >= config.maxFailedLoginAttempts) {
-      user.locked_until = new Date(Date.now() + config.accountLockoutMinutes * 60 * 1000)
-    }
-    await user.save()
+    user.last_failed_login_at = failedAt
+    user.locked_until = updatedUser?.locked_until
 
     await createAuthAuditLog(
       req,
@@ -359,12 +439,14 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         userId: user._id,
         userType: user.user_type as UserType.DOCTOR | UserType.PATIENT,
         phoneNumber,
+        securityVersion: Number(user.security_version || 0),
+        profileId: user.profile_id,
       })
 
       await createAuthAuditLog(
         req,
         user,
-        AuditAction.LOGIN,
+        AuditAction.LOGIN_CHALLENGE,
         true,
         'Password accepted; phone OTP verification required',
         undefined,
@@ -386,7 +468,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       await createAuthAuditLog(
         req,
         user,
-        AuditAction.LOGIN,
+        AuditAction.LOGIN_CHALLENGE,
         true,
         'Admin password accepted; authenticator MFA challenge issued',
         undefined,
@@ -417,17 +499,13 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   user.last_login_at = new Date()
   await user.save()
 
-  await createAuthAuditLog(
+  const sessionPayload = await getAuditedSessionPayload(
     req,
     user,
-    AuditAction.LOGIN,
-    true,
     'User logged in successfully',
-    undefined,
-    loginAttemptMetadata('success')
+    loginAttemptMetadata('success'),
   )
-
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", await getSessionPayload(req, user)))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "User logged in successfully", sessionPayload))
 })
 
 export const verifyLoginOtpController = asyncHandler(
@@ -465,12 +543,15 @@ export const verifyLoginOtpController = asyncHandler(
     user.locked_until = undefined
     await user.save()
 
-    await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'User logged in successfully after phone OTP verification')
-
+    const sessionPayload = await getAuditedSessionPayload(
+      req,
+      user,
+      'User logged in successfully after phone OTP verification',
+    )
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Phone OTP verified and user logged in successfully',
-      await getSessionPayload(req, user)
+      sessionPayload
     ))
   }
 )
@@ -480,12 +561,15 @@ export const verifyLoginTotpController = asyncHandler(
     const { challenge_id, code } = req.body
     const user = await verifyAdminMfaLoginChallenge(challenge_id, code)
 
-    await createAuthAuditLog(req, user, AuditAction.LOGIN, true, 'Admin logged in successfully after authenticator MFA verification')
-
+    const sessionPayload = await getAuditedSessionPayload(
+      req,
+      user,
+      'Admin logged in successfully after authenticator MFA verification',
+    )
     res.status(StatusCodes.OK).json(new ApiResponse(
       StatusCodes.OK,
       'Admin authenticator MFA verified and user logged in successfully',
-      await getSessionPayload(req, user)
+      sessionPayload
     ))
   }
 )
@@ -567,14 +651,38 @@ export const resendLoginOtpController = asyncHandler(
 )
 
 export const logoutController = asyncHandler(async (req: Request, res: Response) => {
-  if (req.user?.user_id) {
-    const user = await User.findById(req.user.user_id).select('_id user_type')
+  // Authentication already established this immutable audit identity. Avoid a
+  // pre-revocation user lookup: an unrelated read outage must not block logout.
+  const user = req.user?.user_id && req.user?.user_type
+    ? { _id: req.user.user_id, user_type: req.user.user_type }
+    : null
+  try {
+    await revokeAuthSessionById(req.user?.session_id, AuthSessionRevocationReason.LOGOUT)
+  } catch (error) {
     if (user) {
+      try {
+        await createAuthAuditLog(req, user, AuditAction.LOGOUT, false, 'Logout session revocation failed', 'session_revocation_failed')
+      } catch (auditError) {
+        logger.error('logout failure audit persistence failed', {
+          event: 'auth.logout_failure_audit_failed', user_id: String(user._id),
+          error: auditError instanceof Error ? auditError.message : 'unknown_error',
+        })
+      }
+    }
+    throw error
+  }
+  if (user) {
+    try {
       await createAuthAuditLog(req, user, AuditAction.LOGOUT, true, 'User logged out successfully')
+    } catch (error) {
+      // Revocation is already committed. An audit outage must not make logout
+      // appear to have failed or leave the session active.
+      logger.error('logout success audit persistence failed', {
+        event: 'auth.logout_success_audit_failed', user_id: String(user._id),
+        error: error instanceof Error ? error.message : 'unknown_error',
+      })
     }
   }
-
-  await revokeAuthSessionById(req.user?.session_id, AuthSessionRevocationReason.LOGOUT)
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Logout successful. Please clear the token from client-side.'))
 })
@@ -616,14 +724,40 @@ export const changePasswordController = asyncHandler(
     })
 
     if (!isCurrentPasswordValid) {
+      try {
+        await createAuthAuditLog(req, user, AuditAction.PASSWORD_CHANGE, false, 'Password change rejected', 'current_password_invalid')
+      } catch {
+        logger.error('password change rejection audit persistence failed', { user_id: String(user._id) })
+      }
       throw new ApiError(StatusCodes.UNAUTHORIZED, 'Current password is incorrect')
     }
 
-    await setUserPasswordWithPolicy(user, new_password, { mustChangePassword: false })
-    const invalidatedSessionResult = await revokeActiveAuthSessionsForUser(
+    try {
+      await setUserPasswordWithPolicy(user, new_password, { mustChangePassword: false })
+    } catch (error) {
+      try {
+        await createAuthAuditLog(req, user, AuditAction.PASSWORD_CHANGE, false, 'Password change failed', 'password_change_failed')
+      } catch (auditError) {
+        logger.error('password change failure audit persistence failed', { user_id: String(user._id) })
+      }
+      throw error
+    }
+    const invalidatedSessionResult = await bestEffortRevokeSessionsAfterSecurityVersionBump(
       user._id.toString(),
       AuthSessionRevocationReason.PASSWORD_CHANGED
     )
+    let auditRecorded = true
+    try {
+      await createAuthAuditLog(req, user, AuditAction.PASSWORD_CHANGE, true, 'Password changed successfully', undefined, {
+        target_user_id: String(user._id),
+        security_version: Number(user.security_version || 0),
+        invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+        revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+      })
+    } catch (error) {
+      auditRecorded = false
+      logger.error('password change success audit persistence failed', { user_id: String(user._id) })
+    }
 
     res.status(StatusCodes.OK).json(
       new ApiResponse(StatusCodes.OK, 'Password changed successfully', {
@@ -632,6 +766,8 @@ export const changePasswordController = asyncHandler(
         password_changed_at: user.password_changed_at,
         password_expires_at: getPasswordPolicyState(user).password_expires_at,
         invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+        revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+        audit_recorded: auditRecorded,
       })
     )
   }
@@ -647,12 +783,30 @@ export const setupAdminTotpController = asyncHandler(async (req: Request, res: R
     throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
   }
 
-  const enrollment = await createAdminTotpEnrollment(user)
+  let enrollment
+  try {
+    enrollment = await createAdminTotpEnrollment(user)
+  } catch (error) {
+    try {
+      await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, false, 'Admin TOTP setup failed', 'mfa_setup_failed')
+    } catch { logger.error('MFA setup failure audit persistence failed', { user_id: String(user._id) }) }
+    throw error
+  }
+  let auditRecorded = true
+  try {
+    await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, true, 'Admin TOTP setup started', undefined, {
+      target_user_id: String(user._id), factor_type: 'AUTHENTICATOR_APP',
+    })
+  } catch {
+    auditRecorded = false
+    logger.error('MFA setup success audit persistence failed', { user_id: String(user._id) })
+  }
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP setup started', {
     factor_type: 'AUTHENTICATOR_APP',
     secret: enrollment.secret,
     otpauth_url: enrollment.otpauth_url,
+    audit_recorded: auditRecorded,
   }))
 })
 
@@ -684,11 +838,34 @@ export const activateAdminTotpController = asyncHandler(
       throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
     }
 
-    await activateAdminTotpEnrollment(user, req.body.code)
+    let invalidatedSessionResult
+    try {
+      invalidatedSessionResult = await activateAdminTotpEnrollment(user, req.body.code)
+    } catch (error) {
+      try {
+        await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, false, 'Admin TOTP activation failed', 'mfa_activation_failed')
+      } catch { logger.error('MFA activation failure audit persistence failed', { user_id: String(user._id) }) }
+      throw error
+    }
+    let auditRecorded = true
+    try {
+      await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, true, 'Admin TOTP activated', undefined, {
+        target_user_id: String(user._id), factor_type: 'AUTHENTICATOR_APP',
+        security_version: Number(user.security_version || 0) + 1,
+        invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+        revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+      })
+    } catch {
+      auditRecorded = false
+      logger.error('MFA activation success audit persistence failed', { user_id: String(user._id) })
+    }
 
     res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP activated', {
       factor_type: 'AUTHENTICATOR_APP',
       status: 'ENABLED',
+      invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+      revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+      audit_recorded: auditRecorded,
     }))
   }
 )

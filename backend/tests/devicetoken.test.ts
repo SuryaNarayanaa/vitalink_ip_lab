@@ -2,8 +2,20 @@ import DeviceToken from '@alias/models/DeviceToken.model'
 import { registerDeviceToken } from '@alias/services/device-token.service'
 import { sendPushToUser } from '@alias/services/fcm.service'
 import * as firebaseConfig from '@alias/config/firebase.config'
+import User from '@alias/models/user.model'
+import * as hospitalAccess from '@alias/services/hospital-access.service'
+import * as configService from '@alias/services/config.service'
 
 describe('Device token ownership', () => {
+  beforeEach(() => {
+    jest.spyOn(User, 'findById').mockImplementation((() => ({
+      select() { return this },
+      lean: async () => ({ is_active: true, user_type: 'PATIENT', profile_id: 'profile' }),
+    })) as any)
+    jest.spyOn(hospitalAccess, 'hasActiveClinicalHospitalAccess').mockResolvedValue(true)
+    jest.spyOn(hospitalAccess, 'hasActiveHospitalAccess').mockResolvedValue(true)
+    jest.spyOn(configService, 'isFeatureEnabled').mockResolvedValue(true)
+  })
   afterEach(() => jest.restoreAllMocks())
 
   test('globally unique token registration transfers delivery from the previous user', async () => {
@@ -101,7 +113,9 @@ describe('Device token ownership', () => {
 
     const result = await sendPushToUser('user-a', { title: 'Stale push', body: 'should not disable B' })
 
-    expect(result.success).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toBe('permanent_token_failures')
     expect(result.permanentFailures).toBe(1)
     expect(records.get('physical-token').user_id).toBe('user-b')
     expect(records.get('physical-token').is_active).toBe(true)
@@ -143,5 +157,81 @@ describe('Device token ownership', () => {
 
   test('declares a globally unique FCM token index', () => {
     expect(DeviceToken.schema.indexes()).toContainEqual([{ fcm_token: 1 }, { unique: true }])
+  })
+
+  test('rechecks pause after the final recipient eligibility read', async () => {
+    jest.spyOn(DeviceToken, 'find').mockReturnValue({
+      lean: async () => [{ _id: 'device-a', fcm_token: 'token-a' }],
+    } as any)
+    const provider = jest.fn()
+    jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast: provider } as any)
+    let enabled = true
+    jest.mocked(configService.isFeatureEnabled).mockImplementation(async () => enabled)
+    let release!: () => void
+    let reached!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<void>(resolve => { reached = resolve })
+    jest.mocked(hospitalAccess.hasActiveClinicalHospitalAccess).mockImplementationOnce(async () => {
+      reached()
+      await blocked
+      return true
+    })
+
+    const sending = sendPushToUser('user-a', { title: 'Clinical', body: 'Private' }, [], undefined, 'clinical')
+    await entered
+    enabled = false
+    release()
+
+    await expect(sending).resolves.toMatchObject({ skipped: true, skipReason: 'notifications_paused' })
+    expect(provider).not.toHaveBeenCalled()
+  })
+
+  test('rechecks expiry after the final recipient eligibility read', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-14T00:00:00.000Z'))
+    try {
+      jest.spyOn(DeviceToken, 'find').mockReturnValue({
+        lean: async () => [{ _id: 'device-a', fcm_token: 'token-a' }],
+      } as any)
+      const provider = jest.fn()
+      jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast: provider } as any)
+      let release!: () => void
+      let reached!: () => void
+      const blocked = new Promise<void>(resolve => { release = resolve })
+      const entered = new Promise<void>(resolve => { reached = resolve })
+      jest.mocked(hospitalAccess.hasActiveClinicalHospitalAccess).mockImplementationOnce(async () => {
+        reached()
+        await blocked
+        return true
+      })
+      const deadline = new Date(Date.now() + 1_000)
+      const sending = sendPushToUser('user-a', { title: 'Clinical', body: 'Private' }, [], deadline, 'clinical')
+      await entered
+      jest.setSystemTime(new Date(Date.now() + 2_000))
+      release()
+
+      await expect(sending).resolves.toMatchObject({ skipped: true, skipReason: 'expired_notification' })
+      expect(provider).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('uses general eligibility for nonclinical global-admin pushes', async () => {
+    jest.spyOn(DeviceToken, 'find').mockReturnValue({
+      lean: async () => [{ _id: 'device-a', fcm_token: 'token-a' }],
+    } as any)
+    jest.mocked(hospitalAccess.hasActiveClinicalHospitalAccess).mockResolvedValue(false)
+    jest.mocked(hospitalAccess.hasActiveHospitalAccess).mockResolvedValue(true)
+    const provider = jest.fn(async () => ({
+      responses: [{ success: true, messageId: 'message-a' }], successCount: 1, failureCount: 0,
+    }))
+    jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast: provider } as any)
+
+    await expect(sendPushToUser(
+      'user-a', { title: 'System', body: 'Maintenance window' }, [], undefined, 'general',
+    )).resolves.toMatchObject({ success: true, skipped: false })
+    expect(hospitalAccess.hasActiveHospitalAccess).toHaveBeenCalled()
+    expect(hospitalAccess.hasActiveClinicalHospitalAccess).not.toHaveBeenCalled()
+    expect(provider).toHaveBeenCalledTimes(1)
   })
 })

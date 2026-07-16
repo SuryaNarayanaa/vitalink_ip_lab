@@ -47,11 +47,11 @@ flowchart LR
     Redis["Redis + BullMQ\nnotification-delivery queue"]
     Outbox["NotificationDelivery outbox\nMongoDB status + retries"]
     FCM["Firebase Cloud Messaging\nmobile push"]
+    ReminderScheduler["Scheduled dosage / INR / review\nreminder jobs"]
   end
 
   subgraph Planned["Planned / not implemented"]
     Monitoring["Metrics, alerting,\ndashboards, SLOs"]
-    ReminderQueue["Scheduled dosage / INR\nreminder jobs"]
   end
 
   FlutterMobile -->|HTTPS JSON, bearer JWT| Nginx
@@ -86,7 +86,8 @@ flowchart LR
   Outbox --> Redis
   Redis --> FCM
   Outbox -.recovery poller when Redis down.-> FCM
-  Admin -.future async fanout.-> ReminderQueue
+  ReminderScheduler --> Mongo
+  ReminderScheduler --> Outbox
   Health -.future telemetry.-> Monitoring
 ```
 

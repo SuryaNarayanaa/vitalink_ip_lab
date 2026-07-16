@@ -14,13 +14,19 @@ export async function getSystemConfig() {
   let config = await SystemConfig.findOne({ is_active: true })
 
   if (!config) {
-    config = await SystemConfig.create({
-      inr_thresholds: { critical_low: 1.5, critical_high: 4.5 },
-      session_timeout_minutes: 30,
-      rate_limit: { max_requests: 100, window_minutes: 15 },
-      feature_flags: DEFAULT_FEATURE_FLAGS,
-      is_active: true,
-    })
+    try {
+      config = await SystemConfig.create({
+        inr_thresholds: { critical_low: 1.5, critical_high: 4.5 },
+        session_timeout_minutes: 30,
+        rate_limit: { max_requests: 100, window_minutes: 15 },
+        feature_flags: DEFAULT_FEATURE_FLAGS,
+        is_active: true,
+      })
+    } catch (error: any) {
+      if (error?.code !== 11000) throw error
+      config = await SystemConfig.findOne({ is_active: true })
+      if (!config) throw error
+    }
   }
 
   return config
@@ -36,10 +42,16 @@ export async function updateSystemConfig(updates: {
 
   if (!config) {
     validateInrThresholds(updates.inr_thresholds?.critical_low ?? 1.5, updates.inr_thresholds?.critical_high ?? 4.5)
-    config = await SystemConfig.create({
-      ...updates,
-      is_active: true,
-    })
+    try {
+      config = await SystemConfig.create({
+        ...updates,
+        is_active: true,
+      })
+    } catch (error: any) {
+      if (error?.code !== 11000) throw error
+      config = await SystemConfig.findOne({ is_active: true })
+      if (!config) throw error
+    }
   }
 
   // Deep merge updates
@@ -76,11 +88,19 @@ export async function updateSystemConfig(updates: {
 
   await config.save()
   if (updates.session_timeout_minutes !== undefined) {
-    // Auth middleware checks this database expiry on every request, so changing
-    // the setting takes effect for already-issued tokens as well.
+    // Auth middleware checks the sliding access expiry on every request. The
+    // absolute refresh-family expiry remains unchanged.
+    const now = new Date()
     await AuthSession.updateMany(
-      { revoked_at: { $exists: false }, expires_at: { $gt: new Date() } },
-      { $set: { expires_at: new Date(Date.now() + updates.session_timeout_minutes * 60 * 1000) } }
+      {
+        revoked_at: { $exists: false },
+        expires_at: { $gt: now },
+        $or: [
+          { access_expires_at: { $gt: now } },
+          { access_expires_at: { $exists: false } },
+        ],
+      },
+      { $set: { access_expires_at: new Date(now.getTime() + updates.session_timeout_minutes * 60 * 1000) } }
     )
   }
   return config

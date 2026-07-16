@@ -14,7 +14,6 @@ const AdminMfaChallengeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: [true, 'User ID is required'],
-    index: true,
   },
   user_type: {
     type: String,
@@ -32,6 +31,12 @@ const AdminMfaChallengeSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'MFA challenge expiration is required'],
   },
+  /** Retain MFA challenge outcomes for security investigation before cleanup. */
+  purge_at: {
+    type: Date,
+    required: true,
+    default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  },
   attempt_count: {
     type: Number,
     default: 0,
@@ -42,6 +47,17 @@ const AdminMfaChallengeSchema = new mongoose.Schema({
     required: true,
     min: 1,
   },
+  factor_generation: {
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  /** Password/account generation authenticated before this MFA challenge. */
+  security_version: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
   verified_at: {
     type: Date,
   },
@@ -50,7 +66,7 @@ const AdminMfaChallengeSchema = new mongoose.Schema({
   },
 }, { timestamps: true })
 
-AdminMfaChallengeSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
+AdminMfaChallengeSchema.index({ purge_at: 1 }, { expireAfterSeconds: 0 })
 AdminMfaChallengeSchema.index({ user_id: 1, status: 1, createdAt: -1 })
 
 export interface AdminMfaChallengeDocument extends mongoose.Document, mongoose.InferSchemaType<typeof AdminMfaChallengeSchema> {}

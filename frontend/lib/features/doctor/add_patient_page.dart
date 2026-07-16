@@ -177,16 +177,42 @@ class _AddPatientFormState extends State<AddPatientForm> {
 
   @override
   Widget build(BuildContext context) {
-    return UseMutation<void, Map<String, dynamic>>(
-      options: MutationOptions<void, Map<String, dynamic>>(
+    return UseMutation<Map<String, dynamic>, Map<String, dynamic>>(
+      options: MutationOptions<Map<String, dynamic>, Map<String, dynamic>>(
         mutationFn: _repo.addPatient,
-        onSuccess: (data, variables) {
+        onSuccess: (data, variables) async {
           QueryClientProvider.of(context).invalidateQueries(
             DoctorQueryKeys.patients(),
           );
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Patient added successfully')),
-          );
+          final temporaryPassword = data['temporary_password'] as String?;
+          if (temporaryPassword != null && context.mounted) {
+            await showDialog<void>(
+              context: context,
+              barrierDismissible: false,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Patient account created'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Share this one-time password with the patient through an approved secure channel. It will not be shown again.',
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Temporary password', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    SelectableText(temporaryPassword),
+                  ],
+                ),
+                actions: [
+                  FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('I have recorded it securely'),
+                  ),
+                ],
+              ),
+            );
+          }
           widget.onSuccess?.call();
         },
         onError: (error, variables) {

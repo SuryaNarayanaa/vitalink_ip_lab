@@ -7,6 +7,7 @@ import { User } from '@alias/models'
 import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
 import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import { ApiError } from '@alias/utils'
+import { getPasswordPolicyState } from '@alias/services/password.service'
 
 /**
  * Extend Express Request to include user data
@@ -19,7 +20,11 @@ declare global {
   }
 }
 
-export const validateAuthToken = async (token: string, expectedUserType?: UserType) => {
+export const validateAuthToken = async (
+  token: string,
+  expectedUserType?: UserType,
+  options: { allowPasswordChangeRequired?: boolean } = {},
+) => {
   const payload = verifyToken(token)
 
   if (
@@ -30,7 +35,9 @@ export const validateAuthToken = async (token: string, expectedUserType?: UserTy
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token.')
   }
 
-  const user = await User.findById(payload.user_id).select('is_active user_type profile_id').lean()
+  const user = await User.findById(payload.user_id)
+    .select('is_active user_type profile_id must_change_password password_changed_at createdAt updatedAt security_version')
+    .lean()
   if (!user || !user.is_active || user.user_type !== payload.user_type) {
     throw new ApiError(
       !user || user.user_type !== payload.user_type ? StatusCodes.UNAUTHORIZED : StatusCodes.FORBIDDEN,
@@ -40,18 +47,29 @@ export const validateAuthToken = async (token: string, expectedUserType?: UserTy
     )
   }
 
-  if (!await hasActiveHospitalAccess(user)) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
-  }
-
   const session = await findActiveSessionForAccessToken({
     sessionId: payload.session_id,
     tokenId: payload.token_id,
     userId: payload.user_id,
     userType: payload.user_type,
+    securityVersion: Number(user.security_version || 0),
   })
   if (!session) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token.')
+  }
+
+  if (!await hasActiveHospitalAccess(user)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
+  }
+
+  const passwordState = getPasswordPolicyState(user)
+  if (!options.allowPasswordChangeRequired && passwordState.must_change_password) {
+    throw new ApiError(
+      StatusCodes.FORBIDDEN,
+      passwordState.password_expired
+        ? 'Password has expired. Change your password before continuing.'
+        : 'Password change is required before continuing.',
+    )
   }
 
   return { payload, user }
@@ -74,7 +92,9 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return
     }
 
-    const { payload } = await validateAuthToken(token)
+    const path = req.originalUrl.split('?')[0]
+    const allowPasswordChangeRequired = /\/auth\/(?:me|logout|change-password|admin\/mfa\/totp\/(?:setup|status|activate))\/*$/.test(path)
+    const { payload } = await validateAuthToken(token, undefined, { allowPasswordChangeRequired })
     req.user = payload
     next()
   } catch (error) {

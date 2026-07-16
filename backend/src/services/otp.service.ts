@@ -87,6 +87,8 @@ export async function buildOtpChallengeValues(input: {
   userId: string | mongoose.Types.ObjectId
   userType: UserType.DOCTOR | UserType.PATIENT
   phoneNumber: string
+  securityVersion?: number
+  profileId?: string | mongoose.Types.ObjectId
   purpose?: OtpChallengePurpose
   now?: Date
   policy?: OtpPolicy
@@ -104,6 +106,8 @@ export async function buildOtpChallengeValues(input: {
       delivery_channel: OtpDeliveryChannel.SMS,
       phone_hash: hashPhoneNumber(input.phoneNumber),
       phone_last4: getPhoneLast4(input.phoneNumber),
+      security_version: input.securityVersion,
+      profile_id: input.profileId,
       provider: 'twilio_verify',
       provider_verification_sid: input.providerVerificationSid,
       provider_status: input.providerStatus,
@@ -298,6 +302,8 @@ export async function issuePhoneVerificationOtp(input: {
   userId: string | mongoose.Types.ObjectId
   userType: UserType.DOCTOR | UserType.PATIENT
   phoneNumber: string
+  securityVersion: number
+  profileId: string | mongoose.Types.ObjectId
   provider?: TwilioVerifyClient
   policy?: OtpPolicy
 }) {
@@ -308,6 +314,8 @@ export async function issuePhoneVerificationOtp(input: {
     userId: input.userId,
     userType: input.userType,
     phoneNumber: input.phoneNumber,
+    securityVersion: input.securityVersion,
+    profileId: input.profileId,
     policy,
     providerVerificationSid: verification.sid,
     providerStatus: verification.status,

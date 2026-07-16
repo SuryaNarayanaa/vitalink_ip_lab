@@ -3,9 +3,11 @@ import { NotificationType, NotificationPriority } from '@alias/models/notificati
 import { UserType } from '@alias/validators'
 import { ApiError } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
-import { publishNotificationToUser } from '@alias/services/realtime-notification.service'
+import { publishGeneralNotificationToUser } from '@alias/services/realtime-notification.service'
 import { getAdminContext, getTenantUserIdsForAdmin } from '@alias/services/admin.service'
 import { isFeatureEnabled } from '@alias/services/config.service'
+import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import logger from '@alias/utils/logger'
 
 export type BroadcastTarget = 'ALL' | 'DOCTORS' | 'PATIENTS' | 'SPECIFIC'
 
@@ -47,13 +49,21 @@ export async function broadcastNotification(
       if (!specificUserIds || specificUserIds.length === 0) {
         throw new ApiError(StatusCodes.BAD_REQUEST, 'No user IDs provided for SPECIFIC target')
       }
+      const distinctSpecificUserIds = [...new Set(specificUserIds.map(String))]
       if (!ctx.isAppAdmin) {
-        const forbidden = specificUserIds.some(id => !tenantUserIdSet?.has(String(id)))
+        const forbidden = distinctSpecificUserIds.some(id => !tenantUserIdSet?.has(id))
         if (forbidden) {
           throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant notification broadcast is not allowed')
         }
       }
-      userIds = specificUserIds
+      const eligibleUsers = await User.find({
+        _id: { $in: distinctSpecificUserIds },
+        is_active: true,
+      }).select('_id')
+      if (eligibleUsers.length !== distinctSpecificUserIds.length) {
+        throw new ApiError(StatusCodes.BAD_REQUEST, 'Every notification recipient must be an active user')
+      }
+      userIds = eligibleUsers.map(user => String(user._id))
       break
   }
 
@@ -63,13 +73,39 @@ export async function broadcastNotification(
     priority: (priority as NotificationPriority) || NotificationPriority.MEDIUM,
     title,
     message,
+    push_delivery_required: true,
     expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
   }))
 
+  // Recipient resolution can be expensive; do not persist new intent after pause.
+  if (!await isFeatureEnabled('notifications_enabled')) {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Notifications are currently disabled.')
+  }
+
   const created = await Notification.insertMany(notifications)
 
+  // Broadcasts are part of the documented push lifecycle, not in-app-only
+  // messages. Await durable outbox creation for every persisted notification;
+  // queue publication remains best-effort inside enqueueNotificationPush.
+  const pushResults = await Promise.all(created.map(notification =>
+    enqueueNotificationPush({
+      notificationId: String(notification._id),
+      userId: String(notification.user_id),
+      title: notification.title,
+      body: notification.message,
+      data: { notification_type: String(notification.type) },
+    })
+  ))
+  const pushOutboxPersisted = pushResults.filter(Boolean).length
+  if (pushOutboxPersisted !== created.length) {
+    logger.error('notification.broadcast_outbox_incomplete', {
+      notificationsCreated: created.length,
+      pushOutboxPersisted,
+    })
+  }
+
   for (const notification of created) {
-    publishNotificationToUser(String(notification.user_id), 'notification', {
+    await publishGeneralNotificationToUser(String(notification.user_id), 'notification', {
       id: String(notification._id),
       title: notification.title,
       message: notification.message,
@@ -86,6 +122,7 @@ export async function broadcastNotification(
     target,
     recipients: userIds.length,
     created: created.length,
+    push_outbox_persisted: pushOutboxPersisted,
   }
 }
 
@@ -97,7 +134,7 @@ export async function getUserNotifications(
   const page = pagination.page || 1
   const limit = pagination.limit || 20
 
-  const query: any = { user_id: userId }
+  const query: any = { user_id: userId, push_delivery_cancelled_at: { $exists: false } }
   if (typeof filters.is_read === 'boolean') {
     query.is_read = filters.is_read
   }
@@ -124,7 +161,7 @@ export async function getUserNotifications(
 
 export async function markNotificationRead(notificationId: string, userId: string) {
   const notification = await Notification.findOneAndUpdate(
-    { _id: notificationId, user_id: userId },
+    { _id: notificationId, user_id: userId, push_delivery_cancelled_at: { $exists: false } },
     { is_read: true, read_at: new Date() },
     { new: true }
   )
@@ -133,7 +170,7 @@ export async function markNotificationRead(notificationId: string, userId: strin
 
 export async function markAllNotificationsRead(userId: string) {
   const result = await Notification.updateMany(
-    { user_id: userId, is_read: false },
+    { user_id: userId, is_read: false, push_delivery_cancelled_at: { $exists: false } },
     { is_read: true, read_at: new Date() }
   )
   return result.modifiedCount ?? 0

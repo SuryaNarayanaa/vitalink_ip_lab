@@ -2,11 +2,12 @@ import { describe, expect, test } from '@jest/globals'
 import { getRateLimitKey, getRateLimitWindowKey, nextRateLimitWindow, removeExpiredRateLimitWindows } from '@alias/config/ratelimiter'
 import { updateSystemConfig, validateInrThresholds } from '@alias/services/config.service'
 import { isControlPlaneRequest, isPatientRegistrationRequest } from '@alias/middlewares/systemConfig.middleware'
-import { getSessionExpiry, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS } from '@alias/services/auth-session.service'
+import { getRefreshTokenExpiry, getSessionExpiry, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS } from '@alias/services/auth-session.service'
 import { AuthSession, SystemConfig } from '@alias/models'
 import { generateToken } from '@alias/utils/jwt.utils'
 import jwt from 'jsonwebtoken'
 import { UserType } from '@alias/validators'
+import { config } from '@alias/config'
 
 describe('system configuration runtime safeguards', () => {
   test('rejects equal and inverted INR critical thresholds', () => {
@@ -59,6 +60,15 @@ describe('system configuration runtime safeguards', () => {
     jest.useRealTimers()
   })
 
+  test('keeps refresh-family expiry separate from the short access timeout', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    expect(getRefreshTokenExpiry().toISOString()).toBe(
+      new Date(Date.UTC(2026, 0, 1 + config.refreshTokenExpiryDays)).toISOString(),
+    )
+    expect(getRefreshTokenExpiry().getTime()).toBeGreaterThan(getSessionExpiry(30).getTime())
+    jest.useRealTimers()
+  })
+
   test('applies the configured timeout to existing sessions when creating the first config', async () => {
     const createdConfig: any = {
       inr_thresholds: { critical_low: 1.5, critical_high: 4.5 },
@@ -74,8 +84,14 @@ describe('system configuration runtime safeguards', () => {
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ session_timeout_minutes: 20, is_active: true }))
     expect(updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ revoked_at: { $exists: false } }),
-      expect.objectContaining({ $set: expect.objectContaining({ expires_at: expect.any(Date) }) }),
+      expect.objectContaining({
+        revoked_at: { $exists: false },
+        $or: [
+          { access_expires_at: { $gt: expect.any(Date) } },
+          { access_expires_at: { $exists: false } },
+        ],
+      }),
+      expect.objectContaining({ $set: expect.objectContaining({ access_expires_at: expect.any(Date) }) }),
     )
     findOne.mockRestore()
     create.mockRestore()

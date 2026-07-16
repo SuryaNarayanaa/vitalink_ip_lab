@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { therapy_drug } from '.'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
-import { parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { calendarDateKeyInTimeZone, dateOnlyStringKey, parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { config } from '@alias/config'
 
 const dosageScheduleBaseSchema = z.object({
   monday: z.number().finite().nonnegative().default(0), tuesday: z.number().finite().nonnegative().default(0), wednesday: z.number().finite().nonnegative().default(0), thursday: z.number().finite().nonnegative().default(0), friday: z.number().finite().nonnegative().default(0), saturday: z.number().finite().nonnegative().default(0), sunday: z.number().finite().nonnegative().default(0)
@@ -10,41 +11,51 @@ const dosageScheduleBaseSchema = z.object({
 const dosageScheduleSchema = dosageScheduleBaseSchema.optional()
 
 const opNumParamsSchema = z.object({
-  op_num: z.string("Op num should be a String").nonempty("op_num should not be empty")
+  op_num: z.string("Op num should be a String").trim().min(1, "op_num should not be empty").max(100)
+}).strict()
+
+export const patientOpNumParamsSchema = z.object({ params: opNumParamsSchema })
+
+export const patientReportParamsSchema = z.object({
+  params: opNumParamsSchema.extend({
+    report_id: z.string().regex(/^[a-f\d]{24}$/i, 'report_id must be a valid ObjectId'),
+  }),
 })
 
-const ddmmyyyy = z.preprocess((arg) => {
-  if (arg === null || arg === undefined || arg === '') return undefined;
-  if (arg instanceof Date) return arg;
-  if (typeof arg === 'string') {
-    return parseStrictDateOnly(arg)
-  }
-  return undefined;
-}, z.date().optional())
+const optionalDateOnly = z.union([z.string(), z.date()])
+  .transform((value, ctx) => {
+    const parsed = value instanceof Date ? value : parseStrictDateOnly(value)
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format' })
+      return z.NEVER
+    }
+    return parsed
+  })
+  .optional()
 
 const medicalHistorySchema = z.object({
-  diagnosis: z.string().optional(),
-  duration_value: z.number().optional(),
+  diagnosis: z.string().trim().max(500).optional(),
+  duration_value: z.number().finite().positive().optional(),
   duration_unit: z.enum(['Days', 'Weeks', 'Months', 'Years']).optional(),
 });
 
 export const createPatient = z.object({
   body: z.object({
-    name: z.string("Name should be a String").nonempty("Name Should Not be Empty"),
-    op_num: z.string("Op num should be a String").nonempty("op_num should not be nonempty"),
-    age: z.number("age should be a number").max(100, "Age cannot exceed 100").optional(),
+    name: z.string("Name should be a String").trim().min(1, "Name Should Not be Empty").max(200),
+    op_num: z.string("Op num should be a String").trim().min(1, "op_num should not be empty").max(100),
+    age: z.number("age should be a number").int().positive().max(120, "Age cannot exceed 120").optional(),
     gender: z.enum(["Male", "Female", "Other"], "The gender should be a valid option"),
     contact_no: primaryPhoneNumberSchema,
     target_inr_min: z.number().finite().positive().optional(),
     target_inr_max: z.number().finite().positive().optional(),
     therapy: z.enum(therapy_drug, "Therapy Drug Should only Take The given Drug Values").optional(),
-    therapy_start_date: ddmmyyyy.optional(),
+    therapy_start_date: optionalDateOnly,
     prescription: dosageScheduleSchema,
-    medical_history: z.array(medicalHistorySchema).optional(),
-    kin_name: z.string("kin_name should be string").optional(),
-    kin_relation: z.string("Relation should be string").optional(),
+    medical_history: z.array(medicalHistorySchema).max(50).optional(),
+    kin_name: z.string("kin_name should be string").trim().max(200).optional(),
+    kin_relation: z.string("Relation should be string").trim().max(100).optional(),
     kin_contact_number: z.string("contact_number should be a string"),
-  }).refine(value => value.target_inr_min === undefined || value.target_inr_max === undefined || value.target_inr_min < value.target_inr_max, 'Target INR minimum must be less than maximum')
+  }).strict().refine(value => value.target_inr_min === undefined || value.target_inr_max === undefined || value.target_inr_min < value.target_inr_max, 'Target INR minimum must be less than maximum')
 })
 
 export type CreatePatientInput = z.infer<typeof createPatient>
@@ -62,13 +73,13 @@ export type UpdateProfileInput = z.infer<typeof updateProfile>
 
 export const UpdateReportSchema = z.object({
   params: z.object({
-    op_num: z.string("Op_num should be a valid String"),
-    report_id: z.string("Report_id should be a valid String")
-  }),
+    op_num: z.string("Op_num should be a valid String").trim().min(1).max(100),
+    report_id: z.string("Report_id should be a valid String").regex(/^[a-f\d]{24}$/i, 'report_id must be a valid ObjectId')
+  }).strict(),
   body: z.object({
     is_critical: z.boolean("Critical Must be a Boolean Value").optional(),
-    notes: z.string("Instructions To The patient Must To be a String").optional()
-  })
+    notes: z.string("Instructions To The patient Must To be a String").trim().max(4000).optional()
+  }).strict()
 })
 
 export type UpdateReportInput = z.infer<typeof UpdateReportSchema>
@@ -96,6 +107,11 @@ export const UpdateNextReviewSchema = z.object({
   body: z.object({
     date: z.string("Date should be a string")
       .regex(/^\d{2}-\d{2}-\d{4}$/, "Date must be in DD-MM-YYYY format")
+      .refine(value => Boolean(parseStrictDateOnly(value)), 'Date must be a valid calendar date')
+      .refine(
+        value => (dateOnlyStringKey(value) ?? '') >= calendarDateKeyInTimeZone(new Date(), config.dosageReminderTimezone),
+        'Next review date cannot be in the past',
+      )
   }).strict()
 })
 
@@ -104,9 +120,9 @@ export type UpdateNextReviewInput = z.infer<typeof UpdateNextReviewSchema>
 export const UpdateInstructionsSchema = z.object({
   params: opNumParamsSchema,
   body: z.object({
-    instructions: z.array(z.string("Each instruction must be a string"), {
+    instructions: z.array(z.string("Each instruction must be a string").trim().min(1).max(500), {
       error: "Instructions must be an array of strings",
-    })
+    }).max(50)
   }).strict()
 })
 

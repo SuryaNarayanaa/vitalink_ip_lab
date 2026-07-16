@@ -48,6 +48,16 @@ const OtpChallengeSchema = new mongoose.Schema({
   phone_last4: {
     type: String,
   },
+  /** Account/profile snapshot authenticated before this login challenge. */
+  security_version: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  profile_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+  },
   provider: {
     type: String,
     required: true,
@@ -72,6 +82,12 @@ const OtpChallengeSchema = new mongoose.Schema({
   expires_at: {
     type: Date,
     required: [true, 'OTP expiration is required'],
+  },
+  /** Retain terminal/expired challenges for security investigation before TTL cleanup. */
+  purge_at: {
+    type: Date,
+    required: true,
+    default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   },
   attempt_count: {
     type: Number,
@@ -115,7 +131,7 @@ const OtpChallengeSchema = new mongoose.Schema({
   },
 }, { timestamps: true })
 
-OtpChallengeSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
+OtpChallengeSchema.index({ purge_at: 1 }, { expireAfterSeconds: 0 })
 OtpChallengeSchema.index({ user_id: 1, purpose: 1, status: 1, createdAt: -1 })
 
 export interface OtpChallengeDocument extends mongoose.Document, mongoose.InferSchemaType<typeof OtpChallengeSchema> {}
