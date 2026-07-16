@@ -77,6 +77,20 @@ const PatientProfileSchema = new mongoose.Schema({
   },
   profile_picture_url: { type: String },
   profile_picture_file_asset_id: { type: mongoose.Schema.Types.ObjectId, ref: 'FileAsset' },
+  /** Short-lived upload leases fence file purge from concurrent object creation. */
+  file_operation_leases: [{
+    lease_id: { type: String, required: true },
+    expires_at: { type: Date, required: true },
+  }],
+  /** Durable progress for the separately authorized patient-data purge workflow. */
+  file_purge: {
+    state: { type: String, enum: ['PURGING', 'FAILED', 'COMPLETE'] },
+    execution_id: { type: String },
+    lease_expires_at: { type: Date },
+    started_at: { type: Date },
+    completed_at: { type: Date },
+    last_error: { type: String, maxlength: 500 },
+  },
 }, { timestamps: true });
 
 export interface PatientProfileDocument extends mongoose.Document, mongoose.InferSchemaType<typeof PatientProfileSchema> { }

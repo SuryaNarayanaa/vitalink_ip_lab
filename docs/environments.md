@@ -214,6 +214,7 @@ The following groups are available in every backend profile. Defaults are docume
 | Authentication | `JWT_SECRET`, `JWT_EXPIRES_IN`, `REFRESH_TOKEN_EXPIRY_DAYS`, `MAX_FAILED_LOGIN_ATTEMPTS`, `ACCOUNT_LOCKOUT_MINUTES`, `PASSWORD_EXPIRY_DAYS`, `PASSWORD_HISTORY_COUNT` |
 | Rate limiting | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`, `AUTH_RATE_LIMIT_WINDOW_MS`, `AUTH_RATE_LIMIT_MAX_REQUESTS` |
 | Storage | `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `S3_BUCKET_NAME`, `FILE_ASSET_LEGACY_CUTOFF_AT` |
+| Upload scanning | `MALWARE_SCAN_ENABLED`, `MALWARE_SCAN_URL`, `MALWARE_SCAN_AUTH_TOKEN`, `MALWARE_SCAN_TIMEOUT_MS` |
 | OTP and MFA | `OTP_*`, `TWILIO_*`, `ADMIN_TOTP_*` |
 | Push and queues | `FCM_ENABLED`, `FIREBASE_SERVICE_ACCOUNT`, `REDIS_URL`, `NOTIFICATION_DELIVERY_*` |
 | Clinical reminders | `DOSAGE_REMINDER_CRON`, `DOSAGE_REMINDER_TIMEZONE`, `INR_REMINDER_INTERVAL_DAYS`, `NEXT_REVIEW_REMINDER_LEAD_DAYS`, `MISSED_DOSE_ESCALATION_WINDOW_DAYS`, `MISSED_DOSE_ESCALATION_THRESHOLD` |
@@ -223,6 +224,8 @@ The following groups are available in every backend profile. Defaults are docume
 | Billing | `PAYMENT_CHECKOUT_BASE_URL` |
 
 `PAYMENT_CHECKOUT_BASE_URL` is only required when the hosted checkout flow is used. `DEFAULT_ADMIN_LOGIN` and `DEFAULT_ADMIN_PASSWORD` are inputs to the admin seed command; unset or remove them after controlled provisioning where the secret platform permits it.
+
+When `MALWARE_SCAN_ENABLED=true`, uploads are accepted only after the configured HTTP scanner returns `{"clean":true}`. Scanner errors and timeouts fail closed before object storage. See `backend/docs/file-security-and-purge.md` for the scanner contract and patient file-purge runbook.
 
 ## Release checklist
 
@@ -236,4 +239,3 @@ Before deploying UAT or Prod:
 6. Run migrations against the target environment before enabling dependent features.
 7. Verify `/health/live`, then `/health/ready`, then an authenticated smoke test.
 8. Check logs for database, Firebase, queue-worker, CORS, and provider errors without printing secret values.
-

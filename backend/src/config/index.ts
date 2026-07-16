@@ -58,6 +58,10 @@ interface Config {
   nextReviewReminderLeadDays: number
   missedDoseEscalationWindowDays: number
   missedDoseEscalationThreshold: number
+  malwareScanEnabled: boolean
+  malwareScanUrl: string
+  malwareScanAuthToken: string
+  malwareScanTimeoutMs: number
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development'
@@ -179,6 +183,22 @@ const defaultJwtSecret = isTest
   : 'dev-only-jwt-secret-change-me'
 
 const apiDocsEnabled = getBoolEnv('API_DOCS_ENABLED', !isProduction)
+const malwareScanEnabled = getBoolEnv('MALWARE_SCAN_ENABLED', false)
+
+function getMalwareScanUrl() {
+  const value = getEnv('MALWARE_SCAN_URL')
+  if (!value) return ''
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('MALWARE_SCAN_URL must be an absolute URL')
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('MALWARE_SCAN_URL must use HTTPS')
+  }
+  return parsed.toString()
+}
 
 /** Returns required runtime keys without exposing any configured values. */
 export function getMissingEnvironmentVariables(): string[] {
@@ -205,6 +225,10 @@ export function getMissingEnvironmentVariables(): string[] {
 
   if (getBoolEnv('FCM_ENABLED', false)) {
     required.push('FIREBASE_SERVICE_ACCOUNT')
+  }
+
+  if (malwareScanEnabled) {
+    required.push('MALWARE_SCAN_URL')
   }
 
   return required.filter((key) => !(process.env[key] || '').trim())
@@ -280,5 +304,9 @@ export const config: Config = {
   nextReviewReminderLeadDays: getIntEnv('NEXT_REVIEW_REMINDER_LEAD_DAYS', 7),
   missedDoseEscalationWindowDays: getIntEnv('MISSED_DOSE_ESCALATION_WINDOW_DAYS', 7),
   missedDoseEscalationThreshold: getIntEnv('MISSED_DOSE_ESCALATION_THRESHOLD', 2),
+  malwareScanEnabled,
+  malwareScanUrl: getMalwareScanUrl(),
+  malwareScanAuthToken: getEnv('MALWARE_SCAN_AUTH_TOKEN'),
+  malwareScanTimeoutMs: getIntEnv('MALWARE_SCAN_TIMEOUT_MS', 10_000),
 }
 

@@ -74,4 +74,38 @@ describe('FileAsset legacy cutoff config validation', () => {
     const { config } = require('@alias/config')
     expect(config.fileAssetLegacyCutoffAt.toISOString()).toBe('2100-01-01T00:00:00.000Z')
   })
+
+  test('reports a missing malware scanner URL when the production hook is enabled', () => {
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: 'production',
+      MONGO_URI: 'mongodb://example.invalid/vitalink',
+      JWT_SECRET: 'production-test-secret',
+      ACCESS_KEY_ID: 'test-access-key',
+      SECRET_ACCESS_KEY: 'test-secret-key',
+      S3_BUCKET_NAME: 'test-bucket',
+      FILE_ASSET_LEGACY_CUTOFF_AT: '2026-07-16T00:00:00.000Z',
+      ADMIN_TOTP_ENCRYPTION_KEY: 'test-only-admin-totp-encryption-key-32b',
+      TWILIO_ACCOUNT_SID: 'AC-test',
+      TWILIO_AUTH_TOKEN: 'test-token',
+      TWILIO_VERIFY_SERVICE_SID: 'VA-test',
+      MALWARE_SCAN_ENABLED: 'true',
+      MALWARE_SCAN_URL: '',
+    }
+    jest.resetModules()
+
+    const { getMissingEnvironmentVariables } = require('@alias/config')
+    expect(getMissingEnvironmentVariables()).toContain('MALWARE_SCAN_URL')
+  })
+
+  test.each(['scanner.internal/scan', 'http://scanner.internal/scan'])('rejects non-absolute or non-HTTPS scanner URL %s', (url) => {
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: 'test',
+      MALWARE_SCAN_ENABLED: 'true',
+      MALWARE_SCAN_URL: url,
+    }
+    jest.resetModules()
+    expect(() => require('@alias/config')).toThrow(/absolute URL|use HTTPS/)
+  })
 })

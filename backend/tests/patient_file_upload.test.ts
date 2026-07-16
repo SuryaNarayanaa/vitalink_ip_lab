@@ -9,7 +9,8 @@ import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import client from '@alias/config/s3-client';
 import { config } from '@alias/config';
 import { FileAssetStatus } from '@alias/models/fileasset.model';
-import { deleteFile, getDownloadUrl } from '@alias/utils/fileUpload';
+import { getDownloadUrl, purgeFilePermanently } from '@alias/utils/fileUpload';
+import { purgePatientFileAssets } from '@alias/services/patient-file-purge.service';
 
 describe('Patient File Upload Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -329,7 +330,7 @@ describe('Patient File Upload Routes', () => {
             form.append('inr_value', '2.5');
             form.append('test_date', '25-02-2026');
             const updateSpy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockRejectedValueOnce(new Error('forced write failure'));
-            const deleteMock = deleteFile as jest.Mock;
+            const deleteMock = purgeFilePermanently as jest.Mock;
 
             const response = await api.post('/api/patient/reports', form, {
                 headers: { Authorization: `Bearer ${patientToken}`, ...form.getHeaders() }
@@ -474,6 +475,192 @@ describe('Patient File Upload Routes', () => {
 
             expect(response.status).toBe(401);
             expect(response.data.success).toBe(false);
+        });
+    });
+
+    describe('patient file purge lifecycle fence', () => {
+        test('allows only one live purge execution against real Mongo state', async () => {
+            const profile = await PatientProfile.create({
+                hospital_id: hospital._id,
+                demographics: { name: 'Purge Concurrency Patient' },
+                account_status: 'Discharged',
+            });
+            const user = await User.create({
+                login_id: 'purge-concurrency-patient',
+                password: 'Patient123!',
+                user_type: 'PATIENT',
+                profile_id: profile._id,
+                is_active: false,
+            });
+            await FileAsset.create({
+                hospital_id: hospital._id,
+                owner_user_id: user._id,
+                patient_profile_id: profile._id,
+                purpose: 'INR_REPORT',
+                storage_provider: 'S3_COMPATIBLE',
+                bucket: 'test-bucket',
+                object_key: 'purge/concurrent.pdf',
+                original_filename: 'concurrent.pdf',
+                detected_mime: 'application/pdf',
+                byte_size: 10,
+                sha256_checksum: 'a'.repeat(64),
+                status: FileAssetStatus.ACTIVE,
+                created_by: user._id,
+            });
+
+            let allowDeletion!: () => void;
+            let deletionStarted!: () => void;
+            const started = new Promise<void>(resolve => { deletionStarted = resolve; });
+            const scanner = purgeFilePermanently as jest.Mock;
+            scanner.mockImplementationOnce(() => new Promise<void>(resolve => {
+                allowDeletion = resolve;
+                deletionStarted();
+            }));
+
+            const first = purgePatientFileAssets({ patientProfileId: profile._id, ownerUserId: user._id });
+            await started;
+            await expect(purgePatientFileAssets({ patientProfileId: profile._id, ownerUserId: user._id }))
+                .rejects.toMatchObject({ statusCode: 409 });
+            allowDeletion();
+            await expect(first).resolves.toMatchObject({ failures: 0, trackedObjectsDeleted: 1 });
+
+            const completed = await PatientProfile.findById(profile._id).lean();
+            expect(completed?.file_purge?.state).toBe('COMPLETE');
+            expect(await FileAsset.countDocuments({ patient_profile_id: profile._id })).toBe(0);
+        });
+
+        test('quarantines cross-owner metadata instead of deleting another tenant owner object', async () => {
+            const profile = await PatientProfile.create({
+                hospital_id: hospital._id,
+                demographics: { name: 'Ownership Mismatch Patient' },
+                account_status: 'Discharged',
+            });
+            const user = await User.create({
+                login_id: 'purge-ownership-mismatch',
+                password: 'Patient123!',
+                user_type: 'PATIENT',
+                profile_id: profile._id,
+                is_active: false,
+            });
+            const corruptAsset = await FileAsset.create({
+                hospital_id: hospital._id,
+                owner_user_id: patientUser._id,
+                patient_profile_id: profile._id,
+                purpose: 'INR_REPORT',
+                storage_provider: 'S3_COMPATIBLE',
+                bucket: 'test-bucket',
+                object_key: 'purge/must-not-delete.pdf',
+                original_filename: 'must-not-delete.pdf',
+                detected_mime: 'application/pdf',
+                byte_size: 10,
+                sha256_checksum: 'b'.repeat(64),
+                status: FileAssetStatus.ACTIVE,
+                created_by: patientUser._id,
+            });
+
+            await expect(purgePatientFileAssets({ patientProfileId: profile._id, ownerUserId: user._id }))
+                .rejects.toMatchObject({ statusCode: 409 });
+            expect(purgeFilePermanently).not.toHaveBeenCalledWith('purge/must-not-delete.pdf', 'test-bucket');
+            expect(await FileAsset.exists({ _id: corruptAsset._id })).not.toBeNull();
+        });
+
+        test('quarantines a legacy key that aliases another tenant normalized object', async () => {
+            const otherHospital = await Hospital.create({
+                code: `ALIAS_${Date.now()}`,
+                name: `Legacy Alias Hospital ${Date.now()}`,
+                location: 'Pune',
+                admin_email: `legacy-alias-${Date.now()}@example.com`,
+            });
+            const aliasKey = `purge/cross-tenant-alias-${Date.now()}.pdf`;
+            const targetProfile = await PatientProfile.create({
+                hospital_id: otherHospital._id,
+                demographics: { name: 'Legacy Alias Target' },
+                account_status: 'Discharged',
+                profile_picture_url: aliasKey,
+            });
+            const targetUser = await User.create({
+                login_id: `legacy-alias-target-${Date.now()}`,
+                password: 'Patient123!',
+                user_type: 'PATIENT',
+                profile_id: targetProfile._id,
+                is_active: false,
+            });
+            const externalAsset = await FileAsset.create({
+                hospital_id: hospital._id,
+                owner_user_id: patientUser._id,
+                patient_profile_id: patientProfile._id,
+                purpose: 'INR_REPORT',
+                storage_provider: 'S3_COMPATIBLE',
+                bucket: config.bucketName,
+                object_key: aliasKey,
+                original_filename: 'external.pdf',
+                detected_mime: 'application/pdf',
+                byte_size: 10,
+                sha256_checksum: 'c'.repeat(64),
+                status: FileAssetStatus.ACTIVE,
+                created_by: patientUser._id,
+            });
+
+            try {
+                await expect(purgePatientFileAssets({
+                    patientProfileId: targetProfile._id,
+                    ownerUserId: targetUser._id,
+                })).rejects.toMatchObject({ statusCode: 409 });
+                expect(purgeFilePermanently).not.toHaveBeenCalledWith(aliasKey);
+                expect(await FileAsset.exists({ _id: externalAsset._id })).not.toBeNull();
+            } finally {
+                await Promise.all([
+                    FileAsset.deleteOne({ _id: externalAsset._id }),
+                    User.deleteOne({ _id: targetUser._id }),
+                    PatientProfile.deleteOne({ _id: targetProfile._id }),
+                    Hospital.deleteOne({ _id: otherHospital._id }),
+                ]);
+            }
+        });
+
+        test('quarantines a legacy key referenced by another tenant legacy profile', async () => {
+            const otherHospital = await Hospital.create({
+                code: `LEGACY_${Date.now()}`,
+                name: `Legacy Reference Hospital ${Date.now()}`,
+                location: 'Mumbai',
+                admin_email: `legacy-reference-${Date.now()}@example.com`,
+            });
+            const sharedKey = `purge/shared-legacy-${Date.now()}.jpg`;
+            const targetProfile = await PatientProfile.create({
+                hospital_id: otherHospital._id,
+                demographics: { name: 'Legacy Shared Target' },
+                account_status: 'Discharged',
+                profile_picture_url: sharedKey,
+            });
+            const targetUser = await User.create({
+                login_id: `legacy-shared-target-${Date.now()}`,
+                password: 'Patient123!',
+                user_type: 'PATIENT',
+                profile_id: targetProfile._id,
+                is_active: false,
+            });
+            const unrelatedProfile = await PatientProfile.create({
+                hospital_id: hospital._id,
+                demographics: { name: 'Unrelated Legacy Owner' },
+                account_status: 'Active',
+                profile_picture_url: sharedKey,
+            });
+
+            try {
+                await expect(purgePatientFileAssets({
+                    patientProfileId: targetProfile._id,
+                    ownerUserId: targetUser._id,
+                })).rejects.toMatchObject({ statusCode: 409 });
+                expect(purgeFilePermanently).not.toHaveBeenCalledWith(sharedKey);
+                expect((await PatientProfile.findById(unrelatedProfile._id).lean())?.profile_picture_url).toBe(sharedKey);
+            } finally {
+                await Promise.all([
+                    User.deleteOne({ _id: targetUser._id }),
+                    PatientProfile.deleteOne({ _id: targetProfile._id }),
+                    PatientProfile.deleteOne({ _id: unrelatedProfile._id }),
+                    Hospital.deleteOne({ _id: otherHospital._id }),
+                ]);
+            }
         });
     });
 });

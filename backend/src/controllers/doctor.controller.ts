@@ -17,9 +17,9 @@ import type {
 } from '@alias/validators/doctor.validator'
 import mongoose from 'mongoose'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
-import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
+import { FileValidationError, isLegacyFileReferenceEligible } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
-import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
+import { compensateFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
@@ -933,18 +933,19 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to a hospital before uploading files')
   }
 
-  let uploadedFile: Awaited<ReturnType<typeof uploadFile>>
-  let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>>
+  let uploadedFile: Awaited<ReturnType<typeof uploadTrackedFile>>['metadata']
+  let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset']
   const doctorProfile = await DoctorProfile.findById(user.profile_id)
   if (!doctorProfile) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
   try {
-    uploadedFile = await uploadFile(`hospitals/${hospitalId}/profiles/${user._id}`, req.file)
-    fileAsset = await createTrackedFileAsset(uploadedFile, {
+    const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalId}/profiles/${user._id}`, req.file, {
       hospitalId,
       ownerUserId: user._id,
       purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
       createdBy: user._id,
     })
+    uploadedFile = trackedUpload.metadata
+    fileAsset = trackedUpload.asset
   } catch (error) {
     logger.error("Error While Uploading profile to filebase", { error: sanitizeLogText(error) })
     if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)

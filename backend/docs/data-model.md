@@ -245,6 +245,8 @@ Key fields:
 | `phone_verification.verified_at` | date | No | Set when phone verification succeeds |
 | `profile_picture_url` | string | No | Stores object key, later resolved to presigned URL |
 | `profile_picture_file_asset_id` | ObjectId | No | References tenant-scoped `fileassets`; absent on legacy records until backfill |
+| `file_operation_leases` | array | No | Renewable upload fences; expired entries may be reclaimed before purge |
+| `file_purge` | object | No | Durable `PURGING`/`FAILED`/`COMPLETE` state with execution ID, lease, timestamps, and sanitized last error |
 | `hospital_id` | ObjectId | No | Tenant ownership anchor |
 | `doctor_operation_fence` | number | No | Latest lifecycle/assignment fence stamped on the doctor resource; stale owners cannot overwrite a successor operation |
 
@@ -348,7 +350,7 @@ Tenant-scoped storage metadata and authorization anchor for uploaded clinical re
 | `detected_mime` | string | Yes | MIME derived from magic bytes |
 | `byte_size` | number | Yes | Server-observed buffer length |
 | `sha256_checksum` | string | Yes | Lowercase SHA-256 of server-side bytes |
-| `status` | enum | Yes | `ACTIVE`, `FAILED`, `DELETED` |
+| `status` | enum | Yes | `PENDING` upload intent, `ACTIVE`, `FAILED`, or `DELETED` |
 | `created_by` | ObjectId | Yes | User that initiated upload/backfill ownership |
 | `failure_reason` | string | No | Compensation/cleanup failure detail |
 | `deleted_at` | date | No | Soft deletion/compensation marker |

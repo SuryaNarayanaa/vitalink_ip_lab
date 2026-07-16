@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'crypto'
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand, ListObjectVersionsCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import client from '@alias/config/s3-client'
 import { config } from '@alias/config'
+import { scanUploadForMalware } from '@alias/services/malware-scan.service'
 
 export type DetectedFileType = {
   mime: 'application/pdf' | 'image/png' | 'image/jpeg' | 'image/webp'
@@ -107,27 +108,130 @@ export function isLegacyFileReferenceEligible(referenceCreatedAt: Date | string 
   return !Number.isNaN(createdAt.getTime()) && createdAt < config.fileAssetLegacyCutoffAt
 }
 
-export async function uploadFile(folder: string, file: Express.Multer.File): Promise<UploadedFileMetadata> {
-  const { uploadUrl, key, detectedMime, byteSize, sha256Checksum } = await getUploadUrl(folder, file)
-  const response = await fetch(uploadUrl, {
-    method: 'PUT',
-    body: file.buffer,
-    headers: { 'Content-Type': detectedMime },
+type UploadLifecycleGuard = { assertOwned: () => Promise<void> }
+
+export type PreparedFileUpload = UploadedFileMetadata & { uploadUrl: string }
+
+export class FileUploadCleanupError extends Error {
+  constructor(
+    public readonly metadata: UploadedFileMetadata,
+    public readonly uploadError: unknown,
+    public readonly cleanupError: unknown,
+  ) {
+    super('Upload outcome was ambiguous and storage cleanup failed')
+    this.name = 'FileUploadCleanupError'
+  }
+}
+
+export async function prepareFileUpload(
+  folder: string,
+  file: Express.Multer.File,
+  lifecycleGuard?: UploadLifecycleGuard,
+): Promise<PreparedFileUpload> {
+  await lifecycleGuard?.assertOwned()
+  const description = validateAndDescribeFile(file)
+  await scanUploadForMalware({
+    buffer: file.buffer,
+    originalFilename: file.originalname,
+    detectedMime: description.mime,
+    byteSize: description.byteSize,
+    sha256Checksum: description.sha256Checksum,
   })
-  if (!response.ok) throw new Error(`File upload failed with status ${response.status}`)
+  await lifecycleGuard?.assertOwned()
+  const key = buildS3Key(folder, description.extension)
   return {
+    uploadUrl: await createUploadUrl(key, description.mime),
     bucket: config.bucketName!,
     key,
     originalFilename: file.originalname,
-    detectedMime,
-    byteSize,
-    sha256Checksum,
+    detectedMime: description.mime,
+    byteSize: description.byteSize,
+    sha256Checksum: description.sha256Checksum,
   }
+}
+
+export async function putPreparedFile(
+  prepared: PreparedFileUpload,
+  file: Express.Multer.File,
+  lifecycleGuard?: UploadLifecycleGuard,
+) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs)
+  let response: Response
+  try {
+    response = await fetch(prepared.uploadUrl, {
+      method: 'PUT',
+      body: file.buffer,
+      headers: { 'Content-Type': prepared.detectedMime },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+  if (!response.ok) throw new Error(`File upload failed with status ${response.status}`)
+  await lifecycleGuard?.assertOwned()
+}
+
+export async function uploadFile(
+  folder: string,
+  file: Express.Multer.File,
+  lifecycleGuard?: UploadLifecycleGuard,
+): Promise<UploadedFileMetadata> {
+  const prepared = await prepareFileUpload(folder, file, lifecycleGuard)
+  try {
+    await putPreparedFile(prepared, file, lifecycleGuard)
+  } catch (uploadError) {
+    try {
+      await purgeFilePermanently(prepared.key, prepared.bucket)
+    } catch (cleanupError) {
+      throw new FileUploadCleanupError(prepared, uploadError, cleanupError)
+    }
+    throw uploadError
+  }
+  const { uploadUrl: _uploadUrl, ...metadata } = prepared
+  return metadata
 }
 
 export async function deleteFile(key: string, bucket = config.bucketName) {
   if (!bucket) throw new Error('S3_BUCKET_NAME is not configured')
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
+}
+
+/** Permanently removes all versions and delete markers for a patient purge. */
+export async function purgeFilePermanently(key: string, bucket = config.bucketName) {
+  if (!bucket) throw new Error('S3_BUCKET_NAME is not configured')
+  let keyMarker: string | undefined
+  let versionIdMarker: string | undefined
+  const versions: Array<{ Key: string; VersionId: string }> = []
+  do {
+    const page = await client.send(new ListObjectVersionsCommand({
+      Bucket: bucket,
+      Prefix: key,
+      KeyMarker: keyMarker,
+      VersionIdMarker: versionIdMarker,
+    }))
+    versions.push(...[...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
+      .filter(item => item.Key === key && item.VersionId)
+      .map(item => ({ Key: key, VersionId: item.VersionId! })))
+    if (!page.IsTruncated) break
+    keyMarker = page.NextKeyMarker
+    versionIdMarker = page.NextVersionIdMarker
+    if (!keyMarker) throw new Error('Storage provider returned an invalid object-version continuation')
+  } while (true)
+
+  if (versions.length === 0) {
+    await deleteFile(key, bucket)
+    return
+  }
+  for (let index = 0; index < versions.length; index += 1000) {
+    const deletion = await client.send(new DeleteObjectsCommand({
+      Bucket: bucket,
+      Delete: { Objects: versions.slice(index, index + 1000), Quiet: true },
+    }))
+    if (deletion.Errors?.length) {
+      throw new Error(`Storage provider failed to purge ${deletion.Errors.length} object version(s)`)
+    }
+  }
 }
 
 export async function readStoredFileMetadata(key: string, bucket = config.bucketName) {
