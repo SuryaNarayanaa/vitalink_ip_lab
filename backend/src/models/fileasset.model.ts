@@ -11,6 +11,7 @@ export enum FileAssetStorageProvider {
 }
 
 export enum FileAssetStatus {
+  PENDING = 'PENDING',
   ACTIVE = 'ACTIVE',
   FAILED = 'FAILED',
   DELETED = 'DELETED',

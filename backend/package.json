@@ -24,7 +24,9 @@
     "migrate:file-assets": "ts-node --require tsconfig-paths/register src/scripts/backfillFileAssets.ts",
     "migrate:file-assets:prod": "node build/src/scripts/backfillFileAssets.js",
     "migrate:device-tokens": "ts-node --require tsconfig-paths/register src/scripts/migrateDeviceTokenOwnership.ts",
-    "migrate:device-tokens:prod": "node build/src/scripts/migrateDeviceTokenOwnership.js"
+    "migrate:device-tokens:prod": "node build/src/scripts/migrateDeviceTokenOwnership.js",
+    "purge:patient-files": "ts-node --require tsconfig-paths/register src/scripts/purgePatientFiles.ts",
+    "purge:patient-files:prod": "node build/src/scripts/purgePatientFiles.js"
   },
   "author": "",
   "license": "MIT",

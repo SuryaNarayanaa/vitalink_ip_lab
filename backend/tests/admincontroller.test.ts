@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, NotificationDelivery, AuditLog, Invoice, SystemConfig } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, NotificationDelivery, AuditLog, Invoice, SystemConfig, FileAsset } from '@alias/models';
 import { AdminRole } from '@alias/models/adminprofile.model';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
@@ -13,6 +13,8 @@ import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service
 import { createAdminMfaLoginChallenge, generateTotpCode, verifyAdminMfaLoginChallenge } from '@alias/services/admin-totp.service';
 import * as configService from '@alias/services/config.service';
 import * as realtimeNotifications from '@alias/services/realtime-notification.service';
+import { purgePatientFileAssets } from '@alias/services/patient-file-purge.service';
+import { purgeFilePermanently } from '@alias/utils/fileUpload';
 
 describe('Admin Routes', () => {
     let mongoContainer: StartedTestContainer;
@@ -1999,6 +2001,37 @@ describe('Admin Routes', () => {
             expect(String(after?.hospital_id)).toBe(String(before?.hospital_id));
             expect(String(after?.assigned_doctor_id)).toBe(String(before?.assigned_doctor_id));
         });
+
+        test('should reject reactivation while patient file purge owns the lifecycle fence', async () => {
+            const profile = await PatientProfile.create({
+                assigned_doctor_id: primaryDoctorUser._id,
+                hospital_id: primaryHospital._id,
+                demographics: { name: 'Purging Reactivation Patient', phone: '9000000098' },
+                account_status: 'Discharged',
+                file_purge: {
+                    state: 'PURGING',
+                    execution_id: 'purge-reactivation-test',
+                    lease_expires_at: new Date(Date.now() + 60_000),
+                    started_at: new Date(),
+                },
+            });
+            const user = await User.create({
+                login_id: `purging-reactivation-${Date.now()}`,
+                password: 'Patient@123',
+                user_type: 'PATIENT',
+                profile_id: profile._id,
+                is_active: false,
+            });
+
+            const response = await api.put(`/api/admin/patients/${user._id}`, {
+                account_status: 'Active',
+                is_active: true,
+            }, { headers: { Authorization: `Bearer ${adminToken}` } });
+
+            expect(response.status).toBe(409);
+            expect((await User.findById(user._id).lean())?.is_active).toBe(false);
+            expect((await PatientProfile.findById(profile._id).lean())?.account_status).toBe('Discharged');
+        });
     });
 
     describe('Admin Utilities', () => {
@@ -2717,6 +2750,65 @@ describe('Admin Routes', () => {
                     $unset: { lifecycle_lock: 1 },
                 });
                 await User.updateOne({ _id: baselinePatientUser._id }, { $set: { is_active: true } });
+            }
+        });
+
+        test('does not batch-activate a patient after purge has passed its inactivity check', async () => {
+            const profile = await PatientProfile.create({
+                hospital_id: primaryHospital._id,
+                demographics: { name: 'Batch Purge Fence Patient' },
+                account_status: 'Discharged',
+            });
+            const user = await User.create({
+                login_id: `batch-purge-fence-${Date.now()}`,
+                password: 'Patient@123',
+                user_type: 'PATIENT',
+                profile_id: profile._id,
+                is_active: false,
+            });
+            await FileAsset.create({
+                hospital_id: primaryHospital._id,
+                owner_user_id: user._id,
+                patient_profile_id: profile._id,
+                purpose: 'INR_REPORT',
+                storage_provider: 'S3_COMPATIBLE',
+                bucket: 'test-bucket',
+                object_key: `purge/batch-activation-race-${Date.now()}.pdf`,
+                original_filename: 'race.pdf',
+                detected_mime: 'application/pdf',
+                byte_size: 10,
+                sha256_checksum: 'd'.repeat(64),
+                status: 'ACTIVE',
+                created_by: user._id,
+            });
+
+            let allowDeletion!: () => void;
+            let deletionStarted!: () => void;
+            const started = new Promise<void>(resolve => { deletionStarted = resolve; });
+            (purgeFilePermanently as jest.Mock).mockImplementationOnce(() => new Promise<void>(resolve => {
+                allowDeletion = resolve;
+                deletionStarted();
+            }));
+
+            const purge = purgePatientFileAssets({ patientProfileId: profile._id, ownerUserId: user._id });
+            try {
+                await started;
+                const response = await api.post('/api/admin/users/batch', {
+                    operation: 'activate', user_ids: [String(user._id)],
+                }, { headers: { Authorization: `Bearer ${adminToken}` } });
+                expect(response.status).toBe(200);
+                expect(response.data.data.successful).toBe(0);
+                expect((await User.findById(user._id).lean())?.is_active).toBe(false);
+                allowDeletion();
+                await expect(purge).resolves.toMatchObject({ failures: 0 });
+            } finally {
+                allowDeletion?.();
+                await purge.catch(() => undefined);
+                await Promise.all([
+                    FileAsset.deleteMany({ patient_profile_id: profile._id }),
+                    User.deleteOne({ _id: user._id }),
+                    PatientProfile.deleteOne({ _id: profile._id }),
+                ]);
             }
         });
 

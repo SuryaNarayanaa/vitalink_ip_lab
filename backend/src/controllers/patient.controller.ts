@@ -20,11 +20,12 @@ import type {
 	UpdateProfileInput
 } from '@alias/validators/patient.validator'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
-import { FileValidationError, isLegacyFileReferenceEligible, uploadFile } from '@alias/utils/fileUpload'
+import { FileValidationError, isLegacyFileReferenceEligible } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
-import { compensateFileAsset, createTrackedFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset } from '@alias/services/fileasset.service'
+import { compensateFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import { config } from '@alias/config'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -278,23 +279,27 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 			throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PDF, PNG, JPEG allowed')
 		}
 	}
-	let uploadedFile: Awaited<ReturnType<typeof uploadFile>> | undefined
-	let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>> | undefined
+	let uploadedFile: Awaited<ReturnType<typeof uploadTrackedFile>>['metadata'] | undefined
+	let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset'] | undefined
+	let fileOperation: Awaited<ReturnType<typeof acquirePatientFileOperationLease>> | undefined
 	if (file) {
 		if (!patientProfile.hospital_id) {
 			throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
 		}
+		fileOperation = await acquirePatientFileOperationLease(patientProfile._id)
 		try {
 			const hospitalSegment = String(patientProfile.hospital_id)
-			uploadedFile = await uploadFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file)
-			fileAsset = await createTrackedFileAsset(uploadedFile, {
+			const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file, {
 				hospitalId: patientProfile.hospital_id,
 				ownerUserId: patientUser._id,
 				patientProfileId: patientProfile._id,
 				purpose: FileAssetPurpose.INR_REPORT,
 				createdBy: patientUser._id,
-			})
+			}, fileOperation)
+			uploadedFile = trackedUpload.metadata
+			fileAsset = trackedUpload.asset
 		} catch (error) {
+			await fileOperation.release()
 			logger.error("Error While Uploading File to filebase", { error: sanitizeLogText(error) })
 			if (error instanceof FileValidationError) {
 				throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
@@ -303,16 +308,18 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 		}
 	}
 
-	const systemConfig = await getSystemConfig()
-	const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
-	const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
-
 	let patient
 	try {
+		await fileOperation?.assertOwned()
+		const systemConfig = await getSystemConfig()
+		const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
+		const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
+		await fileOperation?.assertOwned()
 		patient = await PatientProfile.findOneAndUpdate(
 			{
 				_id: patientUser.profile_id,
 				account_status: 'Active',
+				'file_purge.state': { $nin: ['PURGING', 'COMPLETE'] },
 				inr_history: { $not: { $elemMatch: { test_date: parsedTestDate } } },
 			},
 			{
@@ -346,6 +353,8 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	} catch (error) {
 		if (fileAsset) await compensateFileAsset(fileAsset, error)
 		throw error
+	} finally {
+		await fileOperation?.release()
 	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
@@ -646,30 +655,39 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 	if (!patientProfile.hospital_id) {
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
 	}
-	let uploadedFile: Awaited<ReturnType<typeof uploadFile>>
-	let fileAsset: Awaited<ReturnType<typeof createTrackedFileAsset>>
+	let uploadedFile: Awaited<ReturnType<typeof uploadTrackedFile>>['metadata']
+	let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset']
+	const fileOperation = await acquirePatientFileOperationLease(patientProfile._id)
 	try {
 		const hospitalSegment = String(patientProfile.hospital_id)
-		uploadedFile = await uploadFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file)
-		fileAsset = await createTrackedFileAsset(uploadedFile, {
+		const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file, {
 			hospitalId: patientProfile.hospital_id,
 			ownerUserId: user._id,
 			patientProfileId: patientProfile._id,
 			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
 			createdBy: user._id,
-		})
+		}, fileOperation)
+		uploadedFile = trackedUpload.metadata
+		fileAsset = trackedUpload.asset
 	} catch (error) {
+		await fileOperation.release()
 		logger.error("Error While Uploading profile to filebase", { error: sanitizeLogText(error) })
 		if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
 
 	try {
+		await fileOperation.assertOwned()
 		const previousAssetId = patientProfile.profile_picture_file_asset_id
 		const referenceFilter = previousAssetId
 			? { profile_picture_file_asset_id: previousAssetId }
 			: { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
-		const updated = await PatientProfile.findOneAndUpdate({ _id: user.profile_id, ...referenceFilter }, {
+		const updated = await PatientProfile.findOneAndUpdate({
+			_id: user.profile_id,
+			account_status: 'Active',
+			'file_purge.state': { $nin: ['PURGING', 'COMPLETE'] },
+			...referenceFilter,
+		}, {
 			profile_picture_url: uploadedFile.key,
 			profile_picture_file_asset_id: fileAsset._id,
 		}, { new: true })
@@ -683,6 +701,8 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 	} catch (error) {
 		await compensateFileAsset(fileAsset, error)
 		throw error
+	} finally {
+		await fileOperation.release()
 	}
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })

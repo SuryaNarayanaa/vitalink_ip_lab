@@ -281,7 +281,7 @@ Existing upload is a good start. Harden it before scaling:
 - `[x]` Compute and persist server-side SHA-256 and detected MIME/size metadata.
 - `[x]` Compensate failed owning-record writes and retire replaced profile-picture assets.
 - `[x]` Provide dry-run-first, idempotent legacy backfill with metadata validation and conflict reporting.
-- `[ ]` Add optional virus/malware scan hook for production uploads.
+- `[x]` Add optional virus/malware scan hook for production uploads.
 - `[x]` Keep file upload size limits:
   - INR report: 10 MB
   - profile image: 5 MB
@@ -290,7 +290,7 @@ Existing upload is a good start. Harden it before scaling:
   - active reports in S3 Standard
   - older reports to Standard-IA or Glacier after policy-approved window
   - hard deletion only after retention rules allow it.
-- `[ ]` Add file deletion/purge workflow when patient data is purged.
+- `[x]` Add file deletion/purge workflow when patient data is purged.
 
 Acceptance:
 
@@ -426,7 +426,7 @@ Acceptance:
 
 ## Completed Workable Unit: FileAsset Foundation and Safe Upload Metadata
 
-This bounded unit is complete. It normalized file ownership and storage metadata without changing the Flutter upload contract or requiring the later retention, malware-scanning, and purge-policy decisions.
+This bounded unit is complete. It normalized file ownership and storage metadata without changing the Flutter upload contract. The malware-scanning and patient-file-purge work that was deferred when this unit was defined is now also complete.
 
 ### Goal
 
@@ -472,13 +472,24 @@ Every new INR report and profile image has a tenant-scoped `FileAsset` record, a
 - `[x]` A database failure after object upload is compensated; failed cleanup is recorded as a failed asset rather than an untracked active object.
 - `[x]` Eligible legacy report and profile-image records remain readable during the configured migration window.
 
-### Explicitly Deferred From This Unit
+### Status of Work Originally Deferred From This Unit
 
-- Malware scanning worker/provider integration.
+- `[x]` Optional production malware-scanning provider integration.
 - S3 lifecycle and archival rules.
-- Patient purge/deletion orchestration.
+- `[x]` Patient file purge/deletion orchestration.
 - Admin file-management UI.
 - Direct-to-S3 client uploads.
+
+## Completed Unit: Production Upload Scanning and Patient File Purge
+
+- `[x]` Optional fail-closed virus/malware scan hook for production uploads, with HTTPS endpoint validation, bounded timeouts and response sizes, authentication support, and readiness configuration.
+- `[x]` Durable pre-upload `PENDING` asset intent and cleanup handling for ambiguous or failed storage writes.
+- `[x]` Permanent object purge removes all S3 object versions and delete markers.
+- `[x]` Patient purge uses renewable execution and upload/reactivation lifecycle leases to prevent concurrent uploads, activation, or purge runners from creating unsafe state.
+- `[x]` Purge ownership reconciliation prevents cross-owner, cross-hospital, normalized-to-legacy, and legacy-to-legacy key alias deletion.
+- `[x]` Retryable purge state, dry-run-first CLI tooling, environment configuration, and operational documentation are included.
+- `[x]` Malware scanning, upload durability, lifecycle races, versioned deletion, and cross-tenant purge behavior are covered by unit and real-Mongo integration tests.
+- `[x]` Final verification passed: TypeScript build, 25/25 Jest suites, and 500/500 tests; independent critical-only review returned CLEAN.
 
 ## Completed Unit: Durable Notification Delivery
 

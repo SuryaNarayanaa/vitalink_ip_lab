@@ -16,6 +16,7 @@ import { createDoctorUpdateNotification } from './doctor-update-notification.ser
 import { acquireDoctorAssignmentGuard, acquireDoctorMoveGuard, acquireHospitalMembershipGuard, acquireHospitalMembershipGuards, acquireHospitalTransitionGuard, deactivateDoctorWithAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from './doctor-assignment.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { hasActiveHospitalAccess } from './hospital-access.service'
+import { acquirePatientFileOperationLease } from './patient-file-purge.service'
 
 /** @deprecated Prefer DEFAULT_ROLE_DEFINITIONS / persisted role policy. Kept as a re-export for callers. */
 export const ROLE_DEFINITIONS = DEFAULT_ROLE_DEFINITIONS
@@ -1553,6 +1554,12 @@ export async function updatePatient(
   }
   if (data.account_status) profileUpdate.account_status = data.account_status
   const transitioningToActive = data.account_status === 'Active' && patientProfile?.account_status !== 'Active'
+  const wasActive = user.is_active
+  const activatingUser = !wasActive && data.is_active === true
+  const requiresPatientPurgeFence = transitioningToActive || activatingUser
+  if (activatingUser && profileUpdate.account_status === undefined) {
+    profileUpdate.account_status = patientProfile.account_status
+  }
 
   let requestedHospitalId: string | undefined
   if (data.hospital_id || data.hospital) {
@@ -1609,15 +1616,14 @@ export async function updatePatient(
     assignmentDoctorUserId = retainedDoctor._id
   }
 
-  const wasActive = user.is_active
   if (data.password) {
     await validatePasswordChangeForUser(user, data.password)
   }
 
   let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
   let releasePreviousDoctorGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
+  let patientLifecycleLease: Awaited<ReturnType<typeof acquirePatientFileOperationLease>> | undefined
   const resultingHospitalMove = profileUpdate.hospital_id
-  const activatingUser = !wasActive && data.is_active === true
   const needsMembershipGuard = (resultingHospitalMove && String(resultingHospitalMove) !== String(patientProfile?.hospital_id || '')) || activatingUser
   const membershipGuards = needsMembershipGuard
     ? await acquireHospitalMembershipGuards([patientProfile?.hospital_id, resultingHospitalMove || patientProfile?.hospital_id])
@@ -1631,6 +1637,10 @@ export async function updatePatient(
   const changedUserPaths: string[] = []
   const changedProfilePaths = Object.keys(profileUpdate)
   try {
+    if (requiresPatientPurgeFence) {
+      patientLifecycleLease = await acquirePatientFileOperationLease(patientProfile._id, { requireActive: false })
+      await patientLifecycleLease.assertOwned()
+    }
     for (const guard of membershipGuards) await guard.assertOwned()
     if (assignmentDoctorUserId) {
       releaseAssignmentGuard = await acquireDoctorAssignmentGuard(assignmentDoctorUserId)
@@ -1673,6 +1683,10 @@ export async function updatePatient(
       if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
       for (const guard of membershipGuards) await guard.assertOwned()
       const profileFilter: any = { _id: patientProfile._id }
+      if (requiresPatientPurgeFence) {
+        await patientLifecycleLease?.assertOwned()
+        profileFilter['file_purge.state'] = { $nin: ['PURGING', 'COMPLETE'] }
+      }
       if (therapyStartGuard) {
         profileFilter['medical_config.taken_doses'] = {
           $not: { $elemMatch: { $lt: therapyStartGuard } },
@@ -1713,6 +1727,7 @@ export async function updatePatient(
       changedUserPaths.push('is_active')
     }
     if (data.password) {
+      await patientLifecycleLease?.assertOwned()
       for (const guard of membershipGuards) await guard.assertOwned()
       await setUserPasswordWithPolicy(user, data.password, { mustChangePassword: true })
       changedUserPaths.push('password', 'salt', 'password_history', 'password_changed_at', 'must_change_password', 'security_version')
@@ -1732,6 +1747,7 @@ export async function updatePatient(
       }
       await bestEffortRevokeSessionsAfterSecurityVersionBump(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
     } else {
+      await patientLifecycleLease?.assertOwned()
       for (const guard of membershipGuards) await guard.assertOwned()
       await user.save()
       expectedUserAfterMutation = user.toObject({ depopulate: true })
@@ -1807,6 +1823,7 @@ export async function updatePatient(
     }
     if (!committedAssignmentAfterLeaseLoss) throw error
   } finally {
+    await patientLifecycleLease?.release()
     if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard()
     if (releaseAssignmentGuard) await releaseAssignmentGuard()
     for (const guard of membershipGuards.reverse()) await guard.release()
@@ -2108,28 +2125,37 @@ export async function performBatchOperation(
               hospitalId = (await AdminProfile.findById(user.profile_id).select('hospital_id admin_role').lean())?.hospital_id
             }
             if (hospitalId) {
-              const guard = await acquireHospitalMembershipGuard(hospitalId)
-              let activationCommitted = false
+              const patientLifecycleLease = user.user_type === UserType.PATIENT
+                ? await acquirePatientFileOperationLease(user.profile_id, { requireActive: false })
+                : undefined
               try {
-                await guard.assertOwned()
-                const activated = await User.findOneAndUpdate(
-                  { _id: user._id, is_active: false },
-                  { $set: { is_active: true } },
-                  { new: true, runValidators: true },
-                )
-                if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
-                activationCommitted = true
-                await guard.assertOwned()
-              } catch (error) {
-                if (activationCommitted) {
-                  await User.updateOne(
-                    { _id: user._id, is_active: true },
-                    { $set: { is_active: false } },
+                const guard = await acquireHospitalMembershipGuard(hospitalId)
+                let activationCommitted = false
+                try {
+                  await patientLifecycleLease?.assertOwned()
+                  await guard.assertOwned()
+                  const activated = await User.findOneAndUpdate(
+                    { _id: user._id, is_active: false },
+                    { $set: { is_active: true } },
+                    { new: true, runValidators: true },
                   )
+                  if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
+                  activationCommitted = true
+                  await patientLifecycleLease?.assertOwned()
+                  await guard.assertOwned()
+                } catch (error) {
+                  if (activationCommitted) {
+                    await User.updateOne(
+                      { _id: user._id, is_active: true },
+                      { $set: { is_active: false } },
+                    )
+                  }
+                  throw error
+                } finally {
+                  await guard.release()
                 }
-                throw error
               } finally {
-                await guard.release()
+                await patientLifecycleLease?.release()
               }
             } else if (user.user_type === UserType.ADMIN) {
               const adminProfile = await AdminProfile.findById(user.profile_id).select('admin_role').lean()

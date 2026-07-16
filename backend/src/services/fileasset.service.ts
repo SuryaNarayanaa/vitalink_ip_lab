@@ -7,11 +7,17 @@ import {
   type FileAssetDocument,
 } from '@alias/models/fileasset.model'
 import { ApiError } from '@alias/utils'
-import { deleteFile, getDownloadUrl, type UploadedFileMetadata } from '@alias/utils/fileUpload'
+import {
+  getDownloadUrl,
+  prepareFileUpload,
+  purgeFilePermanently,
+  putPreparedFile,
+  type UploadedFileMetadata,
+} from '@alias/utils/fileUpload'
 import logger from '@alias/utils/logger'
 import type { Types } from 'mongoose'
 
-type AssetOwnership = {
+export type AssetOwnership = {
   hospitalId: Types.ObjectId | string
   ownerUserId: Types.ObjectId | string
   patientProfileId?: Types.ObjectId | string
@@ -19,7 +25,11 @@ type AssetOwnership = {
   createdBy: Types.ObjectId | string
 }
 
-export async function createFileAsset(metadata: UploadedFileMetadata, ownership: AssetOwnership): Promise<FileAssetDocument> {
+export async function createFileAsset(
+  metadata: UploadedFileMetadata,
+  ownership: AssetOwnership,
+  status = FileAssetStatus.ACTIVE,
+): Promise<FileAssetDocument> {
   return FileAsset.create({
     hospital_id: ownership.hospitalId,
     owner_user_id: ownership.ownerUserId,
@@ -32,9 +42,44 @@ export async function createFileAsset(metadata: UploadedFileMetadata, ownership:
     detected_mime: metadata.detectedMime,
     byte_size: metadata.byteSize,
     sha256_checksum: metadata.sha256Checksum,
-    status: FileAssetStatus.ACTIVE,
+    status,
     created_by: ownership.createdBy,
   } as any) as unknown as FileAssetDocument
+}
+
+/**
+ * Persists a PENDING intent before the PUT so timeouts, connection resets, and
+ * process crashes always leave enough ownership metadata for purge/recovery.
+ */
+export async function uploadTrackedFile(
+  folder: string,
+  file: Express.Multer.File,
+  ownership: AssetOwnership,
+  lifecycleGuard?: { assertOwned: () => Promise<void> },
+) {
+  const prepared = await prepareFileUpload(folder, file, lifecycleGuard)
+  const { uploadUrl: _uploadUrl, ...metadata } = prepared
+  const asset = await createFileAsset(metadata, ownership, FileAssetStatus.PENDING)
+  try {
+    await putPreparedFile(prepared, file, lifecycleGuard)
+    asset.status = FileAssetStatus.ACTIVE
+    await asset.save()
+    return { metadata, asset }
+  } catch (uploadError) {
+    try {
+      await purgeFilePermanently(metadata.key, metadata.bucket)
+      asset.status = FileAssetStatus.DELETED
+      asset.deleted_at = new Date()
+      asset.failure_reason = uploadError instanceof Error ? uploadError.message.slice(0, 500) : 'Upload failed'
+    } catch (cleanupError) {
+      asset.status = FileAssetStatus.FAILED
+      asset.failure_reason = cleanupError instanceof Error ? cleanupError.message.slice(0, 500) : 'Upload cleanup failed'
+    }
+    await asset.save().catch(trackingError => {
+      logger.error('Unable to persist failed tracked upload state', { trackingError, fileAssetId: asset._id })
+    })
+    throw uploadError
+  }
 }
 
 export async function createTrackedFileAsset(metadata: UploadedFileMetadata, ownership: AssetOwnership): Promise<FileAssetDocument> {
@@ -42,7 +87,7 @@ export async function createTrackedFileAsset(metadata: UploadedFileMetadata, own
     return await createFileAsset(metadata, ownership)
   } catch (error) {
     try {
-      await deleteFile(metadata.key, metadata.bucket)
+      await purgeFilePermanently(metadata.key, metadata.bucket)
     } catch (cleanupError) {
       logger.error('Object cleanup failed after FileAsset creation failure', { error, cleanupError, key: metadata.key })
       try {
@@ -72,7 +117,7 @@ export async function createTrackedFileAsset(metadata: UploadedFileMetadata, own
 
 export async function compensateFileAsset(asset: FileAssetDocument, reason: unknown) {
   try {
-    await deleteFile(asset.object_key, asset.bucket)
+    await purgeFilePermanently(asset.object_key, asset.bucket)
     asset.status = FileAssetStatus.DELETED
     asset.deleted_at = new Date()
     asset.failure_reason = reason instanceof Error ? reason.message : String(reason)

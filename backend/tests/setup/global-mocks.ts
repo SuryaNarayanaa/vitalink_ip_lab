@@ -96,7 +96,21 @@ jest.mock('@alias/utils/fileUpload', () => {
             ...metadata,
         };
     });
+    const prepareFileUpload = jest.fn(async (folder: string, file: Express.Multer.File) => {
+        const originalFilename = file?.originalname || 'upload.bin';
+        const metadata = describe(file);
+        const key = buildKey(folder, originalFilename);
+        return {
+            bucket: TEST_BUCKET,
+            key,
+            uploadUrl: buildPresignedUrl(key, 'PutObject'),
+            originalFilename,
+            ...metadata,
+        };
+    });
+    const putPreparedFile = jest.fn(async () => undefined);
     const deleteFile = jest.fn(async () => undefined);
+    const purgeFilePermanently = jest.fn(async () => undefined);
     const readStoredFileMetadata = jest.fn(async (key: string) => ({
         bucket: TEST_BUCKET,
         key,
@@ -115,7 +129,10 @@ jest.mock('@alias/utils/fileUpload', () => {
         getUploadUrl,
         getDownloadUrl,
         uploadFile,
+        prepareFileUpload,
+        putPreparedFile,
         deleteFile,
+        purgeFilePermanently,
         readStoredFileMetadata,
         isLegacyFileReferenceEligible,
     };

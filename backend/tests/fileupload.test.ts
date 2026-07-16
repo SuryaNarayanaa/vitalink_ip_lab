@@ -31,6 +31,29 @@ describe('hardened file upload utility', () => {
             .toThrow('does not match declared MIME type');
     });
 
+    test('does not create or upload an object when the malware gate rejects the bytes', async () => {
+        const malware = require('@alias/services/malware-scan.service');
+        const scanSpy = jest.spyOn(malware, 'scanUploadForMalware').mockRejectedValueOnce(
+            new malware.MalwareScanError('Upload rejected by malware scanner', 'INFECTED'),
+        );
+        const storageFetch = jest.spyOn(global, 'fetch');
+        try {
+            await expect(actual.uploadFile(
+                'hospitals/tenant/reports',
+                file(Buffer.from('%PDF-1.7 infected test'), 'report.pdf', 'application/pdf'),
+            )).rejects.toMatchObject({ code: 'INFECTED' });
+            expect(scanSpy).toHaveBeenCalledWith(expect.objectContaining({
+                buffer: Buffer.from('%PDF-1.7 infected test'),
+                detectedMime: 'application/pdf',
+                sha256Checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+            }));
+            expect(storageFetch).not.toHaveBeenCalled();
+        } finally {
+            scanSpy.mockRestore();
+            storageFetch.mockRestore();
+        }
+    });
+
     test('uses the immutable deployment cutoff for legacy eligibility', () => {
         const { config } = require('@alias/config');
         const previousCutoff = config.fileAssetLegacyCutoffAt;
@@ -43,13 +66,72 @@ describe('hardened file upload utility', () => {
             config.fileAssetLegacyCutoffAt = previousCutoff;
         }
     });
+
+    test('permanently deletes every object version and delete marker', async () => {
+        const storageClient = require('@alias/config/s3-client').default;
+        const send = storageClient.send as jest.Mock;
+        send
+            .mockResolvedValueOnce({
+                Versions: [{ Key: 'patient/report.pdf', VersionId: 'v2' }],
+                DeleteMarkers: [{ Key: 'patient/report.pdf', VersionId: 'marker' }],
+                IsTruncated: true,
+                NextKeyMarker: 'patient/report.pdf',
+                NextVersionIdMarker: 'v2',
+            })
+            .mockResolvedValueOnce({
+                Versions: [{ Key: 'patient/report.pdf', VersionId: 'v1' }],
+                IsTruncated: false,
+            })
+            .mockResolvedValueOnce({ Errors: [] });
+
+        await actual.purgeFilePermanently('patient/report.pdf', 'patient-bucket');
+        expect(send.mock.calls.map(call => call[0].constructor.name)).toEqual([
+            'ListObjectVersionsCommand',
+            'ListObjectVersionsCommand',
+            'DeleteObjectsCommand',
+        ]);
+    });
+
+    test('rechecks the lifecycle fence after scanning and PUT and cleans an object if ownership is lost', async () => {
+        const presigner = require('@aws-sdk/s3-request-presigner');
+        const presignSpy = jest.spyOn(presigner, 'getSignedUrl').mockResolvedValue('https://storage.example/upload');
+        const storageClient = require('@alias/config/s3-client').default;
+        const send = storageClient.send as jest.Mock;
+        const { config } = require('@alias/config');
+        const previousBucket = config.bucketName;
+        const previousScanning = config.malwareScanEnabled;
+        config.bucketName = 'patient-bucket';
+        config.malwareScanEnabled = false;
+        const storageFetch = jest.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+        const guard = {
+            assertOwned: jest.fn()
+                .mockResolvedValueOnce(undefined)
+                .mockResolvedValueOnce(undefined)
+                .mockRejectedValueOnce(new Error('lease superseded')),
+        };
+        try {
+            await expect(actual.uploadFile(
+                'hospitals/tenant/reports',
+                file(Buffer.from('%PDF-1.7 guarded test'), 'report.pdf', 'application/pdf'),
+                guard,
+            )).rejects.toThrow('lease superseded');
+            expect(guard.assertOwned).toHaveBeenCalledTimes(3);
+            expect(storageFetch).toHaveBeenCalledTimes(1);
+            expect(send.mock.calls.some(call => call[0].constructor.name === 'DeleteObjectCommand')).toBe(true);
+        } finally {
+            config.bucketName = previousBucket;
+            config.malwareScanEnabled = previousScanning;
+            presignSpy.mockRestore();
+            storageFetch.mockRestore();
+        }
+    });
 });
 
 describe('FileAsset lifecycle and resolution', () => {
     const { FileAsset } = require('@alias/models');
     const { FileAssetPurpose, FileAssetStatus } = require('@alias/models/fileasset.model');
-    const { compensateFileAsset, resolveAssetDownloadUrl } = require('@alias/services/fileasset.service');
-    const { deleteFile, getDownloadUrl } = require('@alias/utils/fileUpload');
+    const { compensateFileAsset, resolveAssetDownloadUrl, uploadTrackedFile } = require('@alias/services/fileasset.service');
+    const { getDownloadUrl, prepareFileUpload, purgeFilePermanently, putPreparedFile } = require('@alias/utils/fileUpload');
 
     test('marks an asset deleted after successful compensation cleanup', async () => {
         const asset: any = {
@@ -57,14 +139,14 @@ describe('FileAsset lifecycle and resolution', () => {
             save: jest.fn(async () => undefined),
         };
         await compensateFileAsset(asset, new Error('owning write failed'));
-        expect(deleteFile).toHaveBeenCalledWith('object.pdf', 'bucket');
+        expect(purgeFilePermanently).toHaveBeenCalledWith('object.pdf', 'bucket');
         expect(asset.status).toBe(FileAssetStatus.DELETED);
         expect(asset.deleted_at).toBeInstanceOf(Date);
         expect(asset.save).toHaveBeenCalled();
     });
 
     test('marks an asset failed when compensation cleanup fails', async () => {
-        (deleteFile as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));
+        (purgeFilePermanently as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));
         const asset: any = {
             _id: 'asset-id', object_key: 'object.pdf', bucket: 'bucket', status: FileAssetStatus.ACTIVE,
             save: jest.fn(async () => undefined),
@@ -72,6 +154,35 @@ describe('FileAsset lifecycle and resolution', () => {
         await compensateFileAsset(asset, new Error('owning write failed'));
         expect(asset.status).toBe(FileAssetStatus.FAILED);
         expect(asset.failure_reason).toContain('storage unavailable');
+    });
+
+    test('persists a pending intent before PUT and retains failed metadata when an ambiguous upload cannot be cleaned', async () => {
+        const metadata = {
+            bucket: 'patient-bucket', key: 'patient/ambiguous.pdf', originalFilename: 'ambiguous.pdf',
+            detectedMime: 'application/pdf', byteSize: 20, sha256Checksum: 'a'.repeat(64),
+        };
+        (prepareFileUpload as jest.Mock).mockResolvedValueOnce({ ...metadata, uploadUrl: 'https://storage/upload' });
+        (putPreparedFile as jest.Mock).mockRejectedValueOnce(new Error('connection reset after commit'));
+        (purgeFilePermanently as jest.Mock).mockRejectedValueOnce(new Error('cleanup unavailable'));
+        const asset: any = {
+            _id: 'pending-asset', status: FileAssetStatus.PENDING, save: jest.fn(async () => undefined),
+        };
+        const createSpy = jest.spyOn(FileAsset, 'create').mockResolvedValueOnce(asset);
+
+        await expect(uploadTrackedFile('patient', { buffer: Buffer.from('%PDF-1.7') } as any, {
+            hospitalId: '507f1f77bcf86cd799439011',
+            ownerUserId: '507f1f77bcf86cd799439012',
+            patientProfileId: '507f1f77bcf86cd799439013',
+            purpose: FileAssetPurpose.INR_REPORT,
+            createdBy: '507f1f77bcf86cd799439012',
+        })).rejects.toThrow('connection reset after commit');
+
+        expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ status: FileAssetStatus.PENDING }));
+        expect(createSpy.mock.invocationCallOrder[0]).toBeLessThan((putPreparedFile as jest.Mock).mock.invocationCallOrder[0]);
+        expect(asset.status).toBe(FileAssetStatus.FAILED);
+        expect(asset.failure_reason).toContain('cleanup unavailable');
+        expect(asset.save).toHaveBeenCalled();
+        createSpy.mockRestore();
     });
 
     test('denies a scoped asset mismatch without signing an object key', async () => {
