@@ -211,14 +211,12 @@ class SystemHealthModel {
   final String status;
   final double uptime;
   final DatabaseHealth database;
-  final MemoryUsage memory;
   final String timestamp;
 
   SystemHealthModel({
     required this.status,
     required this.uptime,
     required this.database,
-    required this.memory,
     required this.timestamp,
   });
 
@@ -229,9 +227,6 @@ class SystemHealthModel {
       database: DatabaseHealth.fromJson(
         json['database'] as Map<String, dynamic>? ?? {},
       ),
-      memory: MemoryUsage.fromJson(
-        json['memory'] as Map<String, dynamic>? ?? {},
-      ),
       timestamp: json['timestamp'] as String? ?? '',
     );
   }
@@ -239,10 +234,8 @@ class SystemHealthModel {
 
 class DatabaseHealth {
   final String state;
-  final String? host;
-  final String? name;
 
-  DatabaseHealth({required this.state, this.host, this.name});
+  DatabaseHealth({required this.state});
 
   /// Alias used by system_config_page.
   String get status => state;
@@ -250,28 +243,6 @@ class DatabaseHealth {
   factory DatabaseHealth.fromJson(Map<String, dynamic> json) {
     return DatabaseHealth(
       state: json['state'] as String? ?? 'unknown',
-      host: json['host'] as String?,
-      name: json['name'] as String?,
-    );
-  }
-}
-
-class MemoryUsage {
-  final String rss;
-  final String heapTotal;
-  final String heapUsed;
-
-  MemoryUsage({
-    required this.rss,
-    required this.heapTotal,
-    required this.heapUsed,
-  });
-
-  factory MemoryUsage.fromJson(Map<String, dynamic> json) {
-    return MemoryUsage(
-      rss: json['rss'] as String? ?? '0 MB',
-      heapTotal: json['heapTotal'] as String? ?? '0 MB',
-      heapUsed: json['heapUsed'] as String? ?? '0 MB',
     );
   }
 }

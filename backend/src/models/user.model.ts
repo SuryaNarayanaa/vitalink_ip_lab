@@ -2,6 +2,21 @@ import { generateSalt, hashPassword } from "@alias/utils";
 import { UserType } from "@alias/validators";
 import mongoose from "mongoose";
 
+const PasswordHistoryEntrySchema = new mongoose.Schema({
+  password: {
+    type: String,
+    required: true,
+  },
+  salt: {
+    type: String,
+    required: true,
+  },
+  changed_at: {
+    type: Date,
+    required: true,
+  },
+}, { _id: false })
+
 const UserSchema = new mongoose.Schema({
   login_id: {
     type: String,
@@ -33,8 +48,54 @@ const UserSchema = new mongoose.Schema({
     required: [true, "user_type_model is required"],
   },
   is_active: { type: Boolean, default: true },
+  /** Invalidates every pre-existing authentication session at a security boundary. */
+  security_version: { type: Number, default: 0, min: 0 },
+  /**
+   * Short-lived distributed lease serializing doctor assignment, tenant moves,
+   * and deactivation. Expiry allows another instance to recover abandoned work.
+   */
+  doctor_operation_lock: {
+    lease_id: { type: String },
+    mode: { type: String, enum: ['ASSIGNING', 'MOVING', 'DEACTIVATING'] },
+    expires_at: { type: Date },
+  },
+  /** Monotonic token preventing an expired doctor-operation owner from resuming. */
+  doctor_operation_fence: { type: Number, default: 0, min: 0 },
   must_change_password: { type: Boolean, default: false },
+  password_changed_at: { type: Date, default: Date.now },
+  password_history: {
+    type: [PasswordHistoryEntrySchema],
+    default: [],
+    select: false,
+  },
+  failed_login_attempts: { type: Number, default: 0, min: 0 },
+  locked_until: { type: Date },
+  last_login_at: { type: Date },
+  last_failed_login_at: { type: Date },
+  admin_mfa: {
+    totp: {
+      status: {
+        type: String,
+        enum: ['DISABLED', 'PENDING', 'ENABLED'],
+        default: 'DISABLED',
+      },
+      secret_ciphertext: { type: String },
+      secret_iv: { type: String },
+      secret_auth_tag: { type: String },
+      pending_secret_ciphertext: { type: String },
+      pending_secret_iv: { type: String },
+      pending_secret_auth_tag: { type: String },
+      enrolled_at: { type: Date },
+      activated_at: { type: Date },
+      last_verified_at: { type: Date },
+      last_verified_time_step: { type: Number },
+      last_verified_challenge_id: { type: mongoose.Schema.Types.ObjectId, ref: 'AdminMfaChallenge' },
+      factor_generation: { type: Number, default: 0, min: 0 },
+    },
+  },
 }, { timestamps: true });
+
+UserSchema.index({ locked_until: 1 });
 
 UserSchema.pre('validate', async function () {
   const map: Record<string, string> = {
@@ -52,6 +113,7 @@ UserSchema.pre('validate', async function () {
   if (this.isModified('password')) {
     this.salt = generateSalt()
     this.password = await hashPassword(this.password, this.salt)
+    this.password_changed_at = new Date()
   }
 })
 
@@ -59,6 +121,7 @@ UserSchema.methods.toJSON = function () {
   var object = this.toObject();
   delete object.password;
   delete object.salt;
+  delete object.password_history;
   return object;
 }
 

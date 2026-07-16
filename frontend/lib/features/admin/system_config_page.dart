@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
+import 'package:frontend/features/admin/models/admin_mfa_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
 class SystemConfigPage extends StatefulWidget {
@@ -25,19 +28,27 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   final _sessionTimeoutCtrl = TextEditingController();
   final _maxRequestsCtrl = TextEditingController();
   final _windowDurationCtrl = TextEditingController();
+  final _totpCodeCtrl = TextEditingController();
+  final _mfaFormKey = GlobalKey<FormState>();
+  AdminTotpEnrollment? _totpEnrollment;
+  AdminTotpStatus? _totpStatus;
+  bool _isStartingTotp = false;
+  bool _isActivatingTotp = false;
 
   Map<String, bool> _featureFlags = {
-    'enable_notifications': true,
-    'enable_pdf_export': true,
-    'enable_patient_self_registration': false,
+    'maintenance_mode': false,
+    'patient_registration_enabled': true,
+    'notifications_enabled': true,
   };
 
   SystemHealthModel? _health;
+  bool _healthUnavailable = false;
 
   @override
   void initState() {
     super.initState();
     _loadConfig();
+    _loadTotpStatus();
     _loadHealth();
     _healthTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -53,6 +64,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     _sessionTimeoutCtrl.dispose();
     _maxRequestsCtrl.dispose();
     _windowDurationCtrl.dispose();
+    _totpCodeCtrl.dispose();
     super.dispose();
   }
 
@@ -70,19 +82,23 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
               4.5)
           .toString();
 
-      final session = config['session_settings'] ?? {};
-      _sessionTimeoutCtrl.text = (session['timeout_minutes'] ?? 30).toString();
+      _sessionTimeoutCtrl.text =
+          (config['session_timeout_minutes'] ?? 30).toString();
 
       final rateLimit = config['rate_limiting'] ?? config['rate_limit'] ?? {};
       _maxRequestsCtrl.text = (rateLimit['max_requests'] ?? 100).toString();
       _windowDurationCtrl.text =
-          (rateLimit['window_seconds'] ?? rateLimit['window_ms'] != null
-                  ? ((rateLimit['window_ms'] as int) / 1000).round()
-                  : 60)
-              .toString();
+          (rateLimit['window_minutes'] ?? 15).toString();
 
       if (config['feature_flags'] != null) {
-        _featureFlags = Map<String, bool>.from(config['feature_flags']);
+        final savedFlags = Map<String, dynamic>.from(config['feature_flags']);
+        _featureFlags = {
+          'maintenance_mode': savedFlags['maintenance_mode'] as bool? ?? false,
+          'patient_registration_enabled':
+              savedFlags['patient_registration_enabled'] as bool? ?? true,
+          'notifications_enabled':
+              savedFlags['notifications_enabled'] as bool? ?? true,
+        };
       }
       setState(() => _hasUnsavedChanges = false);
     } catch (e) {
@@ -102,8 +118,15 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
   Future<void> _loadHealth() async {
     try {
       final health = await _repo.getSystemHealth();
-      if (mounted) setState(() => _health = health);
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _health = health;
+          _healthUnavailable = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _healthUnavailable = true);
+    }
   }
 
   Future<void> _saveConfig() async {
@@ -137,12 +160,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
           'critical_low': double.parse(_inrLowCtrl.text),
           'critical_high': double.parse(_inrHighCtrl.text),
         },
-        'session_settings': {
-          'timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
-        },
+        'session_timeout_minutes': int.parse(_sessionTimeoutCtrl.text),
         'rate_limit': {
           'max_requests': int.parse(_maxRequestsCtrl.text),
-          'window_ms': int.parse(_windowDurationCtrl.text) * 1000,
+          'window_minutes': int.parse(_windowDurationCtrl.text),
         },
         'feature_flags': _featureFlags,
       });
@@ -167,6 +188,90 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _startTotpSetup() async {
+    setState(() => _isStartingTotp = true);
+    try {
+      final enrollment = await _repo.setupAdminTotp();
+      if (!mounted) return;
+      setState(() {
+        _totpEnrollment = enrollment;
+        _totpCodeCtrl.clear();
+        _totpStatus = AdminTotpStatus(
+          factorType: enrollment.factorType,
+          status: 'PENDING',
+          enabled: false,
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Authenticator setup started')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start authenticator setup: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isStartingTotp = false);
+    }
+  }
+
+  Future<void> _activateTotp() async {
+    if (!_mfaFormKey.currentState!.validate()) return;
+
+    setState(() => _isActivatingTotp = true);
+    try {
+      final activation = await _repo.activateAdminTotp(
+        _totpCodeCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _totpEnrollment = null;
+        _totpCodeCtrl.clear();
+        _totpStatus = AdminTotpStatus(
+          factorType: activation.factorType,
+          status: activation.status,
+          enabled: activation.isEnabled,
+          activatedAt: DateTime.now(),
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Authenticator MFA enabled')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to activate authenticator MFA: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isActivatingTotp = false);
+    }
+  }
+
+  Future<void> _copySetupValue(String label, String value) async {
+    if (value.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label copied')));
+  }
+
+  Future<void> _loadTotpStatus() async {
+    try {
+      final status = await _repo.getAdminTotpStatus();
+      if (!mounted) return;
+      setState(() {
+        _totpStatus = status;
+        if (status.isEnabled) {
+          _totpEnrollment = null;
+          _totpCodeCtrl.clear();
+        }
+      });
+    } catch (_) {}
   }
 
   void _onFieldChanged(String _) {
@@ -244,6 +349,9 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                 _buildHealthSection(theme),
                 const SizedBox(height: 16),
 
+                _buildAdminMfaSection(theme),
+                const SizedBox(height: 16),
+
                 // INR Thresholds
                 _buildCard(
                   theme,
@@ -268,6 +376,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
                             }
+                            final high = double.tryParse(_inrHighCtrl.text);
+                            if (high != null && n >= high) {
+                              return 'Must be below critical high';
+                            }
                             return null;
                           },
                         ),
@@ -289,6 +401,10 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                             final n = double.tryParse(v);
                             if (n == null || n < 0.5 || n > 10) {
                               return '0.5-10.0';
+                            }
+                            final low = double.tryParse(_inrLowCtrl.text);
+                            if (low != null && n <= low) {
+                              return 'Must be above critical low';
                             }
                             return null;
                           },
@@ -351,7 +467,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                           controller: _windowDurationCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Window Duration',
-                            suffixText: 'sec',
+                            suffixText: 'min',
                           ),
                           keyboardType: TextInputType.number,
                           onChanged: _onFieldChanged,
@@ -457,6 +573,190 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     );
   }
 
+  Widget _buildAdminMfaSection(ThemeData theme) {
+    final enrollment = _totpEnrollment;
+    final hasPendingSetup = enrollment != null;
+    final isEnabled = _totpStatus?.isEnabled ?? false;
+    final statusLabel = isEnabled
+        ? 'Enabled'
+        : hasPendingSetup || (_totpStatus?.isPending ?? false)
+            ? 'Setup pending'
+            : 'Not set up';
+    final statusColor = isEnabled
+        ? Colors.green
+        : hasPendingSetup || (_totpStatus?.isPending ?? false)
+            ? Colors.orange
+            : theme.colorScheme.outline;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _mfaFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.admin_panel_settings,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Admin Authenticator MFA',
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  Chip(
+                    label: Text(statusLabel),
+                    backgroundColor: statusColor.withValues(alpha: 0.1),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Use an authenticator app for admin login challenges.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (isEnabled)
+                OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.verified_user_rounded),
+                  label: const Text('Authenticator MFA is enabled'),
+                )
+              else if (!hasPendingSetup)
+                FilledButton.icon(
+                  onPressed: _isStartingTotp ? null : _startTotpSetup,
+                  icon: _isStartingTotp
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.qr_code_2_rounded),
+                  label: const Text('Start authenticator setup'),
+                ),
+              if (hasPendingSetup) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Scan this QR code with your authenticator app.',
+                  style: theme.textTheme.titleSmall,
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: QrImageView(
+                      data: enrollment.otpauthUrl,
+                      version: QrVersions.auto,
+                      size: 208,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.square,
+                        color: Colors.black,
+                      ),
+                      dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: Colors.black,
+                      ),
+                      semanticsLabel: 'Authenticator app setup QR code',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'If your app cannot scan a code, use the setup key below instead.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SetupValueTile(
+                  label: 'Setup key',
+                  value: enrollment.secret,
+                  onCopy: () => _copySetupValue('Setup key', enrollment.secret),
+                ),
+                const SizedBox(height: 10),
+                _SetupValueTile(
+                  label: 'otpauth URL',
+                  value: enrollment.otpauthUrl,
+                  onCopy: () =>
+                      _copySetupValue('otpauth URL', enrollment.otpauthUrl),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _totpCodeCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Authenticator code',
+                    prefixIcon: Icon(Icons.pin_outlined),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  validator: (value) {
+                    final code = value?.trim() ?? '';
+                    if (code.isEmpty) return 'Code is required';
+                    if (code.length != 6) return 'Enter 6 digits';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _isActivatingTotp ? null : _activateTotp,
+                        icon: _isActivatingTotp
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.verified_user_rounded),
+                        label: const Text('Activate'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isActivatingTotp
+                            ? null
+                            : () => setState(() {
+                                  _totpEnrollment = null;
+                                  _totpCodeCtrl.clear();
+                                }),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Cancel'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String _formatUptime(double seconds) {
     final hours = (seconds / 3600).floor();
     final minutes = ((seconds % 3600) / 60).floor();
@@ -491,7 +791,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                   label: Text(
                     h != null
                         ? (isHealthy ? 'Healthy' : 'Issues')
-                        : 'Loading...',
+                        : (_healthUnavailable ? 'Unavailable' : 'Loading...'),
                   ),
                   backgroundColor: h == null
                       ? Colors.grey.withValues(alpha: 0.1)
@@ -519,16 +819,70 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                     Icons.access_time,
                     Colors.blue,
                   ),
-                  _HealthMetric(
-                    'Memory',
-                    h.memory.heapUsed,
-                    Icons.memory,
-                    Colors.orange,
-                  ),
                 ],
+              )
+            else if (_healthUnavailable)
+              const Text(
+                'System health is unavailable or restricted for this account.',
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SetupValueTile extends StatelessWidget {
+  const _SetupValueTile({
+    required this.label,
+    required this.value,
+    required this.onCopy,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  value,
+                  maxLines: 2,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onCopy,
+            icon: const Icon(Icons.copy_rounded),
+            tooltip: 'Copy',
+          ),
+        ],
       ),
     );
   }

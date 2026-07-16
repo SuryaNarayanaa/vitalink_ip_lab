@@ -1,4 +1,4 @@
-# VitaLink EC2 Manual Deployment Guide
+i# VitaLink EC2 Manual Deployment Guide
 
 When CI/CD is not working, follow these steps to manually deploy and manage the service on EC2.
 
@@ -109,6 +109,9 @@ docker exec vitalink-blue node build/src/scripts/createAdminUser.js
 
 # Run migrations
 docker exec vitalink-blue node build/src/scripts/migrateAssignedDoctorIds.js
+docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js --dry-run
+# After reviewing the summary, apply the hospital IDs:
+docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js --execute
 docker exec vitalink-blue node build/src/scripts/migrateInrCriticalFlags.js
 ```
 

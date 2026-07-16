@@ -1,20 +1,26 @@
 import { z } from 'zod'
 import { HealthLog } from '.'
+import { optionalPrimaryPhoneNumberSchema } from './phone.validator'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 
 const ddmmyyyy = z.string('Date should be a string')
     .regex(/^\d{2}-\d{2}-\d{4}$/, 'Date must be in DD-MM-YYYY format')
-    .transform((val) => {
-        const [day, month, year] = val.split('-').map(Number)
-        return new Date(year, month - 1, day)
+    .transform((val, ctx) => {
+        const date = parseStrictDateOnly(val)
+        if (!date) {
+            ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date' })
+            return z.NEVER
+        }
+        return date
     })
 
-const parseableDateString = z.string('Date should be a string')
-    .refine((val) => !Number.isNaN(Date.parse(val)), 'Date must be a valid date string')
-    .transform((val) => new Date(val))
+const isoDateTime = z.string('Date should be a string')
+    .datetime({ offset: true, message: 'Date must be a valid ISO-8601 timestamp' })
+    .transform((value) => new Date(value))
 
 export const reportSchema = z.object({
     body: z.object({
-        inr_value: z.string('INR value should be a string').nonempty("Inr Value Should not be empty"),
+        inr_value: z.string().regex(/^\d+(?:\.\d+)?$/, 'INR value must be a positive decimal').transform(Number).refine(value => Number.isFinite(value) && value > 0 && value <= 20, 'INR value must be between 0 and 20'),
         test_date: ddmmyyyy,
     })
 })
@@ -27,12 +33,19 @@ export const takeDosageSchema = z.object({
 })
 export type TakeDosageInput = z.infer<typeof takeDosageSchema>
 
+export const dosageCalendarQuerySchema = z.object({
+    query: z.object({
+        months: z.string().regex(/^[1-9]\d{0,2}$/, 'months must be a positive integer').optional(),
+        start_date: z.string().refine(value => Boolean(parseStrictDateOnly(value)), 'start_date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format').optional(),
+    }).strict()
+})
+
 
 export const updateHealthLogSchema = z.object({
     body: z.object({
         type: z.enum(HealthLog, "The Health Log Type should be a valid One"),
-        description: z.string("Description Should be a string")
-    })
+        description: z.string("Description Should be a string").trim().min(1, 'Description must not be empty').max(2000, 'Description is too long')
+    }).strict()
 })
 
 export type UpdateHealthLog = z.infer<typeof updateHealthLogSchema>
@@ -44,7 +57,7 @@ export const updateProfileSchema = z.object({
             name: z.string().min(1, "Name is required").optional(),
             age: z.number().int().positive().optional(),
             gender: z.enum(["Male", "Female", "Other"]).optional(),
-            phone: z.string().optional(),
+            phone: optionalPrimaryPhoneNumberSchema,
             next_of_kin: z.object({
                 name: z.string().optional(),
                 relation: z.string().optional(),
@@ -52,20 +65,10 @@ export const updateProfileSchema = z.object({
             }).optional()
         }).optional(),
         medical_history: z.array(z.object({
-            diagnosis: z.string().optional(),
-            duration_value: z.number().positive().optional(),
+            diagnosis: z.string().trim().max(500).optional(),
+            duration_value: z.number().finite().positive().optional(),
             duration_unit: z.enum(['Days', 'Weeks', 'Months', 'Years']).optional()
-        })).optional(),
-        medical_config: z.object({
-            therapy_start_date: z.union([
-                z.date(),
-                ddmmyyyy,
-                parseableDateString
-            ]).refine(
-                (date) => date <= new Date(),
-                { message: "Therapy start date cannot be in the future" }
-            ).optional()
-        }).strict().optional()
+        }).strict()).max(50).optional(),
     }).strict()
 })
 

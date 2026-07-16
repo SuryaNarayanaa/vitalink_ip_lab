@@ -90,6 +90,8 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
+
     return UseMutation<void, Map<String, dynamic>>(
       options: MutationOptions<void, Map<String, dynamic>>(
         mutationFn: (variables) =>
@@ -121,7 +123,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
         onError: (error, variables) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('Error: ${error.toString()}'),
+                content: Text(error.toString()),
                 backgroundColor: Colors.red),
           );
         },
@@ -136,7 +138,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
             ),
           ),
           body: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: EdgeInsets.fromLTRB(24, 32, 24, bottomPadding),
             child: Column(
               children: [
                 Form(
@@ -347,10 +349,11 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
             ),
-            child: const Text(
-              'Error loading reports',
-              style: TextStyle(color: Colors.red),
-              textAlign: TextAlign.center,
+            child: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
+              compact: true,
+              title: 'Could not load reports',
             ),
           );
         }

@@ -2,7 +2,8 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminProfile, AuditLog, DoctorProfile, PatientProfile, User } from '@alias/models';
+import { AdminProfile, AuditLog, DoctorProfile, PatientProfile, User, Hospital } from '@alias/models';
+import { AdminRole } from '@alias/models/adminprofile.model';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
 
@@ -11,10 +12,13 @@ describe('Statistics Routes', () => {
     let server: Server;
     let api: AxiosInstance;
     let adminToken: string;
+    let hospitalAdminToken: string;
     let doctorToken: string;
 
     let doctorOneUser: any;
     let doctorTwoUser: any;
+    let primaryHospital: any;
+    let secondaryHospital: any;
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
@@ -32,6 +36,19 @@ describe('Statistics Routes', () => {
             validateStatus: () => true
         });
 
+        primaryHospital = await Hospital.create({
+            code: 'STATS_A',
+            name: 'Stats Tenant A',
+            location: 'Coimbatore',
+            admin_email: 'stats-a@example.com'
+        });
+        secondaryHospital = await Hospital.create({
+            code: 'STATS_B',
+            name: 'Stats Tenant B',
+            location: 'Chennai',
+            admin_email: 'stats-b@example.com'
+        });
+
         const adminProfile = await AdminProfile.create({});
         const adminUser = await User.create({
             login_id: 'stats_admin',
@@ -41,10 +58,25 @@ describe('Statistics Routes', () => {
             is_active: true
         });
 
+        const hospitalAdminProfile = await AdminProfile.create({
+            name: 'Stats Hospital Admin',
+            admin_role: AdminRole.HOSPITAL_ADMIN,
+            hospital_id: primaryHospital._id
+        });
+        await User.create({
+            login_id: 'stats_hospital_admin',
+            password: 'Admin@123',
+            user_type: 'ADMIN',
+            profile_id: hospitalAdminProfile._id,
+            is_active: true
+        });
+
         const doctorOneProfile = await DoctorProfile.create({
             name: 'Dr. Workload One',
             department: 'Cardiology',
-            contact_number: '9555555551'
+            contact_number: '9555555551',
+            hospital_id: primaryHospital._id,
+            phone_verification: { status: 'VERIFIED', verified_at: new Date() },
         });
 
         doctorOneUser = await User.create({
@@ -59,7 +91,9 @@ describe('Statistics Routes', () => {
         const doctorTwoProfile = await DoctorProfile.create({
             name: 'Dr. Workload Two',
             department: 'Neurology',
-            contact_number: '9555555552'
+            contact_number: '9555555552',
+            hospital_id: secondaryHospital._id,
+            phone_verification: { status: 'VERIFIED', verified_at: new Date() },
         });
 
         doctorTwoUser = await User.create({
@@ -74,6 +108,7 @@ describe('Statistics Routes', () => {
         const patientProfiles = await PatientProfile.create([
             {
                 assigned_doctor_id: doctorOneUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: { name: 'Compliance InRange', age: 40, gender: 'Male', phone: '9666666601' },
                 medical_config: { target_inr: { min: 2.0, max: 3.0 } },
                 inr_history: [{ test_date: new Date('2026-02-18'), inr_value: 2.5, is_critical: false }],
@@ -81,6 +116,7 @@ describe('Statistics Routes', () => {
             },
             {
                 assigned_doctor_id: doctorOneUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: { name: 'Compliance Below', age: 41, gender: 'Female', phone: '9666666602' },
                 medical_config: { target_inr: { min: 2.0, max: 3.0 } },
                 inr_history: [{ test_date: new Date('2026-02-18'), inr_value: 1.4, is_critical: false }],
@@ -88,6 +124,7 @@ describe('Statistics Routes', () => {
             },
             {
                 assigned_doctor_id: doctorTwoUser._id,
+                hospital_id: secondaryHospital._id,
                 demographics: { name: 'Compliance Above', age: 42, gender: 'Male', phone: '9666666603' },
                 medical_config: { target_inr: { min: 2.0, max: 3.0 } },
                 inr_history: [{ test_date: new Date('2026-02-18'), inr_value: 3.8, is_critical: false }],
@@ -95,12 +132,14 @@ describe('Statistics Routes', () => {
             },
             {
                 assigned_doctor_id: doctorTwoUser._id,
+                hospital_id: secondaryHospital._id,
                 demographics: { name: 'Compliance NoData', age: 43, gender: 'Female', phone: '9666666604' },
                 medical_config: { target_inr: { min: 2.0, max: 3.0 } },
                 account_status: 'Active'
             },
             {
                 assigned_doctor_id: doctorOneUser._id,
+                hospital_id: primaryHospital._id,
                 demographics: { name: 'Discharged Patient', age: 44, gender: 'Male', phone: '9666666605' },
                 medical_config: { target_inr: { min: 2.0, max: 3.0 } },
                 account_status: 'Discharged'
@@ -186,6 +225,12 @@ describe('Statistics Routes', () => {
         });
         adminToken = adminLogin.data.data.token;
 
+        const hospitalAdminLogin = await api.post('/api/auth/login', {
+            login_id: 'stats_hospital_admin',
+            password: 'Admin@123'
+        });
+        hospitalAdminToken = hospitalAdminLogin.data.data.token;
+
         const doctorLogin = await api.post('/api/auth/login', {
             login_id: 'stats_doctor_1',
             password: 'Doctor@123'
@@ -197,7 +242,9 @@ describe('Statistics Routes', () => {
         await mongoose.connection.dropDatabase();
         await mongoose.connection.close();
         await mongoContainer.stop();
-        server.close();
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => error ? reject(error) : resolve());
+        });
     });
 
     describe('Authorization', () => {
@@ -231,6 +278,18 @@ describe('Statistics Routes', () => {
             expect(response.data.data.patients.total).toBe(5);
             expect(response.data.data.patients.active).toBe(4);
             expect(response.data.data.audit_logs).toBeGreaterThanOrEqual(3);
+        });
+
+        test('should scope dashboard counts for hospital admins', async () => {
+            const response = await api.get('/api/statistics/admin', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.doctors.total).toBe(1);
+            expect(response.data.data.patients.total).toBe(3);
+            expect(response.data.data.patients.active).toBe(2);
         });
     });
 
@@ -279,6 +338,19 @@ describe('Statistics Routes', () => {
 
             expect(total).toBe(response.data.data.total_patients);
         });
+
+        test('should scope INR compliance to hospital admin tenant', async () => {
+            const response = await api.get('/api/statistics/compliance', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.total_patients).toBe(3);
+            expect(response.data.data.in_range).toBe(1);
+            expect(response.data.data.below_range).toBe(1);
+            expect(response.data.data.above_range).toBe(0);
+        });
     });
 
     describe('GET /api/statistics/workload', () => {
@@ -297,6 +369,18 @@ describe('Statistics Routes', () => {
 
             expect(byDoctorName.get('Dr. Workload One')).toBe(2);
             expect(byDoctorName.get('Dr. Workload Two')).toBe(2);
+        });
+
+        test('should scope workload statistics to hospital admin tenant', async () => {
+            const response = await api.get('/api/statistics/workload', {
+                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            const doctorNames = response.data.data.map((entry: any) => entry.doctor_name);
+            expect(doctorNames).toContain('Dr. Workload One');
+            expect(doctorNames).not.toContain('Dr. Workload Two');
         });
     });
 

@@ -44,6 +44,18 @@ class AdminQueryKeys {
         refreshKey,
       ];
 
+  static List<Object> hospitals({required int refreshKey}) =>
+      [...all(), 'hospitals', refreshKey];
+
+  static List<Object> users({required int refreshKey}) =>
+      [...all(), 'users', refreshKey];
+
+  static List<Object> roles({required int refreshKey}) =>
+      [...all(), 'roles', refreshKey];
+
+  static List<Object> invoices({required int refreshKey}) =>
+      [...all(), 'invoices', refreshKey];
+
   static List<Object> auditLogs({
     required int page,
     required String actionFilter,

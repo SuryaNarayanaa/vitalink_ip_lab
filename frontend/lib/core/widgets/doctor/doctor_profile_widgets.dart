@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
-import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/doctor_profile_model.dart';
@@ -257,7 +256,9 @@ class DoctorProfileDetails extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           DoctorDetailRow(
-              label: 'Total Patients', value: profile.patientsCount.toString()),
+            label: 'Total Patients',
+            value: profile.patientsCount.toString(),
+          ),
         ],
       ),
     );
@@ -358,25 +359,18 @@ class DoctorActionButtons extends StatelessWidget {
   void _showLogoutConfirmation(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => LogoutDialog(
-        onLogout: () => _performLogout(context),
-      ),
+      builder: (ctx) => LogoutDialog(onLogout: () => _performLogout(context)),
     );
   }
 
   Future<void> _performLogout(BuildContext context) async {
-    final SecureStorage secureStorage = AppDependencies.secureStorage;
-
-    // Clear the stored token and user data
-    await secureStorage.clearAuthData();
+    await AppDependencies.authRepository.logout();
     await QueryCache.instance.clear();
 
-    // Navigate to login page and clear navigation stack
     if (context.mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.login,
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
     }
   }
 }
@@ -410,10 +404,12 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.profile.name);
-    _departmentController =
-        TextEditingController(text: widget.profile.department);
-    _contactController =
-        TextEditingController(text: widget.profile.contactNumber ?? '');
+    _departmentController = TextEditingController(
+      text: widget.profile.department,
+    );
+    _contactController = TextEditingController(
+      text: widget.profile.contactNumber ?? '',
+    );
   }
 
   @override
@@ -562,14 +558,19 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline,
-                            color: Color(0xFFDC2626), size: 20),
+                        const Icon(
+                          Icons.error_outline,
+                          color: Color(0xFFDC2626),
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _error!,
                             style: const TextStyle(
-                                color: Color(0xFFDC2626), fontSize: 13),
+                              color: Color(0xFFDC2626),
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       ],
@@ -606,11 +607,14 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
                   label: 'Contact Number',
                   icon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
+                  helperText: '+91 is added automatically',
                   validator: (value) {
+                    final digits = value?.replaceAll(RegExp(r'\D'), '') ?? '';
                     if (value != null &&
                         value.isNotEmpty &&
-                        value.length != 10) {
-                      return 'Contact number must be 10 digits';
+                        digits.length != 10 &&
+                        !(digits.length == 12 && digits.startsWith('91'))) {
+                      return 'Enter a 10-digit Indian number';
                     }
                     return null;
                   },
@@ -678,22 +682,18 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
     required IconData icon,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    String? helperText,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       validator: validator,
-      style: const TextStyle(
-        fontSize: 15,
-        color: Color(0xFF1F2937),
-      ),
+      style: const TextStyle(fontSize: 15, color: Color(0xFF1F2937)),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(
-          color: Color(0xFF6B7280),
-          fontSize: 14,
-        ),
+        labelStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
         prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 22),
+        helperText: helperText,
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
         border: OutlineInputBorder(
@@ -716,8 +716,10 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
       ),
     );
   }

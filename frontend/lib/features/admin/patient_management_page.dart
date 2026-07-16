@@ -4,6 +4,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 
 class PatientManagementPage extends StatefulWidget {
@@ -173,18 +174,9 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
               child: query.isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : query.isError
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text('Error: ${query.error}'),
-                              const SizedBox(height: 16),
-                              FilledButton(
-                                onPressed: _refresh,
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
+                      ? ApiErrorState(
+                          error: query.error,
+                          onRetry: _refresh,
                         )
                       : patientsList.isEmpty
                           ? const Center(
@@ -392,126 +384,163 @@ class _PatientListTile extends StatelessWidget {
         patient['user_id'] as String? ??
         '';
     final opNum = patient['login_id'] as String? ?? '';
+    final details = [
+      if (age != null) 'Age: $age',
+      if (gender.isNotEmpty) gender,
+    ].join(' | ');
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primaryContainer,
-          child: Text(
-            name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
-          ),
-        ),
-        title: Row(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text(name, style: theme.textTheme.titleMedium),
-            ),
-            if (opNum.isNotEmpty)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'OP #$opNum',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        subtitle: Text(
-          '${age != null ? "Age: $age" : ""}${gender.isNotEmpty ? " | $gender" : ""}',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
-          ),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: isActive
-                    ? theme.colorScheme.primaryContainer
-                    : theme.colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
+            CircleAvatar(
+              backgroundColor: theme.colorScheme.primaryContainer,
               child: Text(
-                isActive ? 'Active' : 'Inactive',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: isActive
-                      ? theme.colorScheme.onPrimaryContainer
-                      : theme.colorScheme.onErrorContainer,
-                ),
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
               ),
             ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded),
-              onSelected: (action) => _handleAction(
-                context,
-                action,
-                id,
-                name,
-                opNum,
-                demographics,
-                isActive,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      PopupMenuButton<String>(
+                        padding: EdgeInsets.zero,
+                        icon: const Icon(Icons.more_vert_rounded),
+                        onSelected: (action) => _handleAction(
+                          context,
+                          action,
+                          id,
+                          name,
+                          opNum,
+                          demographics,
+                          isActive,
+                        ),
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: ListTile(
+                              leading: Icon(Icons.edit_rounded, size: 20),
+                              title: Text('Edit'),
+                              contentPadding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'reassign',
+                            child: ListTile(
+                              leading: Icon(Icons.swap_horiz_rounded, size: 20),
+                              title: Text('Reassign Doctor'),
+                              contentPadding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'password',
+                            child: ListTile(
+                              leading: Icon(Icons.lock_reset_rounded, size: 20),
+                              title: Text('Reset Password'),
+                              contentPadding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'status',
+                            child: ListTile(
+                              leading: Icon(
+                                isActive
+                                    ? Icons.block_rounded
+                                    : Icons.check_circle_outline_rounded,
+                                size: 20,
+                                color: isActive ? Colors.red : Colors.green,
+                              ),
+                              title: Text(
+                                isActive ? 'Deactivate' : 'Activate',
+                                style: TextStyle(
+                                  color: isActive ? Colors.red : Colors.green,
+                                ),
+                              ),
+                              contentPadding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (opNum.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'OP #$opNum',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isActive ? 'Active' : 'Inactive',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: isActive
+                                ? theme.colorScheme.onPrimaryContainer
+                                : theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (details.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      details,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'edit',
-                  child: ListTile(
-                    leading: Icon(Icons.edit_rounded, size: 20),
-                    title: Text('Edit'),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'reassign',
-                  child: ListTile(
-                    leading: Icon(Icons.swap_horiz_rounded, size: 20),
-                    title: Text('Reassign Doctor'),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'password',
-                  child: ListTile(
-                    leading: Icon(Icons.lock_reset_rounded, size: 20),
-                    title: Text('Reset Password'),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'status',
-                  child: ListTile(
-                    leading: Icon(
-                      isActive
-                          ? Icons.block_rounded
-                          : Icons.check_circle_outline_rounded,
-                      size: 20,
-                      color: isActive ? Colors.red : Colors.green,
-                    ),
-                    title: Text(
-                      isActive ? 'Deactivate' : 'Activate',
-                      style: TextStyle(
-                          color: isActive ? Colors.red : Colors.green),
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
             ),
           ],
         ),

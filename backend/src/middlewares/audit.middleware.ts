@@ -8,7 +8,25 @@ import logger from '@alias/utils/logger'
  */
 function sanitizeBody(body: any): any {
   if (!body || typeof body !== 'object') return body
-  const sensitiveFields = new Set(['password', 'new_password', 'current_password', 'token', 'secret'])
+  const sensitiveFields = new Set([
+    'password',
+    'new_password',
+    'current_password',
+    'token',
+    'access_token',
+    'refresh_token',
+    'authorization',
+    'code',
+    'otp',
+    'totp',
+    'secret',
+    'secret_ciphertext',
+    'secret_iv',
+    'secret_auth_tag',
+    'pending_secret_ciphertext',
+    'pending_secret_iv',
+    'pending_secret_auth_tag',
+  ])
 
   if (Array.isArray(body)) {
     return body.map((item) => sanitizeBody(item))
@@ -39,6 +57,13 @@ function inferAction(method: string, path: string): AuditAction | null {
   if (p.includes('/patients') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/patients') && m === 'PUT') return AuditAction.USER_UPDATE
   if (p.includes('/patients') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  if (p.includes('/hospitals') && m === 'POST') return AuditAction.USER_CREATE
+  if (p.includes('/hospitals') && (m === 'PUT' || m === 'PATCH')) return AuditAction.USER_UPDATE
+  if (p.includes('/hospitals') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  if (p.includes('/roles') && m === 'PUT') return AuditAction.CONFIG_UPDATE
+  if (p.includes('/billing/invoices') && m === 'POST') return AuditAction.BATCH_OPERATION
+  if (p.match(/\/users\/[^/]+/) && m === 'PUT') return AuditAction.USER_UPDATE
+  if (p.endsWith('/users') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/reassign')) return AuditAction.PATIENT_REASSIGN
   if (p.includes('/config') && m === 'PUT') return AuditAction.CONFIG_UPDATE
   if (p.includes('/notifications/broadcast')) return AuditAction.NOTIFICATION_BROADCAST
@@ -57,7 +82,7 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
 
   res.send = function (body: any) {
     // Only audit mutating admin operations
-    if (req.user && req.originalUrl.includes('/api/admin/')) {
+    if (req.user && /\/api(?:\/v\d+)?\/admin\//.test(req.originalUrl)) {
       const action = inferAction(req.method, req.originalUrl)
 
       if (action) {
@@ -67,9 +92,12 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
           user_id: req.user.user_id,
           user_type: req.user.user_type,
           action,
-          description: `${req.method} ${req.originalUrl}`,
+          description: `${req.method} ${req.originalUrl.split('?')[0]}`,
           resource_type: req.originalUrl.includes('/doctors') ? 'Doctor'
             : req.originalUrl.includes('/patients') ? 'Patient'
+            : req.originalUrl.includes('/hospitals') ? 'Hospital'
+            : req.originalUrl.includes('/billing') ? 'Billing'
+            : req.originalUrl.includes('/roles') ? 'Role'
             : req.originalUrl.includes('/config') ? 'SystemConfig'
             : 'System',
           resource_id: req.params?.id || req.params?.op_num || undefined,

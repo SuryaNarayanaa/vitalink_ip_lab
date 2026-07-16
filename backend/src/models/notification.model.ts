@@ -57,6 +57,25 @@ const NotificationSchema = new mongoose.Schema({
   action_url: {
     type: String,
   },
+  /** Stable key for idempotent scheduled-notification creation. */
+  reminder_key: {
+    type: String,
+  },
+  /** Persistent intent used to repair a crash between notification and outbox writes. */
+  push_delivery_required: {
+    type: Boolean,
+    default: false,
+  },
+  push_delivery_enqueued_at: {
+    type: Date,
+  },
+  /** Durable cancellation boundary; outbox repair and workers must honor it. */
+  push_delivery_cancelled_at: { type: Date },
+  push_delivery_cancellation_reason: { type: String, maxlength: 200 },
+  /** Clinical delivery deadline copied to the durable push outbox. */
+  delivery_valid_until: {
+    type: Date,
+  },
   expires_at: {
     type: Date,
   },
@@ -65,6 +84,8 @@ const NotificationSchema = new mongoose.Schema({
 // TTL index for auto-expiry
 NotificationSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 })
 NotificationSchema.index({ user_id: 1, is_read: 1, createdAt: -1 })
+NotificationSchema.index({ reminder_key: 1 }, { unique: true, sparse: true })
+NotificationSchema.index({ push_delivery_required: 1, push_delivery_enqueued_at: 1, createdAt: 1 })
 
 export interface NotificationDocument extends mongoose.InferSchemaType<typeof NotificationSchema> {}
 

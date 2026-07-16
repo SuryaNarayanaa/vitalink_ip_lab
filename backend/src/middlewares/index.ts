@@ -9,7 +9,7 @@ import { User } from '@alias/models'
 export const AllowDoctor = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { user_id, user_type } = req.user;
   if (user_type != UserType.DOCTOR) {
-    throw new ApiError(StatusCodes.BAD_REQUEST,"Doctor access only")
+    throw new ApiError(StatusCodes.FORBIDDEN,"Doctor access only")
   }
 
   const user = await User.findById(user_id)
@@ -22,7 +22,7 @@ export const AllowDoctor = asyncHandler(async (req: Request, res: Response, next
 export const AllowPatient = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { user_id, user_type } = req.user;
   if (user_type != UserType.PATIENT) {
-    throw new ApiError(StatusCodes.BAD_REQUEST,"Patient access only")
+    throw new ApiError(StatusCodes.FORBIDDEN,"Patient access only")
   }
 
   const user = await User.findById(user_id)
@@ -35,7 +35,7 @@ export const AllowPatient = asyncHandler(async (req: Request, res: Response, nex
 export const AllowAdmin = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { user_id, user_type } = req.user;
   if (user_type != UserType.ADMIN) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, "ADMIN access only")
+    throw new ApiError(StatusCodes.FORBIDDEN, "ADMIN access only")
   }
 
   const user = await User.findById(user_id)

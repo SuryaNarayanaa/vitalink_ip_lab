@@ -4,10 +4,12 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
+import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 import 'package:frontend/features/admin/doctor_management_page.dart';
 import 'package:frontend/features/admin/patient_management_page.dart';
+import 'package:frontend/features/admin/admin_console_pages.dart';
 import 'package:frontend/features/admin/analytics_dashboard_page.dart';
 import 'package:frontend/features/admin/notification_broadcast_page.dart';
 import 'package:frontend/features/admin/audit_logs_page.dart';
@@ -28,8 +30,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   Widget build(BuildContext context) {
     final tabs = [
       _DashboardTab(repo: _repo),
+      const HospitalManagementPage(),
       const DoctorManagementPage(),
       const PatientManagementPage(),
+      const UserLifecyclePage(),
+      const RolesRbacPage(),
+      const BillingInvoicesPage(),
       const AnalyticsDashboardPage(),
       const NotificationBroadcastPage(),
       const AuditLogsPage(),
@@ -52,8 +58,6 @@ class _DashboardTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return UseQuery<AdminStatsModel>(
       options: QueryOptions<AdminStatsModel>(
         queryKey: AdminQueryKeys.stats(),
@@ -67,29 +71,12 @@ class _DashboardTab extends StatelessWidget {
           child: query.isLoading
               ? const _ScrollableCentered(child: CircularProgressIndicator())
               : query.isError
-                  ? _ScrollableCentered(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: theme.colorScheme.error,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Failed to load dashboard',
-                            style: TextStyle(color: theme.colorScheme.error),
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton(
-                            onPressed: () => query.refetch(),
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
+                  ? ApiErrorState(
+                      error: query.error,
+                      onRetry: () => query.refetch(),
+                      title: 'Could not load dashboard',
                     )
-                  : _DashboardContent(stats: query.data),
+                  : _DashboardContent(stats: query.data, repo: repo),
         );
 
         if (AdminScaffold.showsSidebar(context)) {
@@ -132,7 +119,8 @@ class _ScrollableCentered extends StatelessWidget {
 
 class _DashboardContent extends StatelessWidget {
   final AdminStatsModel? stats;
-  const _DashboardContent({this.stats});
+  final AdminRepository repo;
+  const _DashboardContent({this.stats, required this.repo});
 
   @override
   Widget build(BuildContext context) {
@@ -233,6 +221,8 @@ class _DashboardContent extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 24),
+        _ReminderDeliveryHealthCard(repo: repo),
       ],
     );
   }
@@ -255,6 +245,98 @@ class _DashboardContent extends StatelessWidget {
     ];
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
+}
+
+class _ReminderDeliveryHealthCard extends StatelessWidget {
+  const _ReminderDeliveryHealthCard({required this.repo});
+  final AdminRepository repo;
+
+  @override
+  Widget build(BuildContext context) {
+    return UseQuery<Map<String, dynamic>>(
+      options: QueryOptions<Map<String, dynamic>>(
+        queryKey: const ['admin', 'reminder-delivery-health'],
+        queryFn: repo.getReminderDeliveryHealth,
+      ),
+      builder: (context, query) {
+        final data = query.data ?? const <String, dynamic>{};
+        final status =
+            data['deliveriesByStatus'] as Map<String, dynamic>? ?? const {};
+        final overdue = (data['overdueDeliveries'] as num?)?.toInt() ?? 0;
+        final recent = (data['remindersLast24Hours'] as num?)?.toInt() ?? 0;
+        final scheme = Theme.of(context).colorScheme;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Icon(Icons.notifications_active_outlined,
+                      color: overdue > 0 ? scheme.error : scheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text('Reminder delivery health',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700))),
+                  IconButton(
+                      onPressed: query.refetch,
+                      tooltip: 'Refresh reminder health',
+                      icon: const Icon(Icons.refresh)),
+                ]),
+                const SizedBox(height: 8),
+                if (query.isLoading)
+                  const LinearProgressIndicator()
+                else if (query.isError)
+                  Text('Unable to load delivery health. Refresh to try again.',
+                      style: TextStyle(color: scheme.error))
+                else
+                  Row(children: [
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Sent today',
+                            value: '$recent',
+                            color: scheme.primary)),
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Delivered',
+                            value: '${status['SUCCEEDED'] ?? 0}',
+                            color: Colors.green)),
+                    Expanded(
+                        child: _ReminderMetric(
+                            label: 'Needs attention',
+                            value: '$overdue',
+                            color: overdue > 0
+                                ? scheme.error
+                                : scheme.onSurfaceVariant)),
+                  ]),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ReminderMetric extends StatelessWidget {
+  const _ReminderMetric(
+      {required this.label, required this.value, required this.color});
+  final String label;
+  final String value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w800, color: color)),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ]);
 }
 
 class _StatsCard extends StatelessWidget {

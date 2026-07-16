@@ -7,14 +7,29 @@ const PatientProfileSchema = new mongoose.Schema({
     ref: 'User',
     index: true
   },
+  /** Fence generation of the doctor assignment currently stored above. */
+  assigned_doctor_fence: { type: Number, default: 0, min: 0 },
+  hospital_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Hospital',
+    index: true
+  },
   demographics: {
-    name: { type: String, required: [true, "Name is required"] },
-    age: { type: Number },
+    name: { type: String, required: [true, "Name is required"], maxlength: 200 },
+    age: { type: Number, min: 1, max: 120, validate: Number.isInteger },
     gender: {
       type: String,
       enum: ["Male", "Female", "Other"]
     },
     phone: { type: String },
+    phone_verification: {
+      status: {
+        type: String,
+        enum: ['PENDING', 'VERIFIED'],
+        default: 'PENDING',
+      },
+      verified_at: { type: Date },
+    },
     next_of_kin: {
       name: { type: String },
       relation: { type: String },
@@ -26,16 +41,19 @@ const PatientProfileSchema = new mongoose.Schema({
     therapy_drug: { type: String },
     therapy_start_date: { type: Date },
     target_inr: {
-      min: { type: Number, default: 2.0 },
-      max: { type: Number, default: 3.0 }
+      min: { type: Number, default: 2.0, min: Number.MIN_VALUE, validate: Number.isFinite },
+      max: { type: Number, default: 3.0, min: Number.MIN_VALUE, validate: Number.isFinite }
     },
     next_review_date: { type: Date },
-    instructions: { type: [String] },
+    instructions: {
+      type: [{ type: String, maxlength: 500 }],
+      validate: [(value: string[]) => value.length <= 50, 'No more than 50 instructions are allowed'],
+    },
     taken_doses: { type: [Date] }
   },
   medical_history: [{
-    diagnosis: { type: String },
-    duration_value: { type: Number },
+    diagnosis: { type: String, maxlength: 500 },
+    duration_value: { type: Number, min: Number.MIN_VALUE, validate: Number.isFinite },
     duration_unit: { type: String, enum: ['Days', 'Weeks', 'Months', 'Years'] },
   }],
   weekly_dosage: DosageScheduleSchema,
@@ -43,10 +61,36 @@ const PatientProfileSchema = new mongoose.Schema({
   health_logs: [HealthLogSchema],
   account_status: {
     type: String,
-    enum: ['Active', 'Discharged', 'Deceased'],
+    enum: ['Active', 'Discharged', 'Deceased', 'AssignmentConflict'],
     default: 'Active'
   },
+  /**
+   * Durable fail-closed state used only when a concurrent lifecycle transition
+   * makes both sides of a reassignment unsafe. This is not a clinical
+   * discharge and requires explicit operator reconciliation.
+   */
+  assignment_conflict: {
+    detected_at: { type: Date },
+    attempted_doctor_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    previous_doctor_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reason: { type: String, maxlength: 200 },
+  },
   profile_picture_url: { type: String },
+  profile_picture_file_asset_id: { type: mongoose.Schema.Types.ObjectId, ref: 'FileAsset' },
+  /** Short-lived upload leases fence file purge from concurrent object creation. */
+  file_operation_leases: [{
+    lease_id: { type: String, required: true },
+    expires_at: { type: Date, required: true },
+  }],
+  /** Durable progress for the separately authorized patient-data purge workflow. */
+  file_purge: {
+    state: { type: String, enum: ['PURGING', 'FAILED', 'COMPLETE'] },
+    execution_id: { type: String },
+    lease_expires_at: { type: Date },
+    started_at: { type: Date },
+    completed_at: { type: Date },
+    last_error: { type: String, maxlength: 500 },
+  },
 }, { timestamps: true });
 
 export interface PatientProfileDocument extends mongoose.Document, mongoose.InferSchemaType<typeof PatientProfileSchema> { }

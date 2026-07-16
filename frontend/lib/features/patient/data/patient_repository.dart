@@ -12,7 +12,21 @@ class PatientRepository {
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
 
-  static const String _patientBasePath = '/api/patient';
+  Future<void> updateProfile({
+    required Map<String, dynamic> demographics,
+    Map<String, dynamic>? medicalConfig,
+  }) async {
+    await _apiClient.put(
+      '$_patientBasePath/profile',
+      data: <String, dynamic>{
+        'demographics': demographics,
+        if (medicalConfig != null && medicalConfig.isNotEmpty)
+          'medical_config': medicalConfig,
+      },
+    );
+  }
+
+  static const String _patientBasePath = '${AppStrings.apiPathPrefix}/patient';
 
   Future<Map<String, dynamic>> getProfile() async {
     final response = await _apiClient.getRaw('$_patientBasePath/profile');
@@ -124,21 +138,33 @@ class PatientRepository {
       'file': MultipartFile.fromBytes(fileBytes, filename: fileName),
     });
 
-    final response = await dio.post<Map<String, dynamic>>(
-      '$_patientBasePath/reports',
-      data: formData,
-      options: Options(
-        headers: {
-          'Accept': 'application/json',
-          if (token != null && token.isNotEmpty)
-            'Authorization': 'Bearer $token',
-        },
-      ),
-    );
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '$_patientBasePath/reports',
+        data: formData,
+        options: Options(
+          headers: {
+            'Accept': 'application/json',
+            if (token != null && token.isNotEmpty)
+              'Authorization': 'Bearer $token',
+          },
+        ),
+      );
 
-    final body = response.data ?? <String, dynamic>{};
-    if ((response.statusCode ?? 500) >= 400 || body['success'] == false) {
-      throw Exception(body['message']?.toString() ?? 'Failed to submit report');
+      final body = response.data ?? <String, dynamic>{};
+      if ((response.statusCode ?? 500) >= 400 || body['success'] == false) {
+        throw _uploadException(
+          response.statusCode ?? 500,
+          body['message']?.toString(),
+        );
+      }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      final responseData = e.response?.data;
+      final message = responseData is Map<String, dynamic>
+          ? responseData['message']?.toString()
+          : null;
+      throw _uploadException(statusCode, message);
     }
   }
 
@@ -269,12 +295,22 @@ class PatientRepository {
     final response = await _apiClient.get('$_patientBasePath/reports');
     final report = response['report'];
     if (report is! Map<String, dynamic>) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     final inrHistory = report['inr_history'];
     if (inrHistory is! List || inrHistory.isEmpty) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     Map<String, dynamic>? latestEntry;
@@ -298,7 +334,12 @@ class PatientRepository {
     }
 
     if (latestEntry == null) {
-      return {'value': 0.0, 'date': 'N/A', 'isCritical': false, 'hasData': false};
+      return {
+        'value': 0.0,
+        'date': 'N/A',
+        'isCritical': false,
+        'hasData': false
+      };
     }
 
     return {
@@ -344,7 +385,8 @@ class PatientRepository {
   }
 
   Future<Map<String, dynamic>> getDoctorUpdatesSummary() async {
-    final response = await _apiClient.get('$_patientBasePath/doctor-updates/summary');
+    final response =
+        await _apiClient.get('$_patientBasePath/doctor-updates/summary');
     return {
       'unread_count': (response['unread_count'] as num?)?.toInt() ?? 0,
       'latest': response['latest'],
@@ -460,5 +502,68 @@ class PatientRepository {
       }
     }
     return null;
+  }
+
+  ApiException _uploadException(int? statusCode, String? serverMessage) {
+    final message = serverMessage?.trim();
+    switch (statusCode) {
+      case 400:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Please check the INR value, date, and selected file.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.badRequest,
+        );
+      case 401:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Your session has expired. Please sign in again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.unauthorized,
+        );
+      case 413:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'The selected report is larger than the allowed upload size.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.requestTooLarge,
+        );
+      case 423:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'This account is temporarily locked. Try again later.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.locked,
+        );
+      case 429:
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Too many upload attempts. Please wait before trying again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.rateLimited,
+        );
+      default:
+        if (statusCode != null && statusCode >= 500) {
+          return ApiException(
+            message?.isNotEmpty == true
+                ? message!
+                : 'The server could not upload the report. Please try again.',
+            statusCode: statusCode,
+            kind: ApiErrorKind.server,
+          );
+        }
+        return ApiException(
+          message?.isNotEmpty == true
+              ? message!
+              : 'Unable to upload the report. Check your connection and try again.',
+          statusCode: statusCode,
+          kind: ApiErrorKind.network,
+        );
+    }
   }
 }

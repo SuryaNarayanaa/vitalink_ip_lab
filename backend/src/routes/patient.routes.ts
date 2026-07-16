@@ -23,6 +23,7 @@ import {
 import {
 	reportSchema,
 	takeDosageSchema,
+	dosageCalendarQuerySchema,
 	updateHealthLogSchema,
 	updateProfileSchema,
 	doctorUpdatesQuerySchema,
@@ -101,7 +102,7 @@ router.route('/profile').get(authenticate, AllowPatient, getProfile).put(authent
 router.get('/reports', authenticate, AllowPatient, getReport)
 router.post('/reports', authenticate, AllowPatient, uploadReportFile, validate(reportSchema), submitReport)
 router.get('/missed-doses', authenticate, AllowPatient, missedDoses)
-router.get('/dosage-calendar', authenticate, AllowPatient, getDosageCalendar)
+router.get('/dosage-calendar', authenticate, AllowPatient, validate(dosageCalendarQuerySchema), getDosageCalendar)
 router.post('/dosage', authenticate, AllowPatient, validate(takeDosageSchema), takeDosage)
 router.post('/health-logs', authenticate, AllowPatient, validate(updateHealthLogSchema), updateHealthLogs)
 router.get('/notifications/stream', streamNotifications)

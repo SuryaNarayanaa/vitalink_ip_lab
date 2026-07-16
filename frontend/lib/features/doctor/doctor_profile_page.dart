@@ -32,7 +32,13 @@ class DoctorProfilePage extends StatelessWidget {
                     child: CircularProgressIndicator(),
                   ),
                 ),
-              if (query.isError) _ErrorWidget(error: query.error.toString()),
+              if (query.isError)
+                ApiErrorState(
+                  error: query.error,
+                  onRetry: () => query.refetch(),
+                  compact: true,
+                  title: 'Could not load profile',
+                ),
               if (query.isSuccess && query.data != null)
                 DoctorProfileContent(
                   profile: query.data!,
@@ -42,53 +48,6 @@ class DoctorProfilePage extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _ErrorWidget extends StatelessWidget {
-  final String error;
-
-  const _ErrorWidget({required this.error});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.error_outline, color: Colors.red, size: 36),
-          const SizedBox(height: 12),
-          const Text(
-            'Failed to load profile',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            error,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.black54,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

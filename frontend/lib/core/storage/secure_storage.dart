@@ -29,6 +29,49 @@ class SecureStorage {
     await _storage.delete(key: AppStrings.tokenKey);
   }
 
+  Future<void> saveRefreshToken(String refreshToken) async {
+    await _storage.write(key: AppStrings.refreshTokenKey, value: refreshToken);
+  }
+
+  Future<String?> readRefreshToken() async {
+    return _storage.read(key: AppStrings.refreshTokenKey);
+  }
+
+  Future<void> clearRefreshToken() async {
+    await _storage.delete(key: AppStrings.refreshTokenKey);
+  }
+
+  Future<void> saveAuthSession(Map<String, dynamic> session) async {
+    await _storage.write(
+      key: AppStrings.authSessionKey,
+      value: jsonEncode(session),
+    );
+  }
+
+  Future<Map<String, dynamic>?> readAuthSession() async {
+    final raw = await _storage.read(key: AppStrings.authSessionKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        final map = Map<String, dynamic>.from(decoded);
+        return map;
+      }
+      await clearAuthSession();
+      return null;
+    } catch (_) {
+      await clearAuthSession();
+      return null;
+    }
+  }
+
+  Future<void> clearAuthSession() async {
+    await _storage.delete(key: AppStrings.authSessionKey);
+  }
+
   Future<void> saveUser(Map<String, dynamic> user) async {
     _cachedUser = Map<String, dynamic>.from(user);
     await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
@@ -64,10 +107,7 @@ class SecureStorage {
   /// Onboarding completion flag ──────────────────────────────────────────────
 
   Future<void> markOnboardingCompleted() async {
-    await _storage.write(
-      key: AppStrings.onboardingCompletedKey,
-      value: 'true',
-    );
+    await _storage.write(key: AppStrings.onboardingCompletedKey, value: 'true');
   }
 
   Future<bool> isOnboardingCompleted() async {
@@ -79,6 +119,8 @@ class SecureStorage {
     _cachedToken = null;
     _cachedUser = null;
     await _storage.delete(key: AppStrings.tokenKey);
+    await _storage.delete(key: AppStrings.refreshTokenKey);
+    await _storage.delete(key: AppStrings.authSessionKey);
     await _storage.delete(key: AppStrings.userKey);
     if (!preserveOnboarding) {
       await _storage.delete(key: AppStrings.onboardingCompletedKey);

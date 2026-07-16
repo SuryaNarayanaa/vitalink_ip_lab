@@ -1,10 +1,26 @@
 import mongoose from "mongoose";
 
 const DoctorProfileSchema = new mongoose.Schema({
-  name: { type: String, required: [true, "Doctor Name is required"] },
-  department: { type: String, default: 'Cardiology' },
+  name: { type: String, required: [true, "Doctor Name is required"], maxlength: 200 },
+  department: { type: String, default: 'Cardiology', maxlength: 100 },
   contact_number: { type: String },
-  profile_picture_url: { type: String }
+  phone_verification: {
+    status: {
+      type: String,
+      enum: ['PENDING', 'VERIFIED'],
+      default: 'PENDING',
+    },
+    verified_at: { type: Date },
+  },
+  profile_picture_url: { type: String },
+  profile_picture_file_asset_id: { type: mongoose.Schema.Types.ObjectId, ref: 'FileAsset' },
+  hospital_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Hospital',
+    index: true,
+  },
+  /** Last doctor lifecycle fence applied to this profile. */
+  doctor_operation_fence: { type: Number, default: 0, min: 0 },
 }, {timestamps: true});
 
 export interface DoctorProfileDocument extends mongoose.Document, mongoose.InferSchemaType<typeof DoctorProfileSchema>{}

@@ -30,11 +30,31 @@ class AdminScaffold extends StatelessWidget {
   static const _destinations = <_NavItem>[
     _NavItem(Icons.dashboard_outlined, Icons.dashboard_rounded, 'Dashboard'),
     _NavItem(
+      Icons.local_hospital_outlined,
+      Icons.local_hospital_rounded,
+      'Hospitals',
+    ),
+    _NavItem(
       Icons.medical_services_outlined,
       Icons.medical_services_rounded,
       'Doctors',
     ),
     _NavItem(Icons.people_outline, Icons.people_rounded, 'Patients'),
+    _NavItem(
+      Icons.manage_accounts_outlined,
+      Icons.manage_accounts_rounded,
+      'Users',
+    ),
+    _NavItem(
+      Icons.admin_panel_settings_outlined,
+      Icons.admin_panel_settings_rounded,
+      'Roles',
+    ),
+    _NavItem(
+      Icons.receipt_long_outlined,
+      Icons.receipt_long_rounded,
+      'Billing',
+    ),
     _NavItem(Icons.analytics_outlined, Icons.analytics_rounded, 'Analytics'),
     _NavItem(
       Icons.notifications_outlined,
@@ -198,7 +218,7 @@ class _AdminNavigationRail extends StatelessWidget {
       context: context,
       builder: (_) => LogoutDialog(
         onLogout: () async {
-          await AppDependencies.secureStorage.clearAuthData();
+          await AppDependencies.authRepository.logout();
           await QueryCache.instance.clear();
           if (context.mounted) {
             Navigator.of(

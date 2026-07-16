@@ -6,7 +6,8 @@ import { NotificationType } from '@alias/models/notification.model'
 import { UserType } from '@alias/validators'
 import { getSystemConfig } from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import { extractTokenFromHeader, verifyToken } from '@alias/utils/jwt.utils'
+import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
+import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import type {
 	DoctorUpdatesQueryInput,
@@ -18,8 +19,13 @@ import type {
 	UpdateHealthLog,
 	UpdateProfileInput
 } from '@alias/validators/patient.validator'
-import logger from '@alias/utils/logger'
-import { uploadFile, getDownloadUrl } from '@alias/utils/fileUpload'
+import logger, { sanitizeLogText } from '@alias/utils/logger'
+import { FileValidationError, isLegacyFileReferenceEligible } from '@alias/utils/fileUpload'
+import { FileAssetPurpose } from '@alias/models/fileasset.model'
+import { compensateFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
+import { config } from '@alias/config'
+import { parseStrictDateOnly } from '@alias/utils/dateOnly'
+import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -60,6 +66,12 @@ const getPatientProfileOrThrow = async (profileId: unknown, notFoundMessage = 'P
 	return patientProfile
 }
 
+const ensureClinicalMutationAllowed = (profile: { account_status?: string }) => {
+	if (profile.account_status === 'AssignmentConflict') {
+		throw new ApiError(StatusCodes.CONFLICT, 'Clinical updates are paused while care assignment is under review')
+	}
+}
+
 const mapNotificationToDoctorUpdateEvent = (notification: any): DoctorUpdateEvent => ({
 	_id: String(notification?._id ?? ''),
 	title: notification?.title ?? 'Doctor update',
@@ -93,6 +105,7 @@ const getDoctorUpdateNotifications = async (
 	const notificationQuery: any = {
 		user_id: patientUserId,
 		type: NotificationType.DOCTOR_UPDATE,
+		push_delivery_cancelled_at: { $exists: false },
 	}
 	if (unreadOnly) {
 		notificationQuery.is_read = false
@@ -114,16 +127,7 @@ const resolvePatientStreamUserOrThrow = async (req: Request) => {
 		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
 	}
 
-	const payload = verifyToken(token)
-	if (!payload || payload.user_type !== UserType.PATIENT) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-	}
-
-	const user = await User.findById(payload.user_id).select('_id user_type is_active')
-	if (!user || user.user_type !== UserType.PATIENT || !user.is_active) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired authentication token')
-	}
-
+	const { user } = await validateAuthToken(token, UserType.PATIENT)
 	return user
 }
 
@@ -133,8 +137,11 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 		path: 'profile_id',
 		populate: {
 			path: 'assigned_doctor_id',
+			// refPath population requires user_type_model to remain selected.
+			select: 'login_id user_type user_type_model profile_id is_active',
 			populate: {
-				path: 'profile_id'
+				path: 'profile_id',
+				select: 'name department contact_number profile_picture_url profile_picture_file_asset_id hospital_id createdAt',
 			}
 		}
 	})
@@ -146,16 +153,59 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 		Notification.findOne({
 			user_id: user._id,
 			type: NotificationType.DOCTOR_UPDATE,
+			push_delivery_cancelled_at: { $exists: false },
 		}).sort({ createdAt: -1 }).lean(),
 		Notification.countDocuments({
 			user_id: user._id,
 			type: NotificationType.DOCTOR_UPDATE,
-			is_read: false
+			is_read: false,
+			push_delivery_cancelled_at: { $exists: false },
 		})
 	])
 
+	const patientData = user.toObject() as any
+	delete patientData.password
+	delete patientData.salt
+	delete patientData.password_history
+	delete patientData.admin_mfa
+	delete patientData.failed_login_attempts
+	delete patientData.locked_until
+	delete patientData.last_failed_login_at
+	const patientProfile = patientData.profile_id
+	if (patientProfile?.profile_picture_url) {
+		patientProfile.profile_picture_url = await resolveAssetDownloadUrl({
+			fileAssetId: patientProfile.profile_picture_file_asset_id,
+			legacyObjectKey: patientProfile.profile_picture_url,
+			hospitalId: patientProfile.hospital_id,
+			requesterHospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			patientProfileId: patientProfile._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+			legacyEligible: isLegacyFileReferenceEligible(patientProfile.createdAt),
+		})
+	}
+	const assignedDoctor = patientProfile?.assigned_doctor_id
+	const assignedDoctorProfile = assignedDoctor?.profile_id
+	if (assignedDoctorProfile && (
+		!patientProfile.hospital_id ||
+		String(assignedDoctorProfile.hospital_id || '') !== String(patientProfile.hospital_id)
+	)) {
+		throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant doctor profile access is not allowed')
+	}
+	if (assignedDoctorProfile?.profile_picture_url) {
+		assignedDoctorProfile.profile_picture_url = await resolveAssetDownloadUrl({
+			fileAssetId: assignedDoctorProfile.profile_picture_file_asset_id,
+			legacyObjectKey: assignedDoctorProfile.profile_picture_url,
+			hospitalId: assignedDoctorProfile.hospital_id,
+			requesterHospitalId: patientProfile.hospital_id,
+			ownerUserId: assignedDoctor._id,
+			purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
+			legacyEligible: isLegacyFileReferenceEligible(assignedDoctorProfile.createdAt),
+		})
+	}
+
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile fetched successfully', {
-		patient: user,
+		patient: patientData,
 		doctor_updates: {
 			unread_count: unreadDoctorUpdates,
 			latest: latestDoctorNotification ? mapNotificationToDoctorUpdateEvent(latestDoctorNotification) : null,
@@ -169,7 +219,7 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 	}
 
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
-	const patient = await PatientProfile.findById(patientUser.profile_id).select('inr_history health_logs weekly_dosage medical_config')
+	const patient = await PatientProfile.findById(patientUser.profile_id).select('hospital_id inr_history health_logs weekly_dosage medical_config')
 	if (!patient) {
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
 	}
@@ -180,11 +230,16 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 		const reportsWithUrls = await Promise.all(
 			patientData.inr_history.map(async (report: any) => {
 				if (report.file_url) {
-					try {
-						report.file_url = await getDownloadUrl(report.file_url)
-					} catch (error) {
-						logger.error('Error generating presigned URL for report', { error })
-					}
+					report.file_url = await resolveAssetDownloadUrl({
+						fileAssetId: report.file_asset_id,
+						legacyObjectKey: report.file_url,
+						hospitalId: patient.hospital_id,
+						requesterHospitalId: patient.hospital_id,
+						ownerUserId: patientUser._id,
+						patientProfileId: patient._id,
+						purpose: FileAssetPurpose.INR_REPORT,
+						legacyEligible: isLegacyFileReferenceEligible(report.uploaded_at),
+					})
 				}
 				return report
 			})
@@ -198,15 +253,23 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput['body']>, res: Response) => {
 	const { user_id } = req.user
 	const patientUser = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
+	ensureClinicalMutationAllowed(patientProfile)
 
 	const { inr_value, test_date } = req.body
-	const parsed_inr_value = parseFloat(inr_value)
-	if (isNaN(parsed_inr_value)) {
-		throw new ApiError(StatusCodes.BAD_REQUEST, 'INR value should be a valid number')
-	}
+	const parsed_inr_value = typeof inr_value === 'number' ? inr_value : Number(inr_value)
+	if (!Number.isFinite(parsed_inr_value) || parsed_inr_value <= 0 || parsed_inr_value > 20) throw new ApiError(StatusCodes.BAD_REQUEST, 'INR value must be between 0 and 20')
 
 	// Parse the test_date if it's a string (Zod transformation doesn't mutate req.body)
 	const parsedTestDate = test_date instanceof Date ? test_date : parseDDMMYYYY(test_date)
+	if (dateOnlyKey(parsedTestDate) > clinicalDateKey(new Date())) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'A future INR test cannot be submitted')
+	}
+	if ((patientProfile.inr_history ?? []).some(entry =>
+		entry.test_date && dateOnlyKey(new Date(entry.test_date)) === dateOnlyKey(parsedTestDate)
+	)) {
+		throw new ApiError(StatusCodes.CONFLICT, 'An INR measurement already exists for this clinical date')
+	}
 
 	const file = (req as any).file as Express.Multer.File | undefined
 
@@ -216,43 +279,87 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 			throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PDF, PNG, JPEG allowed')
 		}
 	}
-	let fileUrl = ''
+	let uploadedFile: Awaited<ReturnType<typeof uploadTrackedFile>>['metadata'] | undefined
+	let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset'] | undefined
+	let fileOperation: Awaited<ReturnType<typeof acquirePatientFileOperationLease>> | undefined
 	if (file) {
+		if (!patientProfile.hospital_id) {
+			throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
+		}
+		fileOperation = await acquirePatientFileOperationLease(patientProfile._id)
 		try {
-			fileUrl = await uploadFile("uploads", file)
+			const hospitalSegment = String(patientProfile.hospital_id)
+			const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalSegment}/patients/${patientUser._id}/reports`, file, {
+				hospitalId: patientProfile.hospital_id,
+				ownerUserId: patientUser._id,
+				patientProfileId: patientProfile._id,
+				purpose: FileAssetPurpose.INR_REPORT,
+				createdBy: patientUser._id,
+			}, fileOperation)
+			uploadedFile = trackedUpload.metadata
+			fileAsset = trackedUpload.asset
 		} catch (error) {
-			logger.error("Error While Uploading File to filebase", { error })
+			await fileOperation.release()
+			logger.error("Error While Uploading File to filebase", { error: sanitizeLogText(error) })
+			if (error instanceof FileValidationError) {
+				throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
+			}
 			throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 		}
 	}
 
-	const systemConfig = await getSystemConfig()
-	const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
-	const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
-
-	const patient = await PatientProfile.findByIdAndUpdate(
-		patientUser.profile_id,
-		{
-			$push: {
-				inr_history: {
-					test_date: parsedTestDate,
-					uploaded_at: new Date(),
-					inr_value: parsed_inr_value,
-					is_critical: isCritical,
-					file_url: fileUrl,
+	let patient
+	try {
+		await fileOperation?.assertOwned()
+		const systemConfig = await getSystemConfig()
+		const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
+		const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
+		await fileOperation?.assertOwned()
+		patient = await PatientProfile.findOneAndUpdate(
+			{
+				_id: patientUser.profile_id,
+				account_status: 'Active',
+				'file_purge.state': { $nin: ['PURGING', 'COMPLETE'] },
+				inr_history: { $not: { $elemMatch: { test_date: parsedTestDate } } },
+			},
+			{
+				$push: {
+					inr_history: {
+						test_date: parsedTestDate,
+						uploaded_at: new Date(),
+						inr_value: parsed_inr_value,
+						is_critical: isCritical,
+						file_url: uploadedFile?.key ?? '',
+						file_asset_id: fileAsset?._id,
+					},
 				},
 			},
-		},
-		{ new: true }
-	)
-	if (!patient) {
-		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+			{ new: true, runValidators: true }
+		)
+		if (!patient) {
+			const current = await PatientProfile.findById(patientUser.profile_id)
+				.select('account_status inr_history')
+				.lean()
+			if (!current) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+			if (current.account_status === 'AssignmentConflict') {
+				throw new ApiError(StatusCodes.CONFLICT, 'Clinical updates are paused while care assignment is under review')
+			}
+			if ((current.inr_history ?? []).some((entry: any) =>
+				new Date(entry.test_date).getTime() === parsedTestDate.getTime())) {
+				throw new ApiError(StatusCodes.CONFLICT, 'An INR measurement already exists for this clinical date')
+			}
+			throw new ApiError(StatusCodes.CONFLICT, 'Patient clinical state changed while the report was being submitted')
+		}
+	} catch (error) {
+		if (fileAsset) await compensateFileAsset(fileAsset, error)
+		throw error
+	} finally {
+		await fileOperation?.release()
 	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
 })
 
-// TODO: Need to Review The Routes and Logic After This Later
 export const missedDoses = asyncHandler(async (req: Request<{}, {}, {}>, res: Response) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 	const patient = await getPatientProfileOrThrow(patientUser.profile_id)
@@ -273,15 +380,15 @@ export const missedDoses = asyncHandler(async (req: Request<{}, {}, {}>, res: Re
 	)
 	const missed = findMissedDoses(medicationDates, takenDates)
 
-	const today = new Date()
-	const sevenDaysAgo = new Date()
-	sevenDaysAgo.setDate(today.getDate() - 7)
+	const today = dateFromClinicalKey(clinicalDateKey(new Date()))
+	const sevenDaysAgo = new Date(today)
+	sevenDaysAgo.setUTCDate(today.getUTCDate() - 7)
 
 	const recent_missed_doses: string[] = []
 	const remaining_missed: string[] = []
 	missed.forEach((d) => {
 		const [day, month, year] = d.split('-').map(Number)
-		const dateObj = new Date(year, month - 1, day)
+		const dateObj = new Date(Date.UTC(year, month - 1, day))
 		if (dateObj >= sevenDaysAgo && dateObj <= today) {
 			recent_missed_doses.push(d)
 		} else {
@@ -300,15 +407,32 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 	const parsedDate = date instanceof Date ? date : parseDDMMYYYY(date)
 
 	// Normalize the date to midnight for consistent comparison
-	const normalizedDate = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate())
+	const normalizedDate = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate()))
 
 	// Get the patient profile
 	const patient = await getPatientProfileOrThrow(patientUser.profile_id)
+	ensureClinicalMutationAllowed(patient)
+	const therapyStart = patient.medical_config?.therapy_start_date
+	const weeklyDosage = patient.weekly_dosage as any
+	if (!therapyStart || !weeklyDosage) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'Therapy start date or dosage schedule is missing')
+	}
+	if (dateOnlyKey(normalizedDate) < dateOnlyKey(new Date(therapyStart))) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'A dose cannot be recorded before therapy started')
+	}
+	if (dateOnlyKey(normalizedDate) > clinicalDateKey(new Date())) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'A future dose cannot be marked as taken')
+	}
+	const dayName = normalizedDate.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }).toLowerCase()
+	const scheduledDose = Number(weeklyDosage[dayName] ?? 0)
+	if (!Number.isFinite(scheduledDose) || scheduledDose <= 0) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'No dose is scheduled for this date')
+	}
 
 	// Check if this date is already marked as taken
 	const takenDoses = patient.medical_config?.taken_doses || []
 	const alreadyTaken = takenDoses.some((takenDate: Date) => {
-		const normalizedTaken = new Date(takenDate.getFullYear(), takenDate.getMonth(), takenDate.getDate())
+		const normalizedTaken = new Date(Date.UTC(takenDate.getUTCFullYear(), takenDate.getUTCMonth(), takenDate.getUTCDate()))
 		return normalizedTaken.getTime() === normalizedDate.getTime()
 	})
 
@@ -317,8 +441,14 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 	}
 
 	// Add the dose to taken_doses using $addToSet to prevent duplicates
-	const updatedPatient = await PatientProfile.findByIdAndUpdate(
-		patientUser.profile_id,
+	const updatedPatient = await PatientProfile.findOneAndUpdate(
+		{
+			_id: patientUser.profile_id,
+			account_status: 'Active',
+			'medical_config.therapy_start_date': { $lte: normalizedDate },
+			[`weekly_dosage.${dayName}`]: { $gt: 0 },
+			'medical_config.taken_doses': { $ne: normalizedDate },
+		},
 		{
 			$addToSet: {
 				'medical_config.taken_doses': normalizedDate,
@@ -326,6 +456,15 @@ export const takeDosage = asyncHandler(async (req: Request<{}, {}, TakeDosageInp
 		},
 		{ new: true }
 	)
+	if (!updatedPatient) {
+		const current = await PatientProfile.findById(patientUser.profile_id)
+			.select('medical_config.taken_doses medical_config.therapy_start_date weekly_dosage')
+			.lean()
+		if (current?.medical_config?.taken_doses?.some(dose => dateOnlyKey(dose as unknown as Date) === dateOnlyKey(normalizedDate))) {
+			throw new ApiError(StatusCodes.BAD_REQUEST, 'This dose has already been marked as taken')
+		}
+		throw new ApiError(StatusCodes.CONFLICT, 'The therapy schedule changed while this dose was being recorded')
+	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Dosage logged successfully', { patient: updatedPatient }))
 })
@@ -342,9 +481,10 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 	}
 
 	// Parse query parameters
-	const monthsParam = req.query.months ? parseInt(req.query.months as string) : 3
+	const query = (req.validatedQuery ?? req.query) as { months?: string; start_date?: string }
+	const monthsParam = query.months ? parseInt(query.months, 10) : 3
 	const months = Math.min(Math.max(monthsParam, 1), 6) // Limit between 1 and 6 months
-	const startDateParam = req.query.start_date as string | undefined
+	const startDateParam = query.start_date
 
 	// Calculate date range
 	let rangeEnd: Date
@@ -352,14 +492,14 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 
 	if (startDateParam) {
 		// If start_date provided, calculate from there
-		rangeEnd = parseDDMMYYYY(startDateParam)
+		rangeEnd = parseStrictDateOnly(startDateParam)!
 		rangeStart = new Date(rangeEnd)
-		rangeStart.setMonth(rangeStart.getMonth() - months)
+		rangeStart.setUTCMonth(rangeStart.getUTCMonth() - months)
 	} else {
-		// Default: from today backwards
-		rangeEnd = new Date()
-		rangeStart = new Date()
-		rangeStart.setMonth(rangeStart.getMonth() - months)
+		// Default range is anchored to the configured clinical day, not the host clock.
+		rangeEnd = dateFromClinicalKey(clinicalDateKey(new Date()))
+		rangeStart = new Date(rangeEnd)
+		rangeStart.setUTCMonth(rangeStart.getUTCMonth() - months)
 	}
 
 	// Don't go before therapy start date
@@ -390,7 +530,7 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 
 		return {
 			date: dateStr,
-			status: isTaken ? 'taken' : (date <= new Date() ? 'missed' : 'scheduled'),
+		status: isTaken ? 'taken' : (dateOnlyKey(date) < clinicalDateKey(new Date()) ? 'missed' : 'scheduled'),
 			dosage: scheduledDosage,
 			day_of_week: dayOfWeek
 		}
@@ -410,11 +550,17 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 
 export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileInput['body']>, res: Response) => {
 	const { user_id } = req.user
-	const { demographics, medical_history, medical_config } = req.body
+	const { demographics, medical_history } = req.body
 
 	const user = await User.findById(user_id)
 	if (!user || user.user_type !== UserType.PATIENT) {
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
+	}
+
+	const currentProfile = await PatientProfile.findById(user.profile_id)
+		.select('demographics.phone account_status')
+	if (!currentProfile) {
+		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
 	}
 
 	const updateData: any = {}
@@ -423,7 +569,12 @@ export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 		if (demographics.name) updateData['demographics.name'] = demographics.name
 		if (demographics.age !== undefined) updateData['demographics.age'] = demographics.age
 		if (demographics.gender) updateData['demographics.gender'] = demographics.gender
-		if (demographics.phone) updateData['demographics.phone'] = demographics.phone
+		if (demographics.phone !== undefined) {
+			updateData['demographics.phone'] = demographics.phone
+			if (demographics.phone !== currentProfile.demographics?.phone) {
+				updateData['demographics.phone_verification'] = { status: 'PENDING' }
+			}
+		}
 		if (demographics.next_of_kin) {
 			if (demographics.next_of_kin.name) updateData['demographics.next_of_kin.name'] = demographics.next_of_kin.name
 			if (demographics.next_of_kin.relation) updateData['demographics.next_of_kin.relation'] = demographics.next_of_kin.relation
@@ -432,20 +583,23 @@ export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 	}
 
 	if (medical_history) {
+		ensureClinicalMutationAllowed(currentProfile)
 		updateData.medical_history = medical_history
 	}
 
-	if (medical_config) {
-		if (medical_config.therapy_start_date) updateData['medical_config.therapy_start_date'] = medical_config.therapy_start_date
-	}
-
-	const updatedProfile = await PatientProfile.findByIdAndUpdate(
-		user.profile_id,
+	const updatedProfile = await PatientProfile.findOneAndUpdate(
+		{ _id: user.profile_id, ...(medical_history ? { account_status: 'Active' } : {}) },
 		{ $set: updateData },
 		{ new: true, runValidators: true }
 	)
 
 	if (!updatedProfile) {
+		if (medical_history && await PatientProfile.exists({
+			_id: user.profile_id,
+			account_status: 'AssignmentConflict',
+		})) {
+			throw new ApiError(StatusCodes.CONFLICT, 'Clinical updates are paused while care assignment is under review')
+		}
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
 	}
 
@@ -459,7 +613,9 @@ export const updateHealthLogs = asyncHandler(async (req: Request<{}, {}, UpdateH
 	const { user_id } = req.user
 
 	const user = await getPatientUserOrThrow(user_id)
-	const patientprofile = await PatientProfile.findByIdAndUpdate(user.profile_id,
+	const currentProfile = await getPatientProfileOrThrow(user.profile_id)
+	ensureClinicalMutationAllowed(currentProfile)
+	const patientprofile = await PatientProfile.findOneAndUpdate({ _id: user.profile_id, account_status: 'Active' },
 		[{
 			$set: {
 				health_logs: {
@@ -473,7 +629,12 @@ export const updateHealthLogs = asyncHandler(async (req: Request<{}, {}, UpdateH
 		{ new: true, updatePipeline: true }
 	);
 	if (!patientprofile) {
-		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+		const current = await PatientProfile.findById(user.profile_id).select('account_status').lean()
+		if (!current) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
+		if (current.account_status === 'AssignmentConflict') {
+			throw new ApiError(StatusCodes.CONFLICT, 'Clinical updates are paused while care assignment is under review')
+		}
+		throw new ApiError(StatusCodes.CONFLICT, 'Patient clinical state changed while health logs were being updated')
 	}
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Health Logs Updated Suucessfully"))
@@ -488,18 +649,61 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PNG, JPEG, JPG, and WEBP images are allowed')
 	}
 	const { user_id } = req.user
+	const user = await getPatientUserOrThrow(user_id)
+	const patientProfile = await getPatientProfileOrThrow(user.profile_id)
 
-	let fileUrl = ''
+	if (!patientProfile.hospital_id) {
+		throw new ApiError(StatusCodes.BAD_REQUEST, 'Patient must be assigned to a hospital before uploading files')
+	}
+	let uploadedFile: Awaited<ReturnType<typeof uploadTrackedFile>>['metadata']
+	let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset']
+	const fileOperation = await acquirePatientFileOperationLease(patientProfile._id)
 	try {
-		fileUrl = await uploadFile("profiles", req.file)
+		const hospitalSegment = String(patientProfile.hospital_id)
+		const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalSegment}/profiles/${user._id}`, req.file, {
+			hospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			patientProfileId: patientProfile._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+			createdBy: user._id,
+		}, fileOperation)
+		uploadedFile = trackedUpload.metadata
+		fileAsset = trackedUpload.asset
 	} catch (error) {
-		logger.error("Error While Uploading profile to filebase", { error })
+		await fileOperation.release()
+		logger.error("Error While Uploading profile to filebase", { error: sanitizeLogText(error) })
+		if (error instanceof FileValidationError) throw new ApiError(StatusCodes.BAD_REQUEST, error.message)
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
 
-	const user = await getPatientUserOrThrow(user_id)
-
-	await PatientProfile.findByIdAndUpdate(user.profile_id, { profile_picture_url: fileUrl }, { new: true })
+	try {
+		await fileOperation.assertOwned()
+		const previousAssetId = patientProfile.profile_picture_file_asset_id
+		const referenceFilter = previousAssetId
+			? { profile_picture_file_asset_id: previousAssetId }
+			: { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
+		const updated = await PatientProfile.findOneAndUpdate({
+			_id: user.profile_id,
+			account_status: 'Active',
+			'file_purge.state': { $nin: ['PURGING', 'COMPLETE'] },
+			...referenceFilter,
+		}, {
+			profile_picture_url: uploadedFile.key,
+			profile_picture_file_asset_id: fileAsset._id,
+		}, { new: true })
+		if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+		await retireReplacedFileAsset({
+			fileAssetId: previousAssetId,
+			hospitalId: patientProfile.hospital_id,
+			ownerUserId: user._id,
+			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
+		})
+	} catch (error) {
+		await compensateFileAsset(fileAsset, error)
+		throw error
+	} finally {
+		await fileOperation.release()
+	}
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })
 
@@ -510,8 +714,9 @@ export const getDoctorUpdates = asyncHandler(async (
 ) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 
-	const unreadOnly = req.query.unread_only === 'true'
-	const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+	const query = (req.validatedQuery ?? req.query) as DoctorUpdatesQueryInput['query']
+	const unreadOnly = query.unread_only === 'true'
+	const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
 	const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
 
 	const doctorNotifications = await getDoctorUpdateNotifications(patientUser._id, unreadOnly, limit)
@@ -532,11 +737,13 @@ export const getDoctorUpdatesSummary = asyncHandler(async (
 		Notification.findOne({
 			user_id: patientUser._id,
 			type: NotificationType.DOCTOR_UPDATE,
+			push_delivery_cancelled_at: { $exists: false },
 		}).sort({ createdAt: -1 }).lean(),
 		Notification.countDocuments({
 			user_id: patientUser._id,
 			type: NotificationType.DOCTOR_UPDATE,
-			is_read: false
+			is_read: false,
+			push_delivery_cancelled_at: { $exists: false },
 		})
 	])
 
@@ -562,6 +769,7 @@ export const markDoctorUpdateAsRead = asyncHandler(async (
 			_id: event_id,
 			user_id: patientUser._id,
 			type: NotificationType.DOCTOR_UPDATE,
+			push_delivery_cancelled_at: { $exists: false },
 		},
 		{ is_read: true, read_at: new Date() },
 		{ new: true }
@@ -602,11 +810,12 @@ export const getNotifications = asyncHandler(async (
 ) => {
 	const patientUser = await getPatientUserOrThrow(req.user.user_id)
 
-	const parsedPage = req.query.page ? parseInt(req.query.page, 10) : 1
-	const parsedLimit = req.query.limit ? parseInt(req.query.limit, 10) : 20
+	const query = (req.validatedQuery ?? req.query) as NotificationsQueryInput['query']
+	const parsedPage = query.page ? parseInt(query.page, 10) : 1
+	const parsedLimit = query.limit ? parseInt(query.limit, 10) : 20
 	const page = Number.isFinite(parsedPage) ? Math.max(parsedPage, 1) : 1
 	const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 20
-	const isReadFilter = req.query.is_read === undefined ? undefined : req.query.is_read === 'true'
+	const isReadFilter = query.is_read === undefined ? undefined : query.is_read === 'true'
 
 	const { notifications, pagination } = await notificationService.getUserNotifications(
 		String(patientUser._id),
@@ -670,11 +879,11 @@ function parseDDMMYYYY(date: string | Date): Date {
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be in DD-MM-YYYY format')
 	}
 	const [day, month, year] = date.split('-').map(Number)
-	const parsed = new Date(year, month - 1, day)
+	const parsed = new Date(Date.UTC(year, month - 1, day))
 	if (
-		parsed.getFullYear() !== year ||
-		parsed.getMonth() !== month - 1 ||
-		parsed.getDate() !== day
+		parsed.getUTCFullYear() !== year ||
+		parsed.getUTCMonth() !== month - 1 ||
+		parsed.getUTCDate() !== day
 	) {
 		throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be a valid calendar date in DD-MM-YYYY format')
 	}
@@ -682,10 +891,29 @@ function parseDDMMYYYY(date: string | Date): Date {
 }
 
 function formatDDMMYYYY(d: Date): string {
-	const dd = `${d.getDate()}`.padStart(2, '0')
-	const mm = `${d.getMonth() + 1}`.padStart(2, '0')
-	const yyyy = d.getFullYear()
+	const dd = `${d.getUTCDate()}`.padStart(2, '0')
+	const mm = `${d.getUTCMonth() + 1}`.padStart(2, '0')
+	const yyyy = d.getUTCFullYear()
 	return `${dd}-${mm}-${yyyy}`
+}
+
+function clinicalDateKey(date: Date): string {
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: config.dosageReminderTimezone,
+		year: 'numeric', month: '2-digit', day: '2-digit',
+	}).formatToParts(date)
+	const part = (type: Intl.DateTimeFormatPartTypes) =>
+		parts.find((item) => item.type === type)?.value ?? ''
+	return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function dateOnlyKey(date: Date): string {
+	return `${date.getUTCFullYear()}-${`${date.getUTCMonth() + 1}`.padStart(2, '0')}-${`${date.getUTCDate()}`.padStart(2, '0')}`
+}
+
+function dateFromClinicalKey(key: string): Date {
+	const [year, month, day] = key.split('-').map(Number)
+	return new Date(Date.UTC(year, month - 1, day))
 }
 
 function getMedicationDates(startDate: Date, weeklyDosage: Record<string, number>): string[] {
@@ -705,15 +933,15 @@ function getMedicationDates(startDate: Date, weeklyDosage: Record<string, number
 		.filter((v) => v !== undefined)
 
 	const start = startDate instanceof Date ? startDate : new Date(startDate)
-	const today = new Date()
+	const today = dateFromClinicalKey(clinicalDateKey(new Date()))
 	const dates: string[] = []
 	let current = new Date(start)
 
 	while (current <= today) {
-		if (targetDays.includes(current.getDay())) {
+		if (targetDays.includes(current.getUTCDay())) {
 			dates.push(formatDDMMYYYY(current))
 		}
-		current.setDate(current.getDate() + 1)
+		current.setUTCDate(current.getUTCDate() + 1)
 	}
 
 	return dates
@@ -742,14 +970,14 @@ function getMedicationDatesInRange(
 	let current = new Date(startDate)
 
 	while (current <= endDate) {
-		const dayOfWeek = daysMap[current.getDay()]
+		const dayOfWeek = daysMap[current.getUTCDay()]
 		if (targetDays.includes(dayOfWeek)) {
 			dates.push({
 				date: new Date(current),
 				dayOfWeek
 			})
 		}
-		current.setDate(current.getDate() + 1)
+		current.setUTCDate(current.getUTCDate() + 1)
 	}
 
 	return dates
@@ -767,11 +995,15 @@ function findMissedDoses(medicationDates: string[], takenDates: Array<Date | str
 		})
 	)
 
-	const missed = medicationDates.filter((d) => !takenFormatted.has(d))
+	const todayKey = clinicalDateKey(new Date())
+	const missed = medicationDates.filter((d) => {
+		const [day, month, year] = d.split('-').map(Number)
+		return `${year}-${`${month}`.padStart(2, '0')}-${`${day}`.padStart(2, '0')}` < todayKey && !takenFormatted.has(d)
+	})
 	missed.sort((a, b) => {
 		const [ad, am, ay] = a.split('-').map(Number)
 		const [bd, bm, by] = b.split('-').map(Number)
-		return new Date(ay, am - 1, ad).getTime() - new Date(by, bm - 1, bd).getTime()
+		return Date.UTC(ay, am - 1, ad) - Date.UTC(by, bm - 1, bd)
 	})
 	return missed
 }

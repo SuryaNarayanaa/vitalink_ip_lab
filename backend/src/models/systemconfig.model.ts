@@ -2,12 +2,14 @@ import mongoose from 'mongoose'
 
 const SystemConfigSchema = new mongoose.Schema({
   inr_thresholds: {
-    critical_low: { type: Number, default: 1.5 },
-    critical_high: { type: Number, default: 4.5 },
+    critical_low: { type: Number, default: 1.5, min: Number.MIN_VALUE, validate: Number.isFinite },
+    critical_high: { type: Number, default: 4.5, min: Number.MIN_VALUE, validate: Number.isFinite },
   },
   session_timeout_minutes: {
     type: Number,
     default: 30,
+    min: 1,
+    max: 1440,
   },
   rate_limit: {
     max_requests: { type: Number, default: 100 },
@@ -17,9 +19,9 @@ const SystemConfigSchema = new mongoose.Schema({
     type: Map,
     of: Boolean,
     default: {
-      registration_enabled: true,
       maintenance_mode: false,
-      beta_features: false,
+      patient_registration_enabled: true,
+      notifications_enabled: true,
     },
   },
   is_active: {
@@ -27,6 +29,11 @@ const SystemConfigSchema = new mongoose.Schema({
     default: true,
   },
 }, { timestamps: true })
+
+SystemConfigSchema.index(
+  { is_active: 1 },
+  { unique: true, partialFilterExpression: { is_active: true } },
+)
 
 export interface SystemConfigDocument extends mongoose.InferSchemaType<typeof SystemConfigSchema> {}
 

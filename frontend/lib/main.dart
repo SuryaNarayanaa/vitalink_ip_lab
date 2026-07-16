@@ -8,6 +8,7 @@ Future<void> main() async {
 
   await QueryCache.instance.initialize();
   await NetworkPolicy.instance.initialize();
+  await AppDependencies.pushNotifications.initialize();
 
   final queryClient = AppDependencies.createQueryClient(
     onError: (error) => debugPrint('Query error: $error'),

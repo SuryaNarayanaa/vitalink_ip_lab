@@ -7,6 +7,8 @@ export enum UserType {
 export interface JWTPayload {
   user_id: string;
   user_type: UserType;
+  session_id?: string;
+  token_id?: string;
 }
 
 export enum therapy_drug {

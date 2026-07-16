@@ -42,18 +42,9 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
 
         if (query.isError) {
           return _buildPageContainer(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${query.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => query.refetch(),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
+            body: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
         }
@@ -91,7 +82,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
             onError: (error, variables) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Error: ${error.toString()}'),
+                  content: Text(error.toString()),
                   backgroundColor: Colors.red,
                 ),
               );
@@ -109,7 +100,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
               body: RefreshIndicator(
                 onRefresh: () async => query.refetch(),
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                   physics: const AlwaysScrollableScrollPhysics(),
                   child: Container(
                     padding: const EdgeInsets.all(20),
@@ -123,6 +114,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                         // Calendar Button
                         Container(
                           margin: const EdgeInsets.only(bottom: 16),
+                          width: double.infinity,
                           child: ElevatedButton.icon(
                             onPressed: () {
                               Navigator.of(context)
@@ -169,23 +161,32 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                 ),
                               )
                             else
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 3,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 2.5,
-                                ),
-                                itemCount: recentDoses.length,
-                                itemBuilder: (context, index) {
-                                  final date = recentDoses[index] as String;
-                                  return DosageDateCard(
-                                    date: date,
-                                    onTap: () =>
-                                        _showMarkAsTakenDialog(date, mutation),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isCompact = constraints.maxWidth < 360;
+
+                                  return GridView.builder(
+                                    shrinkWrap: true,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: isCompact ? 2 : 3,
+                                      crossAxisSpacing: 12,
+                                      mainAxisSpacing: 12,
+                                      childAspectRatio: isCompact ? 2.8 : 2.5,
+                                    ),
+                                    itemCount: recentDoses.length,
+                                    itemBuilder: (context, index) {
+                                      final date = recentDoses[index] as String;
+                                      return DosageDateCard(
+                                        date: date,
+                                        onTap: () => _showMarkAsTakenDialog(
+                                          date,
+                                          mutation,
+                                        ),
+                                      );
+                                    },
                                   );
                                 },
                               ),
@@ -262,25 +263,34 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
 
     return Column(
       children: [
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 3.5,
-          ),
-          itemCount: currentPageDoses.length,
-          itemBuilder: (context, index) {
-            final date = currentPageDoses[index] as String;
-            return RemainingDoseCard(date: date);
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 360;
+
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: isCompact ? 1 : 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: isCompact ? 5.2 : 3.5,
+              ),
+              itemCount: currentPageDoses.length,
+              itemBuilder: (context, index) {
+                final date = currentPageDoses[index] as String;
+                return RemainingDoseCard(date: date);
+              },
+            );
           },
         ),
         if (totalPages > 1) ...[
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 16,
+            runSpacing: 12,
             children: [
               ElevatedButton(
                 onPressed: safeCurrentPage > 1
@@ -296,7 +306,6 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                 ),
                 child: const Text('Previous'),
               ),
-              const SizedBox(width: 16),
               Text(
                 'Page $safeCurrentPage of $safeTotalPages',
                 style: const TextStyle(
@@ -304,7 +313,6 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 16),
               ElevatedButton(
                 onPressed: safeCurrentPage < safeTotalPages
                     ? () => setState(() => _currentPage = safeCurrentPage + 1)
