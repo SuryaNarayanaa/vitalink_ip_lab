@@ -7,7 +7,10 @@ export function parseStrictDateOnly(value: string): Date | undefined {
   const year = Number(match[3] ?? match[4])
   // Persist date-only clinical values at UTC midnight so application instances
   // with different host timezones store the same instant for the same day.
-  const date = new Date(Date.UTC(year, month - 1, day))
+  // Avoid Date.UTC year remapping for years 0–99 by constructing with a neutral
+  // year and then applying setUTCFullYear with the requested year.
+  const date = new Date(Date.UTC(2000, month - 1, day))
+  date.setUTCFullYear(year)
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
     ? date
     : undefined
