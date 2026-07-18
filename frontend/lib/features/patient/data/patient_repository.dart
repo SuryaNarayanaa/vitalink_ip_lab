@@ -233,6 +233,14 @@ class PatientRepository {
       return [];
     }
 
+    final medicalConfig =
+        report['medical_config'] is Map ? report['medical_config'] as Map : {};
+    final targetInr = medicalConfig['target_inr'] is Map
+        ? medicalConfig['target_inr'] as Map
+        : const {};
+    final targetMin = (targetInr['min'] as num?)?.toDouble() ?? 2.0;
+    final targetMax = (targetInr['max'] as num?)?.toDouble() ?? 3.0;
+
     final inrHistory = report['inr_history'];
     if (inrHistory is! List) {
       return [];
@@ -251,7 +259,7 @@ class PatientRepository {
         'uploadedAt': formatDate(entry['uploaded_at']),
         'status': isCritical
             ? 'Critical'
-            : _getINRStatus(entry['inr_value'], 2.0, 3.0),
+            : _getINRStatus(entry['inr_value'], targetMin, targetMax),
       };
     }).toList();
   }

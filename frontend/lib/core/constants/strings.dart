@@ -5,14 +5,22 @@ class AppStrings {
   static const String apiBaseUrlDefine = 'API_BASE_URL';
   static const String apiPathPrefixDefine = 'API_PATH_PREFIX';
 
+  /// Optional build-time override for the backend API base URL.
+  static const String _apiBaseUrlFromEnv = String.fromEnvironment(apiBaseUrlDefine);
+
   /// Base URL for the backend API.
   ///
-  /// On Flutter Web, default to an empty string so requests use same-origin
-  /// paths (e.g. `/api/...`) and avoid mixed-content issues on HTTPS hosts.
-  static const String apiBaseUrl = String.fromEnvironment(
-    apiBaseUrlDefine,
-    defaultValue: 'https://vitalink-uimf.onrender.com',
-  );
+  /// When `API_BASE_URL` is provided at build time, that value is used.
+  /// Otherwise Flutter Web defaults to an empty same-origin base (e.g.
+  /// `/api/...`) to avoid mixed-content issues; other platforms default to
+  /// the hosted backend.
+  static String get apiBaseUrl {
+    if (_apiBaseUrlFromEnv.isNotEmpty) return _apiBaseUrlFromEnv;
+    // ignore: avoid_web_libraries_in_flutter — kIsWeb is from foundation.
+    return const bool.fromEnvironment('dart.library.html')
+        ? ''
+        : 'https://vitalink-uimf.onrender.com';
+  }
 
   static const String apiPathPrefix = String.fromEnvironment(
     apiPathPrefixDefine,

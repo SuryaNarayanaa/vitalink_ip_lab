@@ -312,9 +312,17 @@ class ApiClient {
         if (!shouldRetry) rethrow;
 
         attempt++;
-        final wait = Duration(
+        final exponential = Duration(
           milliseconds: _retryBaseDelay.inMilliseconds * (1 << (attempt - 1)),
         );
+        final fromHeader = _parseRetryAfter(e.response?.headers.value('retry-after'));
+        // Prefer Retry-After when present, but never exceed exponential backoff cap * 4.
+        final maxWait = Duration(milliseconds: exponential.inMilliseconds * 4);
+        Duration wait = exponential;
+        if (fromHeader != null) {
+          wait = fromHeader > maxWait ? maxWait : fromHeader;
+          if (wait < Duration.zero) wait = Duration.zero;
+        }
         _logDebug(
           'Transient API failure. Retrying in ${wait.inMilliseconds}ms (attempt $attempt/$_maxGetRetries)',
         );
@@ -528,8 +536,13 @@ class ApiClient {
       if (data is List) {
         return {'items': data};
       }
-      // If data is null or empty, return it as is
-      return data ?? <String, dynamic>{};
+      if (data == null) {
+        return <String, dynamic>{};
+      }
+      throw ApiException(
+        'Malformed response: unsupported data payload type',
+        kind: ApiErrorKind.malformedResponse,
+      );
     }
 
     if (body.isNotEmpty) return body;
@@ -740,10 +753,47 @@ class ApiClient {
     if (seconds != null && seconds >= 0) {
       return Duration(seconds: seconds);
     }
-    final date = DateTime.tryParse(raw);
+    // RFC 7231 HTTP-date (IMF-fix), web-safe without dart:io HttpDate.
+    final date = _parseHttpDate(raw.trim());
     if (date == null) return null;
-    final diff = date.difference(DateTime.now());
+    final diff = date.toUtc().difference(DateTime.now().toUtc());
     return diff.isNegative ? Duration.zero : diff;
+  }
+
+  /// Parses IMF-fix HTTP-date values such as `Sun, 06 Nov 1994 08:49:37 GMT`.
+  DateTime? _parseHttpDate(String raw) {
+    const months = {
+      'jan': 1,
+      'feb': 2,
+      'mar': 3,
+      'apr': 4,
+      'may': 5,
+      'jun': 6,
+      'jul': 7,
+      'aug': 8,
+      'sep': 9,
+      'oct': 10,
+      'nov': 11,
+      'dec': 12,
+    };
+    final match = RegExp(
+      r'^[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$',
+    ).firstMatch(raw);
+    if (match == null) return null;
+    final month = months[match.group(2)!.toLowerCase()];
+    if (month == null) return null;
+    try {
+      return DateTime.utc(
+        int.parse(match.group(3)!),
+        month,
+        int.parse(match.group(1)!),
+        int.parse(match.group(4)!),
+        int.parse(match.group(5)!),
+        int.parse(match.group(6)!),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _isIncomingMessageQuerySetterError(String message) {

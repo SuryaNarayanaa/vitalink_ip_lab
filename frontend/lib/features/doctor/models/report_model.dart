@@ -16,13 +16,23 @@ class ReportModel {
   });
 
   factory ReportModel.fromJson(Map<String, dynamic> json) {
+    final rawDate = json['test_date'];
+    final DateTime testDate;
+    if (rawDate is DateTime) {
+      testDate = rawDate;
+    } else if (rawDate is String) {
+      final parsed = DateTime.tryParse(rawDate);
+      if (parsed == null) {
+        throw FormatException('Invalid test_date: $rawDate');
+      }
+      testDate = parsed;
+    } else {
+      throw FormatException('Missing or unsupported test_date');
+    }
+
     return ReportModel(
       id: json['_id'] as String? ?? '',
-      testDate: json['test_date'] is String
-          ? DateTime.tryParse(json['test_date'] as String) ?? DateTime.now()
-          : json['test_date'] is DateTime
-              ? json['test_date'] as DateTime
-              : DateTime.now(),
+      testDate: testDate,
       inrValue: (json['inr_value'] as num?)?.toDouble() ?? 0.0,
       notes: json['notes'] as String?,
       isCritical: json['is_critical'] as bool? ?? false,

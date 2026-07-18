@@ -258,8 +258,15 @@ class PatientService {
     try {
       final response = await _dio.get(_endpoint('/reports'));
       if (response.statusCode == 200) {
-        final inrHistory =
-            response.data['data']['report']['inr_history'] as List;
+        final report = response.data['data']['report'] as Map<String, dynamic>;
+        final medicalConfig =
+            report['medical_config'] is Map ? report['medical_config'] as Map : {};
+        final targetInr = medicalConfig['target_inr'] is Map
+            ? medicalConfig['target_inr'] as Map
+            : const {};
+        final targetMin = (targetInr['min'] as num?)?.toDouble() ?? 2.0;
+        final targetMax = (targetInr['max'] as num?)?.toDouble() ?? 3.0;
+        final inrHistory = report['inr_history'] as List;
         return inrHistory.map((item) {
           final isCritical = item['is_critical'] == true;
           return {
@@ -272,7 +279,7 @@ class PatientService {
             'uploadedAt': formatDate(item['uploaded_at']),
             'status': isCritical
                 ? 'Critical'
-                : _getINRStatus(item['inr_value'], 2.0, 3.0),
+                : _getINRStatus(item['inr_value'], targetMin, targetMax),
           };
         }).toList();
       }
