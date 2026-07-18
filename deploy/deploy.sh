@@ -205,6 +205,9 @@ deploy() {
 
     validate_production_env
 
+
+    validate_production_env
+
     active=$(get_active_slot)
     inactive=$(get_inactive_slot)
 
@@ -320,6 +323,7 @@ initial() {
     log "  VitaLink Initial Deployment"
     log "============================================="
 
+    validate_production_env
     validate_production_env
 
     # Create required directories
