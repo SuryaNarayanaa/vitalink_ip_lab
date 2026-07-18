@@ -19,33 +19,38 @@ class PatientProfileContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 380;
+        // The page already removes 40 logical pixels for horizontal padding.
+        // Keep the regular two-column phone layout at common 320-350px content
+        // widths and reserve the stacked fallback for genuinely narrow spaces.
+        final isNarrow = constraints.maxWidth < 300;
+        final useSmallerHeader = constraints.maxWidth < 340;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (isCompact)
+            if (isNarrow)
               Column(
                 children: [
                   _buildAvatar(),
                   const SizedBox(height: 16),
-                  _buildHeaderDetails(isCompact: true),
+                  _buildHeaderDetails(isCentered: true),
                 ],
               )
             else
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _buildAvatar(),
-                  const SizedBox(width: 20),
+                  _buildAvatar(diameter: useSmallerHeader ? 88 : 100),
+                  SizedBox(width: useSmallerHeader ? 16 : 20),
                   Expanded(child: _buildHeaderDetails()),
                 ],
               ),
             const SizedBox(height: 24),
 
             // Info Cards
-            if (isCompact)
+            if (isNarrow)
               Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   PatientInfoSmallCard(
                     icon: Icons.calendar_today,
@@ -122,10 +127,10 @@ class PatientProfileContent extends StatelessWidget {
     );
   }
 
-  Widget _buildAvatar() {
+  Widget _buildAvatar({double diameter = 100}) {
     return Container(
-      width: 100,
-      height: 100,
+      width: diameter,
+      height: diameter,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const LinearGradient(
@@ -154,14 +159,14 @@ class PatientProfileContent extends StatelessWidget {
     );
   }
 
-  Widget _buildHeaderDetails({bool isCompact = false}) {
+  Widget _buildHeaderDetails({bool isCentered = false}) {
     return Column(
       crossAxisAlignment:
-          isCompact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+          isCentered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
         Text(
           profile['name'] ?? 'Patient Name',
-          textAlign: isCompact ? TextAlign.center : TextAlign.start,
+          textAlign: isCentered ? TextAlign.center : TextAlign.start,
           style: const TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,
@@ -198,7 +203,7 @@ class PatientProfileContent extends StatelessWidget {
           ),
           child: Text(
             'Target INR: ${profile['targetINR'] ?? '2.0 - 3.0'}',
-            textAlign: isCompact ? TextAlign.center : TextAlign.start,
+            textAlign: isCentered ? TextAlign.center : TextAlign.start,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
