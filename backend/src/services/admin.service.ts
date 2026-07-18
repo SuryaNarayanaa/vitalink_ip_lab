@@ -255,7 +255,7 @@ async function ensureUserTenantAccess(ctx: Awaited<ReturnType<typeof getAdminCon
 }
 
 function isUserVisibleToAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>, user: any) {
-  if (ctx.isAppAdmin) return true
+  if (ctx.isAppAdmin || (ctx.isAuditor && !ctx.hospitalId)) return true
   const hospitalId = getProfileHospitalId(user)
   return Boolean(ctx.hospitalId && hospitalId === ctx.hospitalId)
 }
@@ -732,6 +732,77 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
 
 export async function listUsers(actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
+  const hasGlobalUserVisibility = ctx.isAppAdmin || (ctx.isAuditor && !ctx.hospitalId)
+  if (!hasGlobalUserVisibility) {
+    if (!ctx.hospitalId) return { users: [] }
+    const hospitalId = new mongoose.Types.ObjectId(ctx.hospitalId)
+    const profileProjection = (model: string, fields: Record<string, unknown>): any[] => [
+      { $match: { hospital_id: hospitalId } },
+      {
+        $project: {
+          _id: 1,
+          hospital_id: 1,
+          profile_model: { $literal: model },
+          ...fields,
+        },
+      },
+    ]
+    const users = await DoctorProfile.aggregate([
+      ...profileProjection('DoctorProfile', { name: 1 }),
+      {
+        $unionWith: {
+          coll: PatientProfile.collection.name,
+          pipeline: profileProjection('PatientProfile', { 'demographics.name': 1 }),
+        },
+      },
+      {
+        $unionWith: {
+          coll: AdminProfile.collection.name,
+          pipeline: profileProjection('AdminProfile', { name: 1, admin_role: 1 }),
+        },
+      },
+      {
+        $lookup: {
+          from: User.collection.name,
+          let: { profileId: '$_id', profileModel: '$profile_model' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$profile_id', '$$profileId'] },
+                    { $eq: ['$user_type_model', '$$profileModel'] },
+                  ],
+                },
+              },
+            },
+            { $project: { login_id: 1, user_type: 1, is_active: 1, createdAt: 1, updatedAt: 1 } },
+          ],
+          as: 'users',
+        },
+      },
+      { $unwind: '$users' },
+      {
+        $lookup: {
+          from: Hospital.collection.name,
+          localField: 'hospital_id',
+          foreignField: '_id',
+          pipeline: [{ $project: { code: 1 } }],
+          as: 'hospitals',
+        },
+      },
+      { $sort: { 'users.createdAt': -1 } },
+    ])
+    return {
+      users: users.map(row => formatUserForAdmin({
+        ...row.users,
+        profile_id: {
+          ...row,
+          hospital_id: row.hospitals[0] || row.hospital_id,
+        },
+      })),
+    }
+  }
   const users = await User.find().populate({
     path: 'profile_id',
     populate: { path: 'hospital_id' },

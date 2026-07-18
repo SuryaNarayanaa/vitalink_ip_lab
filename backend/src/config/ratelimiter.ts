@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express'
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit'
 import { config } from '@alias/config'
-import { getSystemConfig } from '@alias/services/config.service'
+import { getCachedSystemConfig } from '@alias/services/config.service'
 
 const isTest = config.nodeEnv === 'test'
 
@@ -53,7 +53,7 @@ export const apiLimiter = async (req: Request, res: Response, next: NextFunction
   if (isTest) return next()
 
   try {
-    const systemConfig = await getSystemConfig()
+    const systemConfig = await getCachedSystemConfig()
     const maxRequests = systemConfig.rate_limit.max_requests
     const windowMs = systemConfig.rate_limit.window_minutes * 60 * 1000
     const now = Date.now()

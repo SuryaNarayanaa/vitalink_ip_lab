@@ -28,6 +28,7 @@ const AdminProfileSchema = new mongoose.Schema({
   hospital_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Hospital',
+    index: true,
   },
 }, { timestamps: true })
 

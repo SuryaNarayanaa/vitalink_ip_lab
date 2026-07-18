@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals'
 import { getRateLimitKey, getRateLimitWindowKey, nextRateLimitWindow, removeExpiredRateLimitWindows } from '@alias/config/ratelimiter'
-import { updateSystemConfig, validateInrThresholds } from '@alias/services/config.service'
+import { clearSystemConfigCache, getCachedSystemConfig, getSystemConfig, isFeatureEnabled, updateSystemConfig, validateInrThresholds } from '@alias/services/config.service'
 import { isControlPlaneRequest, isPatientRegistrationRequest } from '@alias/middlewares/systemConfig.middleware'
 import { getRefreshTokenExpiry, getSessionExpiry, SESSION_ACCESS_TOKEN_LIFETIME_SECONDS } from '@alias/services/auth-session.service'
 import { AuthSession, SystemConfig } from '@alias/models'
@@ -10,6 +10,8 @@ import { UserType } from '@alias/validators'
 import { config } from '@alias/config'
 
 describe('system configuration runtime safeguards', () => {
+  beforeEach(() => clearSystemConfigCache())
+
   test('rejects equal and inverted INR critical thresholds', () => {
     expect(() => validateInrThresholds(2.5, 2.5)).toThrow('must be less')
     expect(() => validateInrThresholds(4.5, 1.5)).toThrow('must be less')
@@ -93,9 +95,40 @@ describe('system configuration runtime safeguards', () => {
       }),
       expect.objectContaining({ $set: expect.objectContaining({ access_expires_at: expect.any(Date) }) }),
     )
+    await expect(getCachedSystemConfig()).resolves.toBe(createdConfig)
+    expect(findOne).toHaveBeenCalledTimes(1)
     findOne.mockRestore()
     create.mockRestore()
     updateMany.mockRestore()
+  })
+
+  test('caches configuration reads and coalesces concurrent cache misses', async () => {
+    const configDocument = { rate_limit: { max_requests: 100, window_minutes: 15 } } as any
+    let resolveFind!: (value: any) => void
+    const pendingFind = new Promise(resolve => { resolveFind = resolve })
+    const findOne = jest.spyOn(SystemConfig, 'findOne').mockReturnValue(pendingFind as any)
+
+    const first = getCachedSystemConfig()
+    const second = getCachedSystemConfig()
+    resolveFind(configDocument)
+
+    await expect(Promise.all([first, second])).resolves.toEqual([configDocument, configDocument])
+    await expect(getCachedSystemConfig()).resolves.toBe(configDocument)
+    expect(findOne).toHaveBeenCalledTimes(1)
+    findOne.mockRestore()
+  })
+
+  test('bypasses the process-local cache for safety-sensitive feature checks', async () => {
+    const enabled = { feature_flags: new Map([['maintenance_mode', true]]) } as any
+    const disabled = { feature_flags: new Map([['maintenance_mode', false]]) } as any
+    const findOne = jest.spyOn(SystemConfig, 'findOne')
+      .mockResolvedValueOnce(enabled)
+      .mockResolvedValueOnce(disabled)
+
+    await expect(isFeatureEnabled('maintenance_mode')).resolves.toBe(true)
+    await expect(isFeatureEnabled('maintenance_mode')).resolves.toBe(false)
+    expect(findOne).toHaveBeenCalledTimes(2)
+    findOne.mockRestore()
   })
 
   test('issues session JWTs with the maximum supported configurable lifetime', () => {

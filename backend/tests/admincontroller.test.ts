@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, NotificationDelivery, AuditLog, Invoice, SystemConfig, FileAsset } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, AuthSession, DoctorProfile, PatientProfile, User, Hospital, Notification, NotificationDelivery, AuditLog, Invoice, FileAsset } from '@alias/models';
 import { AdminRole } from '@alias/models/adminprofile.model';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
@@ -1320,6 +1320,8 @@ describe('Admin Routes', () => {
                 await expect(hasActiveHospitalAccess(users[1])).resolves.toBe(true);
                 await expect(hasActiveHospitalAccess(users[2])).resolves.toBe(false);
                 await expect(hasActiveHospitalAccess(users[3])).resolves.toBe(false);
+                const globalAuditorListing = await adminService.listUsers(String(users[1]._id));
+                expect(globalAuditorListing.users.map(user => user.loginId)).toContain(adminUser.login_id);
             } finally {
                 await Promise.all([
                     User.deleteMany({ _id: { $in: users.map(user => user._id) } }),
@@ -2297,19 +2299,25 @@ describe('Admin Routes', () => {
         });
 
         test('should not expose global admin metadata in hospital admin user listing', async () => {
-            const response = await api.get('/api/admin/users', {
-                headers: { Authorization: `Bearer ${hospitalAdminToken}` }
-            });
+            const fullUserRead = jest.spyOn(User, 'find');
+            try {
+                const response = await api.get('/api/admin/users', {
+                    headers: { Authorization: `Bearer ${hospitalAdminToken}` }
+                });
 
-            expect(response.status).toBe(200);
-            expect(response.data.success).toBe(true);
-            const loginIds = response.data.data.users.map((user: any) => user.loginId);
-            expect(loginIds).toContain('hospital_admin_a');
-            expect(loginIds).toContain(primaryDoctorUser.login_id);
-            expect(loginIds).toContain(baselinePatientUser.login_id);
-            expect(loginIds).not.toContain(adminUser.login_id);
-            expect(loginIds).not.toContain(crossTenantDoctorUser.login_id);
-            expect(loginIds).not.toContain(crossTenantPatientUser.login_id);
+                expect(response.status).toBe(200);
+                expect(response.data.success).toBe(true);
+                expect(fullUserRead).not.toHaveBeenCalled();
+                const loginIds = response.data.data.users.map((user: any) => user.loginId);
+                expect(loginIds).toContain('hospital_admin_a');
+                expect(loginIds).toContain(primaryDoctorUser.login_id);
+                expect(loginIds).toContain(baselinePatientUser.login_id);
+                expect(loginIds).not.toContain(adminUser.login_id);
+                expect(loginIds).not.toContain(crossTenantDoctorUser.login_id);
+                expect(loginIds).not.toContain(crossTenantPatientUser.login_id);
+            } finally {
+                fullUserRead.mockRestore();
+            }
         });
 
         test('should scope legacy patient listing to hospital admin tenant', async () => {
@@ -2443,11 +2451,11 @@ describe('Admin Routes', () => {
 
         test('retains persisted broadcast intent but suppresses SSE when pause begins before enqueue', async () => {
             const title = `Post-persist paused broadcast ${Date.now()}`;
-            await SystemConfig.updateOne({}, { $set: { 'feature_flags.notifications_enabled': true } }, { upsert: true });
+            await configService.updateSystemConfig({ feature_flags: { notifications_enabled: true } });
             const originalInsertMany = Notification.insertMany.bind(Notification);
             const insertSpy = jest.spyOn(Notification, 'insertMany').mockImplementationOnce((async (...args: any[]) => {
                 const rows = await originalInsertMany(...args as any);
-                await SystemConfig.updateOne({}, { $set: { 'feature_flags.notifications_enabled': false } }, { upsert: true });
+                await configService.updateSystemConfig({ feature_flags: { notifications_enabled: false } });
                 return rows as any;
             }) as any);
             const rawPublish = jest.spyOn(realtimeNotifications, 'publishNotificationToUser');
@@ -2468,7 +2476,7 @@ describe('Admin Routes', () => {
             } finally {
                 rawPublish.mockRestore();
                 insertSpy.mockRestore();
-                await SystemConfig.updateOne({}, { $set: { 'feature_flags.notifications_enabled': true } }, { upsert: true });
+                await configService.updateSystemConfig({ feature_flags: { notifications_enabled: true } });
             }
         });
 

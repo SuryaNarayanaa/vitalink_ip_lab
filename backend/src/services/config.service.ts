@@ -10,7 +10,18 @@ export const DEFAULT_FEATURE_FLAGS = {
 
 export const MAX_SESSION_TIMEOUT_MINUTES = 1440
 
-export async function getSystemConfig() {
+export const SYSTEM_CONFIG_CACHE_TTL_MS = 5_000
+
+type CachedSystemConfig = {
+  value: Awaited<ReturnType<typeof loadSystemConfig>>
+  expiresAt: number
+}
+
+let cachedSystemConfig: CachedSystemConfig | undefined
+let systemConfigLoad: Promise<Awaited<ReturnType<typeof loadSystemConfig>>> | undefined
+let cacheGeneration = 0
+
+async function loadSystemConfig() {
   let config = await SystemConfig.findOne({ is_active: true })
 
   if (!config) {
@@ -30,6 +41,64 @@ export async function getSystemConfig() {
   }
 
   return config
+}
+
+function cacheConfig(value: Awaited<ReturnType<typeof loadSystemConfig>>) {
+  cacheGeneration += 1
+  cachedSystemConfig = {
+    value,
+    expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+  }
+}
+
+/**
+ * Clears the process-local snapshot. This is useful for tests and for any
+ * future out-of-band configuration subscriber.
+ */
+export function clearSystemConfigCache() {
+  cacheGeneration += 1
+  cachedSystemConfig = undefined
+  systemConfigLoad = undefined
+}
+
+/**
+ * Returns the authoritative configuration. Safety-sensitive callers use this
+ * path so updates made by another API or worker process take effect without a
+ * process-local TTL delay.
+ */
+export async function getSystemConfig() {
+  return loadSystemConfig()
+}
+
+/**
+ * Returns a short-lived process-local snapshot for the rate limiter's
+ * high-volume lookup. Feature flags and session policy deliberately do not use
+ * this path because they must observe cross-process updates immediately.
+ */
+export async function getCachedSystemConfig() {
+  if (cachedSystemConfig && cachedSystemConfig.expiresAt > Date.now()) {
+    return cachedSystemConfig.value
+  }
+  if (systemConfigLoad) return systemConfigLoad
+
+  const generation = cacheGeneration
+  const load = loadSystemConfig().then(config => {
+    // An update may complete while this read is in flight. Never let the
+    // older read replace the freshly written value.
+    if (generation === cacheGeneration) {
+      cachedSystemConfig = {
+        value: config,
+        expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+      }
+    }
+    return config
+  })
+  systemConfigLoad = load
+  try {
+    return await load
+  } finally {
+    if (systemConfigLoad === load) systemConfigLoad = undefined
+  }
 }
 
 export async function updateSystemConfig(updates: {
@@ -87,6 +156,9 @@ export async function updateSystemConfig(updates: {
   }
 
   await config.save()
+  // Refresh the rate-limiter snapshot in this process. Safety-sensitive reads
+  // bypass this cache and always use the authoritative document.
+  cacheConfig(config)
   if (updates.session_timeout_minutes !== undefined) {
     // Auth middleware checks the sliding access expiry on every request. The
     // absolute refresh-family expiry remains unchanged.
