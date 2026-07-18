@@ -54,6 +54,48 @@ get_container_name() {
     echo "vitalink-$1"
 }
 
+validate_production_env() {
+    local env_file="$DEPLOY_DIR/.env.production"
+    local jwt_secret
+
+    # Preserve the existing environment-file preflight.
+    if [[ ! -f "$env_file" ]]; then
+        err ".env.production not found in $DEPLOY_DIR"
+        err "Copy .env.example and fill in production values:"
+        err "  cp ../backend/.env.example $env_file"
+        exit 1
+    fi
+
+    jwt_secret=$(sed -n 's/^[[:space:]]*JWT_SECRET[[:space:]]*=[[:space:]]*//p' "$env_file" | tail -n 1)
+    jwt_secret=${jwt_secret%$'\r'}
+
+    # Accept conventional quoted dotenv values without treating the file as shell code.
+    if [[ ${#jwt_secret} -ge 2 ]]; then
+        if [[ "$jwt_secret" == \"*\" && "$jwt_secret" == *\" ]] ||
+           [[ "$jwt_secret" == \'*\' && "$jwt_secret" == *\' ]]; then
+            jwt_secret=${jwt_secret:1:${#jwt_secret}-2}
+        fi
+    fi
+
+    if [[ -z "$jwt_secret" ]]; then
+        err "JWT_SECRET is missing or empty in $env_file."
+        err "Set JWT_SECRET to a strong random secret of at least 32 characters."
+        exit 1
+    fi
+
+    if [[ "$jwt_secret" == "CHANGE_ME_TO_A_STRONG_RANDOM_SECRET" ]]; then
+        err "JWT_SECRET in $env_file still uses the example placeholder."
+        err "Replace it with a strong random secret of at least 32 characters."
+        exit 1
+    fi
+
+    if (( ${#jwt_secret} < 32 )); then
+        err "JWT_SECRET in $env_file is too short (${#jwt_secret} characters)."
+        err "JWT_SECRET must be a strong random secret of at least 32 characters."
+        exit 1
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Health check: wait for container to become healthy
 # ---------------------------------------------------------------------------
@@ -150,6 +192,9 @@ stop_slot() {
 # ---------------------------------------------------------------------------
 deploy() {
     local active inactive
+
+    validate_production_env
+
     active=$(get_active_slot)
     inactive=$(get_inactive_slot)
 
@@ -265,13 +310,7 @@ initial() {
     log "  VitaLink Initial Deployment"
     log "============================================="
 
-    # Check for .env.production
-    if [[ ! -f "$DEPLOY_DIR/.env.production" ]]; then
-        err ".env.production not found in $DEPLOY_DIR"
-        err "Copy .env.example and fill in production values:"
-        err "  cp ../backend/.env.example $DEPLOY_DIR/.env.production"
-        exit 1
-    fi
+    validate_production_env
 
     # Create required directories
     mkdir -p "$DEPLOY_DIR/nginx/certs"

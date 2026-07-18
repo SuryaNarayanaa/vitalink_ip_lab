@@ -1,6 +1,6 @@
 import { StatusCodes } from "http-status-codes";
 
-class ApiResponse{
+export default class ApiResponse{
     statusCode: StatusCodes
     data: any
     message: string
@@ -12,5 +12,3 @@ class ApiResponse{
         this.success = this.statusCode < 400;
     }
 }
-
-export default ApiResponse;

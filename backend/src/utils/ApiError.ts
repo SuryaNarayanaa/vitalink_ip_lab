@@ -1,6 +1,6 @@
 import {StatusCodes} from 'http-status-codes'
 
-class ApiError extends Error {
+export default class ApiError extends Error {
     statusCode: StatusCodes
     data: null
     success: boolean
@@ -11,5 +11,3 @@ class ApiError extends Error {
         this.success = false
     }
 }
-
-export default ApiError
