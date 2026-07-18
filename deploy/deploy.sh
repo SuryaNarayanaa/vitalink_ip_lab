@@ -79,6 +79,13 @@ validate_production_env() {
         fi
     fi
 
+    # Strip inline comments (after quote stripping to avoid removing # inside quotes)
+    # Only strip if there's whitespace before the #
+    jwt_secret=$(echo "$jwt_secret" | sed 's/[[:space:]][[:space:]]*#.*//')
+
+    # Strip trailing whitespace
+    jwt_secret=$(echo "$jwt_secret" | sed 's/[[:space:]]*$//')
+
     if [[ -z "$jwt_secret" ]]; then
         err "JWT_SECRET is missing or empty in $env_file."
         err "Set JWT_SECRET to a strong random secret of at least 32 characters."

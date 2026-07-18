@@ -69,6 +69,9 @@ fi
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Private temporary directory for test output files
+TEST_OUTPUT_DIR=""
+
 # Runs validate_production_env in a subshell against a given fixture
 # directory (used as DEPLOY_DIR), so that the function's `exit` calls only
 # terminate the subshell rather than this test runner.
@@ -77,7 +80,7 @@ run_validate() {
     (
         DEPLOY_DIR="$fixture_dir"
         validate_production_env
-    ) >/tmp/deploy_test_stdout.$$ 2>/tmp/deploy_test_stderr.$$
+    ) >"$TEST_OUTPUT_DIR/stdout" 2>"$TEST_OUTPUT_DIR/stderr"
     return $?
 }
 
@@ -89,11 +92,10 @@ make_fixture() {
 
 cleanup_fixture() {
     rm -rf "$1"
-    rm -f /tmp/deploy_test_stdout.$$ /tmp/deploy_test_stderr.$$
 }
 
 stderr_contains() {
-    grep -qF "$1" "/tmp/deploy_test_stderr.$$"
+    grep -qF "$1" "$TEST_OUTPUT_DIR/stderr"
 }
 
 # ---------------------------------------------------------------------------
@@ -381,6 +383,46 @@ test_whitespace_around_equals_is_tolerated() {
 }
 
 # ---------------------------------------------------------------------------
+# Test: trailing whitespace after the secret value is stripped
+# ---------------------------------------------------------------------------
+test_trailing_whitespace_is_stripped() {
+    local dir exit_code
+    dir="$(make_fixture)"
+    printf 'JWT_SECRET=%s   \n' "$(repeat_char h 32)" > "$dir/.env.production"
+
+    run_validate "$dir"
+    exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        pass "trailing whitespace after JWT_SECRET value is stripped"
+    else
+        fail "trailing whitespace after JWT_SECRET value is stripped (exit=$exit_code)"
+    fi
+
+    cleanup_fixture "$dir"
+}
+
+# ---------------------------------------------------------------------------
+# Test: inline comments are stripped from the secret value
+# ---------------------------------------------------------------------------
+test_inline_comments_are_stripped() {
+    local dir exit_code
+    dir="$(make_fixture)"
+    printf 'JWT_SECRET=%s # production secret\n' "$(repeat_char i 32)" > "$dir/.env.production"
+
+    run_validate "$dir"
+    exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        pass "inline comments are stripped from JWT_SECRET value"
+    else
+        fail "inline comments are stripped from JWT_SECRET value (exit=$exit_code)"
+    fi
+
+    cleanup_fixture "$dir"
+}
+
+# ---------------------------------------------------------------------------
 # Test: when JWT_SECRET is defined multiple times, the last definition wins
 # ---------------------------------------------------------------------------
 test_last_duplicate_definition_wins() {
@@ -406,6 +448,11 @@ test_last_duplicate_definition_wins() {
 # ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
+
+# Create private temporary directory for test output files
+TEST_OUTPUT_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_OUTPUT_DIR"' EXIT
+
 echo "Running validate_production_env() tests..."
 test_missing_env_file
 test_missing_jwt_secret
@@ -421,6 +468,8 @@ test_single_quoted_secret_is_unwrapped
 test_mismatched_quotes_not_stripped
 test_crlf_line_ending_is_stripped
 test_whitespace_around_equals_is_tolerated
+test_trailing_whitespace_is_stripped
+test_inline_comments_are_stripped
 test_last_duplicate_definition_wins
 
 echo ""
