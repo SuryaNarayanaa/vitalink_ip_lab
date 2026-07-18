@@ -23,6 +23,8 @@ class DoctorUpdateRealtimeService {
   Timer? _reconnectTimer;
   bool _started = false;
   int _reconnectAttempt = 0;
+  /// Bumped by [stop] so in-flight [_connect] awaits cannot open a stream after stop.
+  int _connectionGeneration = 0;
 
   Future<void> start({
     required VoidCallback onDoctorUpdate,
@@ -36,6 +38,7 @@ class DoctorUpdateRealtimeService {
 
   Future<void> stop() async {
     _started = false;
+    _connectionGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _onDoctorUpdate = null;
@@ -45,10 +48,12 @@ class DoctorUpdateRealtimeService {
 
   Future<void> _connect() async {
     if (!_started) return;
+    final generation = _connectionGeneration;
 
     final token = await _secureStorage.readToken();
     final userJson = await _secureStorage.readUser();
 
+    if (!_started || generation != _connectionGeneration) return;
     if (token == null || token.isEmpty || userJson == null) {
       return;
     }
@@ -65,6 +70,8 @@ class DoctorUpdateRealtimeService {
       '${AppStrings.apiBaseUrl}$streamPath',
     );
 
+    if (!_started || generation != _connectionGeneration) return;
+
     try {
       await _streamClient.connect(
         uri: uri,
@@ -73,8 +80,13 @@ class DoctorUpdateRealtimeService {
         onError: _handleStreamError,
         onDone: _scheduleReconnect,
       );
+      if (!_started || generation != _connectionGeneration) {
+        await _streamClient.disconnect();
+        return;
+      }
       _reconnectAttempt = 0;
     } catch (error) {
+      if (!_started || generation != _connectionGeneration) return;
       if (error is UnsupportedError) {
         _started = false;
         return;
