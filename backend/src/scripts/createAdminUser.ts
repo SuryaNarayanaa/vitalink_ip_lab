@@ -49,11 +49,10 @@ async function createAdminUser() {
 
     console.log('Admin user created successfully:')
     console.log(`  Login ID: ${loginId}`)
-    console.log(`  Initial Password: ${password}`)
     console.log(`  User ID: ${adminUser._id}`)
     console.log(`  Profile ID: ${adminProfile._id}`)
     console.log('')
-    console.log('IMPORTANT: Change this password after first login!')
+    console.log('IMPORTANT: Deliver the initial password out of band and change it after first login!')
 
     await mongoose.disconnect()
     console.log('Disconnected from database')

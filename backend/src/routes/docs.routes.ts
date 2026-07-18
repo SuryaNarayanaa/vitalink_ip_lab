@@ -37,7 +37,14 @@ function safeEqual(value: string, expected: string): boolean {
 
 function requireDocsBasicAuth(req: Request, res: Response, next: NextFunction): void {
   if (!config.apiDocsUsername || !config.apiDocsPassword) {
-    next()
+    // Allow unauthenticated docs only outside production (local/dev/test).
+    if (config.nodeEnv !== 'production') {
+      next()
+      return
+    }
+    res.status(StatusCodes.SERVICE_UNAVAILABLE).send(
+      'API documentation is not configured. Set API_DOCS_USERNAME and API_DOCS_PASSWORD.',
+    )
     return
   }
 
