@@ -864,14 +864,15 @@ describe('Doctor Routes', () => {
             expect(Array.isArray(response.data.data.inr_history)).toBe(true);
 
             // Verify that file_url is converted to presigned URL
-            const reportWithFile = response.data.data.inr_history.find((r: any) => r.file_url);
-            if (reportWithFile) {
-                expect(reportWithFile.file_url).toContain('https://');
-                expect(reportWithFile.file_url).toContain('X-Amz-Algorithm');
-                expect(reportWithFile.file_url).toContain('X-Amz-Signature');
-                // Should not be the raw S3 key
-                expect(reportWithFile.file_url).not.toBe('uploads/test-report/12345.pdf');
-            }
+            const reportWithFile = response.data.data.inr_history.find(
+                (r: any) => r.notes === 'Test report' || r.file_url
+            );
+            expect(reportWithFile).toBeDefined();
+            expect(reportWithFile.file_url).toContain('https://');
+            expect(reportWithFile.file_url).toContain('X-Amz-Algorithm');
+            expect(reportWithFile.file_url).toContain('X-Amz-Signature');
+            // Should not be the raw S3 key
+            expect(reportWithFile.file_url).not.toBe('uploads/test-report/12345.pdf');
         });
 
         test('should fail with non-existent patient', async () => {
@@ -1002,10 +1003,8 @@ describe('Doctor Routes', () => {
                 notes: 'Test'
             });
 
-            expect([401, 404]).toContain(response.status);
-            if (response.data.success !== undefined) {
-                expect(response.data.success).toBe(false);
-            }
+            expect(response.status).toBe(401);
+            expect(response.data.success).toBe(false);
         });
     });
 

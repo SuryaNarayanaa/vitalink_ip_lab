@@ -264,13 +264,32 @@ describe('admin profile-picture write contract', () => {
     const { createDoctorSchema, updateDoctorSchema } = require('@alias/validators/admin.validator');
 
     test('rejects caller-supplied profile picture URLs on create and update', () => {
-        expect(createDoctorSchema.safeParse({ body: {
-            login_id: 'doctor1', password: 'Strong1!', name: 'Doctor', contact_number: '9876543210',
+        const mentionsProfilePicture = (issues: Array<{ path: (string | number)[]; keys?: string[]; message?: string }>) =>
+            issues.some((issue) =>
+                issue.path.includes('profile_picture_url')
+                || issue.keys?.includes('profile_picture_url')
+                || (issue.message ?? '').includes('profile_picture_url')
+            );
+
+        const createResult = createDoctorSchema.safeParse({ body: {
+            login_id: 'doctor1',
+            password: 'Strong1!x',
+            name: 'Doctor',
+            contact_number: '9876543210',
             profile_picture_url: 'https://storage.example/arbitrary-key.jpg',
-        } }).success).toBe(false);
-        expect(updateDoctorSchema.safeParse({
-            params: { id: 'doctor1' },
+        } });
+        expect(createResult.success).toBe(false);
+        if (!createResult.success) {
+            expect(mentionsProfilePicture(createResult.error.issues as any)).toBe(true);
+        }
+
+        const updateResult = updateDoctorSchema.safeParse({
+            params: { id: '507f1f77bcf86cd799439011' },
             body: { profile_picture_url: 'https://storage.example/arbitrary-key.jpg' },
-        }).success).toBe(false);
+        });
+        expect(updateResult.success).toBe(false);
+        if (!updateResult.success) {
+            expect(mentionsProfilePicture(updateResult.error.issues as any)).toBe(true);
+        }
     });
 });

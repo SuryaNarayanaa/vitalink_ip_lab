@@ -217,14 +217,15 @@ describe('Patient Routes', () => {
             expect(Array.isArray(response.data.data.report.inr_history)).toBe(true);
 
             // Verify that file_url is converted to presigned URL
-            const reportWithFile = response.data.data.report.inr_history.find((r: any) => r.file_url);
-            if (reportWithFile) {
-                expect(reportWithFile.file_url).toContain('https://');
-                expect(reportWithFile.file_url).toContain('X-Amz-Algorithm');
-                expect(reportWithFile.file_url).toContain('X-Amz-Signature');
-                // Should not be the raw S3 key
-                expect(reportWithFile.file_url).not.toBe('uploads/test-patient-report/test123.pdf');
-            }
+            const reportWithFile = response.data.data.report.inr_history.find(
+                (r: any) => r.notes === 'Test report for presigned URL'
+            );
+            expect(reportWithFile).toBeDefined();
+            expect(reportWithFile.file_url).toContain('https://');
+            expect(reportWithFile.file_url).toContain('X-Amz-Algorithm');
+            expect(reportWithFile.file_url).toContain('X-Amz-Signature');
+            // Should not be the raw S3 key
+            expect(reportWithFile.file_url).not.toBe('uploads/test-patient-report/test123.pdf');
 
             expect(response.data.data.report.health_logs).toBeDefined();
             expect(response.data.data.report.weekly_dosage).toBeDefined();
@@ -280,20 +281,29 @@ describe('Patient Routes', () => {
         });
 
         test('should add multiple dosages', async () => {
-            await api.post('/api/patient/dosage', {
+            const first = await api.post('/api/patient/dosage', {
                 date: '12-02-2026'
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
+            expect(first.status).toBe(200);
 
-            const response = await api.post('/api/patient/dosage', {
+            const second = await api.post('/api/patient/dosage', {
                 date: '13-02-2026'
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
+            expect(second.status).toBe(200);
 
-            expect(response.status).toBe(200);
-            expect(response.data.data.patient.medical_config.taken_doses.length).toBeGreaterThanOrEqual(2);
+            const profile = await PatientProfile.findById(patientProfile._id).lean();
+            const takenKeys = (profile?.medical_config?.taken_doses ?? []).map((d: any) => {
+                const date = d instanceof Date ? d : new Date(d);
+                const y = date.getUTCFullYear();
+                const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(date.getUTCDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            });
+            expect(takenKeys).toEqual(expect.arrayContaining(['2026-02-12', '2026-02-13']));
         });
 
         test('should reject a date with no scheduled dose', async () => {
@@ -360,58 +370,72 @@ describe('Patient Routes', () => {
         test('should calculate missed doses based on weekly_dosage schedule', async () => {
             // Patient has dosage on: Monday (10mg), Tuesday (30mg), Thursday (20mg)
             // Set therapy start date to 14 days ago to ensure we have at least 2 weeks of data
+            const before = await PatientProfile.findById(patientProfile._id).lean();
+            const originalTherapyStart = before?.medical_config?.therapy_start_date;
+            const originalWeeklyDosage = before?.weekly_dosage
+                ? { ...before.weekly_dosage }
+                : undefined;
+            const originalTakenDoses = before?.medical_config?.taken_doses
+                ? [...before.medical_config.taken_doses]
+                : [];
+
             const fourteenDaysAgo = new Date();
             fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
             fourteenDaysAgo.setHours(0, 0, 0, 0);
 
-            const updated = await PatientProfile.findByIdAndUpdate(
-                patientProfile._id,
-                {
-                    'medical_config.therapy_start_date': fourteenDaysAgo,
-                    'medical_config.taken_doses': [],
-                    weekly_dosage: {
-                        monday: 10,
-                        tuesday: 30,
-                        wednesday: 0,
-                        thursday: 20,
-                        friday: 0,
-                        saturday: 0,
-                        sunday: 0
-                    }
-                },
-                { new: true }
-            );
+            try {
+                const updated = await PatientProfile.findByIdAndUpdate(
+                    patientProfile._id,
+                    {
+                        'medical_config.therapy_start_date': fourteenDaysAgo,
+                        'medical_config.taken_doses': [],
+                        weekly_dosage: {
+                            monday: 10,
+                            tuesday: 30,
+                            wednesday: 0,
+                            thursday: 20,
+                            friday: 0,
+                            saturday: 0,
+                            sunday: 0
+                        }
+                    },
+                    { new: true }
+                );
 
-            // Verify update worked
-            expect(updated?.weekly_dosage?.monday).toBe(10);
-            expect(updated?.weekly_dosage?.tuesday).toBe(30);
-            expect(updated?.weekly_dosage?.thursday).toBe(20);
-            expect(updated?.medical_config?.therapy_start_date).toBeDefined();
+                // Verify update worked
+                expect(updated?.weekly_dosage?.monday).toBe(10);
+                expect(updated?.weekly_dosage?.tuesday).toBe(30);
+                expect(updated?.weekly_dosage?.thursday).toBe(20);
+                expect(updated?.medical_config?.therapy_start_date).toBeDefined();
 
-            const response = await api.get('/api/patient/missed-doses', {
-                headers: { Authorization: `Bearer ${patientToken}` }
-            });
+                const response = await api.get('/api/patient/missed-doses', {
+                    headers: { Authorization: `Bearer ${patientToken}` }
+                });
 
-            expect(response.status).toBe(200);
-            const { recent_missed_doses, missed_doses } = response.data.data;
+                expect(response.status).toBe(200);
+                const { recent_missed_doses, missed_doses } = response.data.data;
 
-            // Over 14 days, should have at least 2 Mondays, 2 Tuesdays, 2 Thursdays = at least 6 missed doses
-            const totalMissed = recent_missed_doses.length + missed_doses.length;
-            console.log('Total missed doses:', totalMissed, 'Recent:', recent_missed_doses.length, 'Older:', missed_doses.length);
-            console.log('Recent missed:', recent_missed_doses);
-            console.log('Older missed:', missed_doses);
-            expect(totalMissed).toBeGreaterThanOrEqual(4); // At least 4 doses over 14 days
+                // Over 14 days, should have at least 2 Mondays, 2 Tuesdays, 2 Thursdays = at least 6 missed doses
+                const totalMissed = recent_missed_doses.length + missed_doses.length;
+                expect(totalMissed).toBeGreaterThanOrEqual(4); // At least 4 doses over 14 days
 
-            // Verify all missed doses are on the correct days (Monday, Tuesday, or Thursday)
-            if (totalMissed > 0) {
-                const allMissedDates = [...recent_missed_doses, ...missed_doses];
-                allMissedDates.forEach((dateStr: string) => {
-                    const [day, month, year] = dateStr.split('-').map(Number);
-                    const dateObj = new Date(year, month - 1, day);
-                    const dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, 2=Tuesday, 4=Thursday
+                // Verify all missed doses are on the correct days (Monday, Tuesday, or Thursday)
+                if (totalMissed > 0) {
+                    const allMissedDates = [...recent_missed_doses, ...missed_doses];
+                    allMissedDates.forEach((dateStr: string) => {
+                        const [day, month, year] = dateStr.split('-').map(Number);
+                        const dateObj = new Date(year, month - 1, day);
+                        const dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, 2=Tuesday, 4=Thursday
 
-                    // Should only be Monday (1), Tuesday (2), or Thursday (4)
-                    expect([1, 2, 4]).toContain(dayOfWeek);
+                        // Should only be Monday (1), Tuesday (2), or Thursday (4)
+                        expect([1, 2, 4]).toContain(dayOfWeek);
+                    });
+                }
+            } finally {
+                await PatientProfile.findByIdAndUpdate(patientProfile._id, {
+                    'medical_config.therapy_start_date': originalTherapyStart,
+                    'medical_config.taken_doses': originalTakenDoses,
+                    weekly_dosage: originalWeeklyDosage,
                 });
             }
         });
@@ -1261,14 +1285,20 @@ describe('Patient Routes', () => {
         });
 
         test('should limit months parameter to maximum of 6', async () => {
-            const response = await api.get('/api/patient/dosage-calendar?months=10', {
+            const capped = await api.get('/api/patient/dosage-calendar?months=10', {
+                headers: { Authorization: `Bearer ${patientToken}` }
+            });
+            const sixMonths = await api.get('/api/patient/dosage-calendar?months=6', {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
 
-            expect(response.status).toBe(200);
-            expect(response.data.success).toBe(true);
-            // Should cap at 6 months, so verify reasonable data size
-            expect(Array.isArray(response.data.data.calendar_data)).toBe(true);
+            expect(capped.status).toBe(200);
+            expect(capped.data.success).toBe(true);
+            expect(Array.isArray(capped.data.data.calendar_data)).toBe(true);
+            expect(sixMonths.status).toBe(200);
+            // months=10 must not exceed the months=6 window
+            expect(capped.data.data.calendar_data.length).toBe(sixMonths.data.data.calendar_data.length);
+            expect(capped.data.data.date_range).toEqual(sixMonths.data.data.date_range);
         });
 
         test('should handle start_date parameter', async () => {
@@ -1310,25 +1340,24 @@ describe('Patient Routes', () => {
         });
 
         test('should mark taken doses correctly in calendar', async () => {
-            // First, mark a dose as taken
-            const doseDate = '03-02-2024'; // DD-MM-YYYY (Monday)
-            await api.post('/api/patient/dosage', {
+            // Use a scheduled weekday within the calendar window (patient mon–fri dosages).
+            const doseDate = '10-02-2026'; // Tuesday
+            const take = await api.post('/api/patient/dosage', {
                 date: doseDate,
-                dose: 5
             }, {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
+            expect(take.status).toBe(200);
 
-            // Then fetch calendar
-            const response = await api.get('/api/patient/dosage-calendar?start_date=15-02-2024&months=1', {
+            // Then fetch calendar covering that date
+            const response = await api.get('/api/patient/dosage-calendar?start_date=28-02-2026&months=1', {
                 headers: { Authorization: `Bearer ${patientToken}` }
             });
 
             expect(response.status).toBe(200);
             const takenEntry = response.data.data.calendar_data.find((entry: any) => entry.date === doseDate);
-            if (takenEntry) {
-                expect(takenEntry.status).toBe('taken');
-            }
+            expect(takenEntry).toBeDefined();
+            expect(takenEntry.status).toBe('taken');
         });
 
         test('should fail without authentication', async () => {

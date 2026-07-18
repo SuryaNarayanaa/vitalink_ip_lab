@@ -367,15 +367,14 @@ describe('Patient File Upload Routes', () => {
 
             // Check if any report has a file_url and it's a presigned URL
             const reportsWithFiles = response.data.data.report.inr_history.filter((r: any) => r.file_url);
+            expect(reportsWithFiles.length).toBeGreaterThan(0);
 
-            if (reportsWithFiles.length > 0) {
-                for (const report of reportsWithFiles) {
-                    expect(report.file_url).toContain('https://');
-                    expect(report.file_url).toContain('X-Amz-Algorithm');
-                    expect(report.file_url).toContain('X-Amz-Signature');
-                    // Ensure it's not just the S3 key
-                    expect(report.file_url).not.toMatch(/^uploads\//);
-                }
+            for (const report of reportsWithFiles) {
+                expect(report.file_url).toContain('https://');
+                expect(report.file_url).toContain('X-Amz-Algorithm');
+                expect(report.file_url).toContain('X-Amz-Signature');
+                // Ensure it's not just the S3 key
+                expect(report.file_url).not.toMatch(/^uploads\//);
             }
         });
 
