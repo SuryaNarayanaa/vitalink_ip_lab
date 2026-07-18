@@ -1,13 +1,14 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { asyncHandler, ApiError, ApiResponse } from '@alias/utils'
-import { AuditLog, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models'
+import { AdminMfaChallenge, AuditLog, DoctorProfile, OtpChallenge, PatientProfile, User } from '@alias/models'
 import {
   OtpChallengePurpose,
   OtpChallengeStatus,
 } from '@alias/models/otpchallenge.model'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { AuditAction } from '@alias/models/auditlog.model'
+import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model'
 import { comparePasswords } from '@alias/utils'
 import { UserType } from '@alias/validators'
 import { ActivateAdminTotpInput, ChangePasswordInput, LoginInput, RefreshTokenInput, ResendLoginOtpInput, RevokeTokenInput, VerifyLoginOtpInput, VerifyLoginTotpInput } from '@alias/validators/user.validator'
@@ -132,6 +133,47 @@ const getSessionPayload = async (req: Request, user: any) => {
     .select('-password -salt')
 
   return { ...sessionPayload, user: sanitizeAuthUser(populatedUser) }
+}
+
+const bestEffortCreateAuthAuditLog = async (...args: Parameters<typeof createAuthAuditLog>) => {
+  try {
+    await createAuthAuditLog(...args)
+  } catch (error) {
+    logger.error('Failed-login audit persistence failed', {
+      event: 'auth.login_failure_audit_failed',
+      user_id: String(args[1]?._id ?? ''),
+      error: error instanceof Error ? error.message : 'unknown_error',
+    })
+  }
+}
+
+const auditIssuedLoginChallenge = async (
+  req: Request,
+  user: any,
+  challengeId: string,
+  description: string,
+  metadata: Record<string, unknown>,
+  cancel: () => Promise<unknown>,
+) => {
+  try {
+    await createAuthAuditLog(req, user, AuditAction.LOGIN_CHALLENGE, true, description, undefined, metadata)
+  } catch (error) {
+    try {
+      await cancel()
+    } catch (cleanupError) {
+      logger.error('Failed to cancel an unaudited login challenge', {
+        event: 'auth.login_challenge_audit_cleanup_failed',
+        user_id: String(user._id), challenge_id: challengeId,
+        error: cleanupError instanceof Error ? cleanupError.message : 'unknown_error',
+      })
+    }
+    logger.error('Login challenge cancelled because audit persistence failed', {
+      event: 'auth.login_challenge_audit_failed',
+      user_id: String(user._id), challenge_id: challengeId,
+      error: error instanceof Error ? error.message : 'unknown_error',
+    })
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Unable to complete login securely')
+  }
 }
 
 const getAuditedSessionPayload = async (
@@ -338,7 +380,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   // Do not disclose account/hospital/lock state to a caller that has not
   // demonstrated knowledge of the password.
   if (!user.is_active) {
-    await createAuthAuditLog(
+    await bestEffortCreateAuthAuditLog(
       req,
       user,
       AuditAction.LOGIN_FAILED,
@@ -351,7 +393,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   }
   const hasHospitalAccess = await hasActiveHospitalAccess(user)
   if (!hasHospitalAccess) {
-    await createAuthAuditLog(
+    await bestEffortCreateAuthAuditLog(
       req,
       user,
       AuditAction.LOGIN_FAILED,
@@ -365,7 +407,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 
   const lockedUntil = user.locked_until ? new Date(user.locked_until) : null
   if (lockedUntil && lockedUntil.getTime() > Date.now()) {
-    await createAuthAuditLog(
+    await bestEffortCreateAuthAuditLog(
       req,
       user,
       AuditAction.LOGIN_FAILED,
@@ -408,7 +450,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     user.last_failed_login_at = failedAt
     user.locked_until = updatedUser?.locked_until
 
-    await createAuthAuditLog(
+    await bestEffortCreateAuthAuditLog(
       req,
       user,
       AuditAction.LOGIN_FAILED,
@@ -455,14 +497,16 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         profileId: user.profile_id,
       })
 
-      await createAuthAuditLog(
+      await auditIssuedLoginChallenge(
         req,
         user,
-        AuditAction.LOGIN_CHALLENGE,
-        true,
+        String(challenge._id),
         'Password accepted; phone OTP verification required',
-        undefined,
-        loginAttemptMetadata('otp_required')
+        loginAttemptMetadata('otp_required'),
+        () => OtpChallenge.updateOne(
+          { _id: challenge._id, status: OtpChallengeStatus.PENDING },
+          { $set: { status: OtpChallengeStatus.CANCELLED } },
+        ),
       )
 
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
@@ -477,14 +521,16 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   if (user.user_type === UserType.ADMIN) {
     if (isAdminTotpEnabled(user)) {
       const challenge = await createAdminMfaLoginChallenge(user)
-      await createAuthAuditLog(
+      await auditIssuedLoginChallenge(
         req,
         user,
-        AuditAction.LOGIN_CHALLENGE,
-        true,
+        String(challenge._id),
         'Admin password accepted; authenticator MFA challenge issued',
-        undefined,
-        loginAttemptMetadata('totp_required')
+        loginAttemptMetadata('totp_required'),
+        () => AdminMfaChallenge.updateOne(
+          { _id: challenge._id, status: AdminMfaChallengeStatus.PENDING },
+          { $set: { status: AdminMfaChallengeStatus.CANCELLED } },
+        ),
       )
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
         StatusCodes.ACCEPTED,
@@ -495,7 +541,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     }
 
     if (isAdminTotpRequiredForUnenrolledAdmins()) {
-      await createAuthAuditLog(
+      await bestEffortCreateAuthAuditLog(
         req,
         user,
         AuditAction.LOGIN_FAILED,

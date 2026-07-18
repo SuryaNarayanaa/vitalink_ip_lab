@@ -245,7 +245,7 @@ describe('Statistics Routes', () => {
         await new Promise<void>((resolve, reject) => {
             server.close((error) => error ? reject(error) : resolve());
         });
-    });
+    }, 120000);
 
     describe('Authorization', () => {
         test('should fail without authentication token', async () => {

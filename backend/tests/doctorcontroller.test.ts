@@ -30,9 +30,18 @@ describe('Doctor Routes', () => {
 
     beforeAll(async () => {
         mongoContainer = await new GenericContainer('mongo:7.0')
+            .withCommand(['--replSet', 'rs0', '--bind_ip_all'])
             .withExposedPorts(27017)
             .start();
-        const mongoUri = `mongodb://${mongoContainer.getHost()}:${mongoContainer.getMappedPort(27017)}/test`;
+        await mongoContainer.exec([
+            'mongosh', '--quiet', '--eval',
+            "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]})",
+        ]);
+        await mongoContainer.exec([
+            'bash', '-c',
+            "until mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; do sleep 0.2; done",
+        ]);
+        const mongoUri = `mongodb://${mongoContainer.getHost()}:${mongoContainer.getMappedPort(27017)}/test?directConnection=true`;
         await mongoose.connect(mongoUri);
 
         server = app.listen(0);
@@ -170,7 +179,7 @@ describe('Doctor Routes', () => {
         await new Promise<void>((resolve, reject) => {
             server.close((error) => error ? reject(error) : resolve());
         });
-    });
+    }, 120000);
 
     describe('GET /api/doctors/patients', () => {
         test('should get all patients assigned to doctor', async () => {
@@ -376,6 +385,10 @@ describe('Doctor Routes', () => {
         });
 
         test('preserves the published User/Profile pair when a successor reassigns before final guard validation', async () => {
+            const startSessionSpy = jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+                withTransaction: jest.fn().mockRejectedValue(new Error('Transaction numbers are only allowed on a replica set member')),
+                endSession: jest.fn(),
+            } as any);
             const originalCreate = User.create.bind(User);
             let previousGuard: Awaited<ReturnType<typeof acquireDoctorMoveGuard>> | undefined;
             let targetGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined;
@@ -412,6 +425,7 @@ describe('Doctor Routes', () => {
                 expect(String(createdProfile?.assigned_doctor_id)).toBe(String(secondDoctorUser._id));
             } finally {
                 spy.mockRestore();
+                startSessionSpy.mockRestore();
                 if (targetGuard) await targetGuard();
                 if (previousGuard) await previousGuard.release();
                 const createdUser = await User.findOne({ login_id: 'PAT_SUCCESSOR_PAIR' }).lean();
@@ -607,15 +621,16 @@ describe('Doctor Routes', () => {
             ]);
             const original = PatientProfile.findOneAndUpdate.bind(PatientProfile);
             let replacementGuard: Awaited<ReturnType<typeof acquireDoctorMoveGuard>> | undefined;
+            let successorWrite: Promise<unknown> | undefined;
             const spy = jest.spyOn(PatientProfile, 'findOneAndUpdate').mockImplementationOnce((async (...args: any[]) => {
                 const committedToSecond = await original(...args);
                 await User.updateOne({ _id: secondDoctorUser._id }, {
                     $set: { 'doctor_operation_lock.expires_at': new Date(Date.now() - 1_000) },
                 });
                 replacementGuard = await acquireDoctorMoveGuard(secondDoctorUser._id);
-                await PatientProfile.updateOne({ _id: patientProfile._id }, {
+                successorWrite = Promise.resolve(PatientProfile.updateOne({ _id: patientProfile._id }, {
                     $set: { assigned_doctor_id: successorDoctor._id, assigned_doctor_fence: 77 },
-                });
+                }));
                 return committedToSecond as any;
             }) as any);
             try {
@@ -623,6 +638,7 @@ describe('Doctor Routes', () => {
                     new_doctor_id: 'doctor002',
                 }, { headers: { Authorization: `Bearer ${doctorToken}` } });
                 expect(response.status).toBe(409);
+                await successorWrite;
                 const actual = await PatientProfile.findById(patientProfile._id).lean();
                 expect(String(actual?.assigned_doctor_id)).toBe(String(successorDoctor._id));
                 expect(await Notification.countDocuments(staleNotificationFilter)).toBe(notificationsBefore);

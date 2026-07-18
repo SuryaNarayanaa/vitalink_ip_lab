@@ -225,8 +225,8 @@ class ApiClient {
         );
       }
 
-      await _secureStorage.saveToken(token);
       await _secureStorage.saveRefreshToken(rotatedRefreshToken);
+      await _secureStorage.saveToken(token);
       final session = body['session'];
       if (session is Map<String, dynamic>) {
         await _secureStorage.saveAuthSession(session);
