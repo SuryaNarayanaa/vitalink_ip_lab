@@ -926,6 +926,65 @@ describe('Auth Routes', () => {
             expect(mockStartVerification).toHaveBeenCalledWith('+919000003333', 'sms');
         });
 
+        test('should normalize a legacy patient phone number for first-login OTP', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone': '9000004444',
+                    'demographics.phone_verification.status': 'PENDING',
+                },
+                $unset: { 'demographics.phone_verification.verified_at': 1 },
+            });
+
+            const loginResponse = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123',
+            });
+
+            expect(loginResponse.status).toBe(202);
+            expect(loginResponse.data.data.auth_status).toBe('OTP_REQUIRED');
+            expect(mockStartVerification).toHaveBeenCalledWith('+919000004444', 'sms');
+
+            const verificationResponse = await api.post('/api/auth/login/otp/verify', {
+                challenge_id: loginResponse.data.data.challenge.challenge_id,
+                code: '123456',
+            });
+            expect(verificationResponse.status).toBe(200);
+
+            const patientProfile = await PatientProfile.findById(unverifiedPatientProfile._id);
+            expect(patientProfile?.demographics?.phone).toBe('9000004444');
+            expect(patientProfile?.demographics?.phone_verification?.status).toBe('VERIFIED');
+
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone': '+919000004444',
+                    'demographics.phone_verification.status': 'PENDING',
+                },
+                $unset: { 'demographics.phone_verification.verified_at': 1 },
+            });
+        });
+
+        test('should return an actionable conflict for an unusable legacy patient phone number', async () => {
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: {
+                    'demographics.phone': 'not-a-phone',
+                    'demographics.phone_verification.status': 'PENDING',
+                },
+            });
+
+            const response = await api.post('/api/auth/login', {
+                login_id: 'unverified-patient',
+                password: 'testpassword123',
+            });
+
+            expect(response.status).toBe(409);
+            expect(response.data.message).toBe('Registered phone number must be updated before OTP verification');
+            expect(mockStartVerification).not.toHaveBeenCalled();
+
+            await PatientProfile.findByIdAndUpdate(unverifiedPatientProfile._id, {
+                $set: { 'demographics.phone': '+919000004444' },
+            });
+        });
+
         test('should fail with invalid login_id', async () => {
             const response = await api.post('/api/auth/login', {
                 login_id: 'nonexistentuser',

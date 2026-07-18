@@ -29,6 +29,7 @@ import {
   resendPhoneVerificationOtp,
   verifyOtpChallenge,
 } from '@alias/services/otp.service'
+import { normalizeIndianPrimaryPhoneNumber } from '@alias/validators/phone.validator'
 import { maskPhoneNumber } from '@alias/services/twilio-verify.service'
 import {
   createAuthSession,
@@ -172,20 +173,25 @@ const getAuditedSessionPayload = async (
 
 const getRegisteredPhoneState = async (user: any): Promise<{
   phoneNumber?: string
+  storedPhoneNumber?: string
   isVerified: boolean
 }> => {
   if (user.user_type === UserType.DOCTOR) {
     const profile = await DoctorProfile.findById(user.profile_id).select('contact_number phone_verification')
+    const storedPhoneNumber = profile?.contact_number
     return {
-      phoneNumber: profile?.contact_number,
+      phoneNumber: storedPhoneNumber ? normalizeIndianPrimaryPhoneNumber(storedPhoneNumber) : undefined,
+      storedPhoneNumber,
       isVerified: profile?.phone_verification?.status === 'VERIFIED',
     }
   }
 
   if (user.user_type === UserType.PATIENT) {
     const profile = await PatientProfile.findById(user.profile_id).select('demographics.phone demographics.phone_verification')
+    const storedPhoneNumber = profile?.demographics?.phone
     return {
-      phoneNumber: profile?.demographics?.phone,
+      phoneNumber: storedPhoneNumber ? normalizeIndianPrimaryPhoneNumber(storedPhoneNumber) : undefined,
+      storedPhoneNumber,
       isVerified: profile?.demographics?.phone_verification?.status === 'VERIFIED',
     }
   }
@@ -248,9 +254,12 @@ const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string
     throw new ApiError(StatusCodes.NOT_FOUND, 'OTP challenge not found')
   }
 
-  const { phoneNumber, isVerified } = await getRegisteredPhoneState(user)
+  const { phoneNumber, storedPhoneNumber, isVerified } = await getRegisteredPhoneState(user)
   if (!phoneNumber) {
     throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number is required for OTP verification')
+  }
+  if (!/^\+91\d{10}$/.test(phoneNumber) || !storedPhoneNumber) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number must be updated before OTP verification')
   }
 
   if (isVerified) {
@@ -261,15 +270,15 @@ const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string
     throw new ApiError(StatusCodes.FORBIDDEN, 'OTP challenge does not match the registered phone number')
   }
 
-  return { challenge, user, phoneNumber }
+  return { challenge, user, phoneNumber, storedPhoneNumber }
 }
 
-const markRegisteredPhoneVerified = async (user: any, phoneNumber: string, verifiedAt: Date) => {
+const markRegisteredPhoneVerified = async (user: any, storedPhoneNumber: string, verifiedAt: Date) => {
   if (user.user_type === UserType.DOCTOR) {
     const result = await DoctorProfile.updateOne(
       {
         _id: user.profile_id,
-        contact_number: phoneNumber,
+        contact_number: storedPhoneNumber,
         'phone_verification.status': { $ne: 'VERIFIED' },
       },
       {
@@ -286,7 +295,7 @@ const markRegisteredPhoneVerified = async (user: any, phoneNumber: string, verif
     const result = await PatientProfile.updateOne(
       {
         _id: user.profile_id,
-        'demographics.phone': phoneNumber,
+        'demographics.phone': storedPhoneNumber,
         'demographics.phone_verification.status': { $ne: 'VERIFIED' },
       },
       {
@@ -424,8 +433,11 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     if (!phoneNumber) {
       throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number is required for OTP verification')
     }
-
     if (!isVerified) {
+      if (!/^\+91\d{10}$/.test(phoneNumber)) {
+        throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number must be updated before OTP verification')
+      }
+
       await OtpChallenge.updateMany(
         {
           user_id: user._id,
@@ -511,7 +523,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
 export const verifyLoginOtpController = asyncHandler(
   async (req: Request<{}, {}, VerifyLoginOtpInput["body"]>, res: Response) => {
     const { challenge_id, code } = req.body
-    const { challenge, user, phoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
+    const { challenge, user, phoneNumber, storedPhoneNumber } = await ensurePendingLoginChallengeForRegisteredPhone(challenge_id)
     const result = await verifyOtpChallenge(challenge._id.toString(), phoneNumber, code)
 
     if (!result) {
@@ -533,7 +545,7 @@ export const verifyLoginOtpController = asyncHandler(
     }
 
     const verifiedAt = (result.update as { verified_at?: Date }).verified_at || new Date()
-    const phoneVerified = await markRegisteredPhoneVerified(user, phoneNumber, verifiedAt)
+    const phoneVerified = await markRegisteredPhoneVerified(user, storedPhoneNumber, verifiedAt)
     if (!phoneVerified) {
       throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number changed during OTP verification')
     }

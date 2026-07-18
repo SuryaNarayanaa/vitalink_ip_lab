@@ -1,0 +1,66 @@
+name: Build Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Firebase Android configuration
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "Repository secret GOOGLE_SERVICES_JSON is not configured."
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: >-
+          flutter build apk --release
+          --build-number=${{ github.run_number }}
+          --dart-define=API_BASE_URL=https://vitalink-uimf.onrender.com
+          --dart-define=API_PATH_PREFIX=/api/v1
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitalink-apk-${{ github.sha }}
+          path: frontend/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

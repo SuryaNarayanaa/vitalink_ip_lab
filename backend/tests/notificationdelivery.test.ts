@@ -40,7 +40,7 @@ import AdminProfile from '@alias/models/adminprofile.model'
 import DoctorProfile from '@alias/models/doctorprofile.model'
 import Hospital from '@alias/models/hospital.model'
 import SystemConfig from '@alias/models/systemconfig.model'
-import { updateSystemConfig } from '@alias/services/config.service'
+import { clearSystemConfigCache, updateSystemConfig } from '@alias/services/config.service'
 import { createDoctorUpdateNotification } from '@alias/services/doctor-update-notification.service'
 import * as realtimeNotifications from '@alias/services/realtime-notification.service'
 
@@ -95,6 +95,7 @@ describe('Notification delivery durability', () => {
   }, 60_000)
 
   beforeEach(async () => {
+    clearSystemConfigCache()
     resetDeliveryMetrics()
     ;(config as any).notificationDeliveryMaxAttempts = 5
     ;(config as any).notificationDeliveryBaseBackoffMs = 10
