@@ -296,6 +296,7 @@ describe('Patient Routes', () => {
             expect(second.status).toBe(200);
 
             const profile = await PatientProfile.findById(patientProfile._id).lean();
+            // taken_doses stores UTC midnight Date values, not DD-MM-YYYY request strings
             const takenKeys = (profile?.medical_config?.taken_doses ?? []).map((d: any) => {
                 const date = d instanceof Date ? d : new Date(d);
                 const y = date.getUTCFullYear();
