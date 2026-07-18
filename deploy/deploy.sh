@@ -62,7 +62,7 @@ validate_production_env() {
     if [[ ! -f "$env_file" ]]; then
         err ".env.production not found in $DEPLOY_DIR"
         err "Copy .env.example and fill in production values:"
-        err "  cp ../backend/.env.example $env_file"
+        err "  cp $DEPLOY_DIR/.env.production.example $env_file"
         exit 1
     fi
 
