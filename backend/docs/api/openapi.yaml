@@ -59,7 +59,10 @@ paths:
     post:
       tags: [Authentication]
       summary: Authenticate user
-      description: Authenticates a user by login ID and password and returns a revocable session payload.
+      description: |
+        Authenticates a user by login ID and password.
+        Returns a revocable session payload on success, or a 202 challenge when
+        patient/doctor first-login SMS OTP or admin TOTP MFA is required.
       security: []
       requestBody:
         required: true
@@ -77,6 +80,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
+        "202":
+          description: Additional verification required (phone OTP or admin TOTP)
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginChallengeResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -87,6 +99,106 @@ paths:
           $ref: "#/components/responses/Locked"
         "429":
           $ref: "#/components/responses/LoginRateLimited"
+
+  /auth/login/otp/verify:
+    post:
+      tags: [Authentication]
+      summary: Verify patient/doctor login phone OTP
+      description: Completes a first-login SMS OTP challenge and returns a normal session payload.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyLoginOtpRequest"
+      responses:
+        "200":
+          description: OTP verified; session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/LoginRateLimited"
+
+  /auth/login/totp/verify:
+    post:
+      tags: [Authentication]
+      summary: Verify admin login TOTP
+      description: Completes an admin authenticator-app MFA challenge and returns a normal session payload.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyLoginTotpRequest"
+      responses:
+        "200":
+          description: TOTP verified; session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/LoginRateLimited"
+
+  /auth/admin/mfa/totp/setup:
+    post:
+      tags: [Authentication]
+      summary: Start admin TOTP enrollment
+      description: Creates a pending authenticator-app enrollment for the authenticated admin.
+      responses:
+        "200":
+          description: Enrollment secret and otpauth URI
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTotpSetupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/admin/mfa/totp/activate:
+    post:
+      tags: [Authentication]
+      summary: Activate admin TOTP enrollment
+      description: Confirms a pending authenticator-app enrollment with a valid TOTP code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateAdminTotpRequest"
+      responses:
+        "200":
+          description: Enrollment activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /auth/logout:
     post:
@@ -1145,6 +1257,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
 
   /admin/billing/checkout/{invoiceId}:
     post:
@@ -1169,6 +1283,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: Checkout provider is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /admin/users:
     get:
@@ -2001,6 +2121,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    Gone:
+      description: Resource no longer available
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     Conflict:
       description: Resource conflict
       content:
@@ -2313,6 +2439,96 @@ components:
                     user:
                       $ref: "#/components/schemas/User"
 
+    VerifyLoginOtpRequest:
+      type: object
+      required: [challenge_id, code]
+      properties:
+        challenge_id:
+          type: string
+        code:
+          type: string
+          description: SMS OTP code from Twilio Verify
+
+    VerifyLoginTotpRequest:
+      type: object
+      required: [challenge_id, code]
+      properties:
+        challenge_id:
+          type: string
+        code:
+          type: string
+          description: 6-digit authenticator-app code
+
+    ActivateAdminTotpRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: 6-digit code confirming enrollment
+
+    LoginChallengeResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [auth_status, challenge]
+              properties:
+                auth_status:
+                  type: string
+                  enum: [OTP_REQUIRED, TOTP_REQUIRED]
+                challenge:
+                  type: object
+                  properties:
+                    challenge_id:
+                      type: string
+                    purpose:
+                      type: string
+                    delivery_channel:
+                      type: string
+                    factor_type:
+                      type: string
+                    phone:
+                      type: object
+                      properties:
+                        masked:
+                          type: string
+                        last4:
+                          type: string
+                    expires_at:
+                      type: string
+                      format: date-time
+                    resend_available_at:
+                      type: string
+                      format: date-time
+                    attempts_remaining:
+                      type: integer
+                    max_attempts:
+                      type: integer
+                    resend_count:
+                      type: integer
+                    max_resends:
+                      type: integer
+
+    AdminTotpSetupResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                otpauth_url:
+                  type: string
+                secret:
+                  type: string
+                issuer:
+                  type: string
+                account_name:
+                  type: string
+
     MeResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponseBase"
@@ -2420,7 +2636,24 @@ components:
         phone:
           $ref: "#/components/schemas/PrimaryPhoneNumber"
         phone_verification:
-          $ref: "#/components/schemas/PhoneVerificationState"
+          allOf:
+            - $ref: "#/components/schemas/PhoneVerificationState"
+          readOnly: true
+        next_of_kin:
+          $ref: "#/components/schemas/NextOfKin"
+
+    PatientDemographicsUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        age:
+          type: integer
+        gender:
+          type: string
+          enum: [Male, Female, Other]
+        phone:
+          $ref: "#/components/schemas/PrimaryPhoneNumber"
         next_of_kin:
           $ref: "#/components/schemas/NextOfKin"
 
@@ -2747,7 +2980,7 @@ components:
       type: object
       properties:
         demographics:
-          $ref: "#/components/schemas/PatientDemographics"
+          $ref: "#/components/schemas/PatientDemographicsUpdate"
         medical_history:
           type: array
           items:
@@ -3211,7 +3444,13 @@ components:
 
     GenerateInvoicesRequest:
       type: object
+      required: [billing_period]
       properties:
+        billing_period:
+          type: string
+          pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+          description: Billing month in YYYY-MM format
+          example: "2026-07"
         plan:
           type: string
           default: Standard Tier (B2B)
@@ -3227,8 +3466,23 @@ components:
             data:
               type: object
               properties:
-                generated:
+                billing_period:
+                  type: string
+                created:
                   type: integer
+                already_existing:
+                  type: integer
+                invoices:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      invoice_id:
+                        type: string
+                      hospital_id:
+                        type: string
+                      created:
+                        type: boolean
 
     InvoiceCheckoutResponse:
       allOf:
@@ -3245,7 +3499,7 @@ components:
                   format: uri
                 provider:
                   type: string
-                  example: placeholder
+                  example: configured_hosted_checkout
 
     AdminConsoleUser:
       type: object

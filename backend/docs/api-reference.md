@@ -6,7 +6,7 @@ Last updated: 2026-07-05
 
 This document describes the currently implemented VitaLink backend API in a professional integration-ready format. It covers versioning, authentication, security expectations, common response patterns, pagination, file upload behavior, Server-Sent Events, and the implemented route surface.
 
-This is a human-readable reference for the API that exists today. It complements, but does not replace, a future OpenAPI specification.
+This is a human-readable companion to the machine-readable OpenAPI specification at `docs/api/openapi.yaml` (also served under `/docs` when enabled).
 
 ## Base URLs and Versioning
 
@@ -362,6 +362,27 @@ Security notes:
 - admins never use SMS/email OTP; when authenticator-app MFA is enabled, password login returns `202 Accepted` with `auth_status: "TOTP_REQUIRED"` and no token
 - in development/test, an un-enrolled admin may log in to bootstrap enrollment; in staging/production, un-enrolled admin login fails closed unless MFA has been provisioned
 - refresh tokens are stored only as hashes server-side
+
+### `POST /api/v1/auth/login/otp/verify`
+
+Verify a patient or doctor first-login SMS OTP challenge and issue the normal session payload.
+
+Request body:
+
+```json
+{
+  "challenge_id": "6890...",
+  "code": "<otp-code>"
+}
+```
+
+Notes:
+
+- applies to patient and doctor first-login phone challenges (`auth_status: "OTP_REQUIRED"` from password login)
+- `challenge_id` identifies the pending `OtpChallenge`; the code is checked with Twilio Verify
+- challenges expire, enforce attempt and resend limits, and cannot be replayed after verification
+- repeated password login reuses an unexpired pending challenge instead of bypassing resend limits
+- successful verification marks the registered phone verified and returns the same session shape as a normal login (`token`, `refresh_token`, `session`, `user`)
 
 ### `POST /api/v1/auth/login/totp/verify`
 
@@ -845,8 +866,9 @@ Create doctor request body:
 - `name`
 - optional `department`
 - `contact_number` (required, 10 digits)
-- optional `profile_picture_url`
 - optional `hospital_id` or `hospital`
+
+Profile images are not accepted on create/update JSON bodies. Use the authenticated multipart profile-picture upload endpoints after the doctor account exists.
 
 ### Patient administration
 

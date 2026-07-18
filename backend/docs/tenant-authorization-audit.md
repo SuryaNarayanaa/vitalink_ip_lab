@@ -7,8 +7,8 @@ This audit covers the backend route surface that reads or mutates tenant-owned c
 | Route/resource | Actor | Tenant rule | Result |
 |---|---|---|---|
 | `GET/PUT /api/patient/profile` | Patient | Authenticated patient can read or update only their own `User.profile_id`. | Enforced in controller by token user ID. |
-| `GET/POST /api/patient/reports` | Patient | Authenticated patient can access only their own `PatientProfile`; uploaded object keys include hospital and patient ownership. | Enforced and hardened. |
-| `POST /api/patient/profile-pic` | Patient | Authenticated patient can update only their own profile picture; object key includes hospital and user ownership. | Enforced and hardened. |
+| `GET/POST /api/patient/reports` | Patient | Authenticated patient can access only their own `PatientProfile`. Uploads create a tenant-scoped `FileAsset` (hospital, owner user, patient profile, purpose `INR_REPORT`); downloads authorize via FileAsset metadata plus report ownership, not object-key structure. | Enforced and hardened. |
+| `POST /api/patient/profile-pic` | Patient | Authenticated patient can update only their own profile picture. Upload creates/replaces a `FileAsset` with purpose `PATIENT_PROFILE_PICTURE` bound to hospital and owner; authorization and compensation use FileAsset metadata. | Enforced and hardened. |
 | Patient dosage, health logs, doctor updates, notifications | Patient | Authenticated patient can mutate/read only records attached to their own user/profile. | Enforced by user ID filters. |
 | Patient notification stream | Patient | Token must validate as active patient session before stream registration. | Enforced. |
 | `GET /api/doctors/patients*` and report reads | Doctor | Doctor must own the patient and, when hospital IDs exist, patient and doctor must share the hospital. | Hardened. |
