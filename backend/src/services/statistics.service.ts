@@ -9,7 +9,7 @@ async function getTenantScope(actorUserId?: string) {
   const tenantUserIds = await getTenantUserIdsForAdmin(actorUserId)
   return {
     hospitalId: ctx.hospitalId,
-    userIdFilter: tenantUserIds ? { $in: tenantUserIds } : { $in: [] },
+    userIdFilter: tenantUserIds === undefined ? undefined : { $in: tenantUserIds },
   }
 }
 

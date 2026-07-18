@@ -31,24 +31,28 @@ class _SessionRouteGuardState extends State<SessionRouteGuard> {
   late final Future<bool> _isAllowedFuture = _isAllowed();
 
   Future<bool> _isAllowed() async {
-    final token = await _storage.readToken();
-    final userJson = await _storage.readUser();
-    if (token == null || token.isEmpty || userJson == null) return false;
+    try {
+      final token = await _storage.readToken();
+      final userJson = await _storage.readUser();
+      if (token == null || token.isEmpty || userJson == null) return false;
 
-    final user = UserModel.fromJson(userJson);
-    if (!user.isActive) return false;
+      final user = UserModel.fromJson(userJson);
+      if (!user.isActive) return false;
 
-    switch (widget.access) {
-      case RouteAccess.authenticated:
-        return user.isAdmin || user.isDoctor || user.isPatient;
-      case RouteAccess.patient:
-        return user.isPatient;
-      case RouteAccess.doctor:
-        return user.isDoctor;
-      case RouteAccess.admin:
-        return user.isAdmin;
-      case RouteAccess.patientOrDoctor:
-        return user.isPatient || user.isDoctor;
+      switch (widget.access) {
+        case RouteAccess.authenticated:
+          return user.isAdmin || user.isDoctor || user.isPatient;
+        case RouteAccess.patient:
+          return user.isPatient;
+        case RouteAccess.doctor:
+          return user.isDoctor;
+        case RouteAccess.admin:
+          return user.isAdmin;
+        case RouteAccess.patientOrDoctor:
+          return user.isPatient || user.isDoctor;
+      }
+    } catch (_) {
+      return false;
     }
   }
 

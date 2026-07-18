@@ -18,6 +18,7 @@ import { hasActiveClinicalHospitalAccess, hasActiveHospitalAccess } from '@alias
 import { NotificationType } from '@alias/models/notification.model'
 import { endOfLocalClinicalDateKey } from '@alias/services/notification-validity.service'
 import { dateOnlyStringKey } from '@alias/utils/dateOnly'
+import type { ClientSession } from 'mongoose'
 
 const SCHEDULED_CLINICAL_TYPES = new Set<string>([
   NotificationType.DOSAGE_REMINDER,
@@ -67,13 +68,18 @@ function policyForType(type: unknown): NotificationRecipientPolicy | undefined {
     : NotificationRecipientPolicy.CLINICAL
 }
 
-async function trustedParent(notificationId: string) {
+async function trustedParent(notificationId: string, session?: ClientSession) {
   return Notification.findById(notificationId)
     .select('user_id type title message push_delivery_required push_delivery_cancelled_at delivery_valid_until data reminder_key')
+    .session(session ?? null)
     .lean()
 }
 
-async function terminalizeCancelledOutbox(notificationId: string, reason = 'skipped:notification_cancelled') {
+async function terminalizeCancelledOutbox(
+  notificationId: string,
+  reason = 'skipped:notification_cancelled',
+  session?: ClientSession,
+) {
   await NotificationDelivery.updateMany(
     {
       notification_id: notificationId,
@@ -87,6 +93,7 @@ async function terminalizeCancelledOutbox(notificationId: string, reason = 'skip
     },
     { $set: { status: NotificationDeliveryStatus.SKIPPED, completed_at: new Date(), last_error: reason },
       $unset: { processing_started_at: 1, processing_lease_id: 1, recovery_lease_id: 1, recovery_lease_expires_at: 1 } },
+    { session },
   )
 }
 
@@ -98,7 +105,7 @@ export async function cancelNotificationPush(notificationId: string, reason: str
   await terminalizeCancelledOutbox(notificationId)
 }
 
-async function resolveDeliveryValidity(input: EnqueuePushInput): Promise<{
+async function resolveDeliveryValidity(input: EnqueuePushInput, session?: ClientSession): Promise<{
   deliveryValidUntil?: Date
   scheduledClinical: boolean
 }> {
@@ -107,6 +114,7 @@ async function resolveDeliveryValidity(input: EnqueuePushInput): Promise<{
   }
   const notification = await Notification.findById(input.notificationId)
     .select('type data reminder_key delivery_valid_until')
+    .session(session ?? null)
     .lean()
   if (!notification) return { scheduledClinical: false }
   if (notification.delivery_valid_until) {
@@ -128,6 +136,7 @@ async function resolveDeliveryValidity(input: EnqueuePushInput): Promise<{
     await Notification.updateOne(
       { _id: notification._id, delivery_valid_until: { $exists: false } },
       { $set: { delivery_valid_until: deliveryValidUntil } },
+      { session },
     )
   }
   return { deliveryValidUntil, scheduledClinical }
@@ -190,8 +199,8 @@ function payloadDataAsRecord(
  * Persist a durable outbox row for FCM delivery. Idempotent on notification_id+channel+provider.
  * Never throws for duplicate keys; returns the existing or created document.
  */
-export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
-  const parent = await trustedParent(input.notificationId)
+export async function createPushDeliveryOutbox(input: EnqueuePushInput, session?: ClientSession) {
+  const parent = await trustedParent(input.notificationId, session)
   const recipientPolicy = parent && policyForType(parent.type)
   const parentTrusted = Boolean(parent && recipientPolicy && String(parent.user_id) === String(input.userId))
   // The durable parent is the auditable notification intent. Callers may
@@ -200,7 +209,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
   const validity = await resolveDeliveryValidity({
     ...input,
     deliveryValidUntil: parent?.delivery_valid_until,
-  })
+  }, session)
   const deliveryValidUntil = validity.deliveryValidUntil
   const idempotencyKey = buildIdempotencyKey(input.notificationId)
   const maxAttempts = config.notificationDeliveryMaxAttempts
@@ -213,7 +222,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
     ? 'skipped:missing_delivery_validity'
     : 'skipped:expired_notification'
 
-  const existing = await NotificationDelivery.findOne({ idempotency_key: idempotencyKey }).lean()
+  const existing = await NotificationDelivery.findOne({ idempotency_key: idempotencyKey }).session(session ?? null).lean()
   if (existing) {
     if (parentTrusted && existing.attempts === 0 &&
         !TERMINAL_STATUSES.has(existing.status as NotificationDeliveryStatus)) {
@@ -225,6 +234,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       await NotificationDelivery.updateOne(
         { _id: existing._id, attempts: 0, status: { $in: CLAIMABLE_STATUSES } },
         { $set: durablePayload },
+        { session },
       )
       existing.title = durablePayload.title
       existing.body = durablePayload.body
@@ -234,6 +244,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       const adopted = await NotificationDelivery.updateOne(
         { _id: existing._id, recipient_policy: { $exists: false } },
         { $set: { recipient_policy: recipientPolicy, notification_type: String(parent!.type) } },
+        { session },
       )
       if (adopted.modifiedCount) {
         existing.recipient_policy = recipientPolicy
@@ -241,7 +252,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       }
     }
     if (cancelledOrMissingParent && !TERMINAL_STATUSES.has(existing.status as NotificationDeliveryStatus)) {
-      await terminalizeCancelledOutbox(input.notificationId, terminalReason)
+      await terminalizeCancelledOutbox(input.notificationId, terminalReason, session)
       existing.status = NotificationDeliveryStatus.SKIPPED
       return { delivery: existing, created: false as const }
     }
@@ -249,6 +260,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       const adopted = await NotificationDelivery.updateOne(
         { _id: existing._id, delivery_valid_until: { $exists: false } },
         { $set: { delivery_valid_until: deliveryValidUntil } },
+        { session },
       )
       if (adopted.modifiedCount) existing.delivery_valid_until = deliveryValidUntil
     }
@@ -257,6 +269,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       await NotificationDelivery.updateOne(
         { _id: existing._id, status: { $nin: [...TERMINAL_STATUSES] }, delivery_valid_until: { $exists: false } },
         { $set: { status: NotificationDeliveryStatus.SKIPPED, completed_at: new Date(), last_error: terminalReason } },
+        { session },
       )
       existing.status = NotificationDeliveryStatus.SKIPPED
     }
@@ -265,14 +278,16 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
       await NotificationDelivery.updateOne(
         { _id: existing._id, status: { $nin: [...TERMINAL_STATUSES] }, delivery_valid_until: { $lte: new Date() } },
         { $set: { status: NotificationDeliveryStatus.SKIPPED, completed_at: new Date(), last_error: 'skipped:expired_notification' } },
+        { session },
       )
       existing.status = NotificationDeliveryStatus.SKIPPED
     }
     const marked = await Notification.updateOne(
       { _id: input.notificationId, push_delivery_required: true, push_delivery_cancelled_at: { $exists: false } },
       { $set: { push_delivery_enqueued_at: new Date() } },
+      { session },
     )
-    if (!marked.matchedCount) await terminalizeCancelledOutbox(input.notificationId)
+    if (!marked.matchedCount) await terminalizeCancelledOutbox(input.notificationId, undefined, session)
     incrementDeliveryMetric('duplicate_suppressed')
     logger.info('notification_delivery.duplicate_suppressed', {
       deliveryId: String(existing._id),
@@ -283,7 +298,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
   }
 
   try {
-    const created = await NotificationDelivery.create({
+    const [created] = await NotificationDelivery.create([{
       notification_id: input.notificationId,
       user_id: input.userId,
       channel: NotificationDeliveryChannel.FCM,
@@ -303,13 +318,14 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
         ? { completed_at: new Date(), last_error: terminalReason }
         : {}),
       expires_at: retentionExpiry(),
-    })
+    }], { session })
     const marked = await Notification.updateOne(
       { _id: input.notificationId, push_delivery_required: true, push_delivery_cancelled_at: { $exists: false } },
       { $set: { push_delivery_enqueued_at: new Date() } },
+      { session },
     )
     if (!marked.matchedCount && !TERMINAL_STATUSES.has(created.status as NotificationDeliveryStatus)) {
-      await terminalizeCancelledOutbox(input.notificationId)
+      await terminalizeCancelledOutbox(input.notificationId, undefined, session)
       created.status = NotificationDeliveryStatus.SKIPPED
     }
     incrementDeliveryMetric('enqueued')
@@ -333,7 +349,7 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
     }
 
     incrementDeliveryMetric('duplicate_suppressed')
-    const existing = await NotificationDelivery.findOne({ idempotency_key: idempotencyKey })
+    const existing = await NotificationDelivery.findOne({ idempotency_key: idempotencyKey }).session(session ?? null)
     if (!existing) {
       incrementDeliveryMetric('enqueue_failed')
       throw error
@@ -341,8 +357,9 @@ export async function createPushDeliveryOutbox(input: EnqueuePushInput) {
     const marked = await Notification.updateOne(
       { _id: input.notificationId, push_delivery_required: true, push_delivery_cancelled_at: { $exists: false } },
       { $set: { push_delivery_enqueued_at: new Date() } },
+      { session },
     )
-    if (!marked.matchedCount) await terminalizeCancelledOutbox(input.notificationId)
+    if (!marked.matchedCount) await terminalizeCancelledOutbox(input.notificationId, undefined, session)
     logger.info('notification_delivery.duplicate_suppressed', {
       deliveryId: String(existing._id),
       notificationId: input.notificationId,

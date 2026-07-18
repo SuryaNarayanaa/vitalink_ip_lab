@@ -79,7 +79,10 @@ class SecureStorage {
 
   Future<Map<String, dynamic>?> readUser() async {
     final raw = await _storage.read(key: AppStrings.userKey);
-    if (raw == null || raw.isEmpty) return null;
+    if (raw == null || raw.isEmpty) {
+      _cachedUser = null;
+      return null;
+    }
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) {

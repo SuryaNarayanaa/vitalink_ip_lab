@@ -19,6 +19,7 @@ import {
     markAllDoctorNotificationsAsRead,
     markDoctorNotificationAsRead,
     streamDoctorNotifications,
+    createDoctorNotificationStreamTicket,
 } from '@alias/controllers/doctor.controller'
 import {
     createPatient,
@@ -71,6 +72,7 @@ const uploadProfilePicture = (req: Request, res: Response, next: NextFunction) =
 const router = Router()
 
 router.get('/notifications/stream', streamDoctorNotifications)
+router.post('/notifications/stream-ticket', authenticate, AllowDoctor, createDoctorNotificationStreamTicket)
 router.get('/notifications', authenticate, AllowDoctor, validate(notificationsQuerySchema), getDoctorNotifications)
 router.patch('/notifications/read-all', authenticate, AllowDoctor, markAllDoctorNotificationsAsRead)
 router.patch('/notifications/:notification_id/read', authenticate, AllowDoctor, validate(markNotificationReadSchema), markDoctorNotificationAsRead)

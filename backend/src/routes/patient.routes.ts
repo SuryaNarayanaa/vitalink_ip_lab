@@ -19,6 +19,7 @@ import {
 	markDoctorUpdateAsRead,
 	markAllDoctorUpdatesAsRead,
 	streamNotifications,
+	createPatientNotificationStreamTicket,
 } from '@alias/controllers/patient.controller'
 import {
 	reportSchema,
@@ -106,6 +107,7 @@ router.get('/dosage-calendar', authenticate, AllowPatient, validate(dosageCalend
 router.post('/dosage', authenticate, AllowPatient, validate(takeDosageSchema), takeDosage)
 router.post('/health-logs', authenticate, AllowPatient, validate(updateHealthLogSchema), updateHealthLogs)
 router.get('/notifications/stream', streamNotifications)
+router.post('/notifications/stream-ticket', authenticate, AllowPatient, createPatientNotificationStreamTicket)
 router.get('/notifications', authenticate, AllowPatient, validate(notificationsQuerySchema), getNotifications)
 router.patch('/notifications/read-all', authenticate, AllowPatient, markAllNotificationsAsRead)
 router.patch('/notifications/:notification_id/read', authenticate, AllowPatient, validate(markNotificationReadSchema), markNotificationAsRead)

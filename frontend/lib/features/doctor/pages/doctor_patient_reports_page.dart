@@ -180,7 +180,9 @@ class _DoctorPatientReportsPageAltState
       _reportsFuture = _loadReports();
       await _reportsFuture;
     } finally {
-      setState(() => _isRefreshing = false);
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
     }
   }
 
