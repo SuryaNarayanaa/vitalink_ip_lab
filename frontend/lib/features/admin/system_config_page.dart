@@ -115,6 +115,34 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
     }
   }
 
+  Future<void> _reloadConfig() async {
+    if (!_hasUnsavedChanges) {
+      await _loadConfig();
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard unsaved changes?'),
+        content: const Text(
+          'Reloading will replace your unsaved configuration changes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Discard and Reload'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _loadConfig();
+  }
+
   Future<void> _loadHealth() async {
     try {
       final health = await _repo.getSystemHealth();
@@ -296,7 +324,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: _isLoading ? null : _loadConfig,
+                            onPressed: _isLoading ? null : _reloadConfig,
                             icon: const Icon(Icons.refresh),
                             label: const Text('Reload'),
                           ),
@@ -521,7 +549,7 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadConfig,
+            onPressed: _isLoading ? null : _reloadConfig,
             tooltip: 'Reload',
           ),
           const SizedBox(width: 8),

@@ -56,8 +56,16 @@ class _SessionBootstrapPageState extends State<SessionBootstrapPage> {
   }
 
   Future<void> _cleanupSession() async {
-    await _storage.clearAuthData();
-    await QueryCache.instance.clear();
+    try {
+      await _storage.clearAuthData();
+    } catch (_) {
+      // Session fallback must still reach login if secure storage is unavailable.
+    }
+    try {
+      await QueryCache.instance.clear();
+    } catch (_) {
+      // Cache cleanup is best-effort and must not block login navigation.
+    }
   }
 
   @override

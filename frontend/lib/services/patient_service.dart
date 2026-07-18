@@ -10,6 +10,17 @@ class PatientService {
 
   static String _endpoint(String path) => path;
 
+  static void _rejectNonSuccessfulResponse(Response<dynamic> response) {
+    final statusCode = response.statusCode;
+    if (statusCode != null && statusCode >= 200 && statusCode < 300) return;
+    throw DioException(
+      requestOptions: response.requestOptions,
+      response: response,
+      type: DioExceptionType.badResponse,
+      message: 'Request failed with status code $statusCode',
+    );
+  }
+
   static final Dio _dio = Dio(
     BaseOptions(
       baseUrl: baseUrl,
@@ -158,7 +169,8 @@ class PatientService {
         ));
       }
 
-      await _dio.post(_endpoint('/reports'), data: formData);
+      final response = await _dio.post(_endpoint('/reports'), data: formData);
+      _rejectNonSuccessfulResponse(response);
     } on DioException catch (e) {
       throw Exception('Failed to submit report: ${e.message}');
     }
@@ -178,9 +190,7 @@ class PatientService {
         },
       );
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to submit health log');
-      }
+      _rejectNonSuccessfulResponse(response);
     } on DioException catch (e) {
       throw Exception('Failed to submit health log: ${e.message}');
     }
@@ -192,10 +202,11 @@ class PatientService {
   }) async {
     _setupInterceptors();
     try {
-      await _dio.post(_endpoint('/dosage'), data: {
+      final response = await _dio.post(_endpoint('/dosage'), data: {
         'date': date,
         'dose': dose,
       });
+      _rejectNonSuccessfulResponse(response);
     } on DioException catch (e) {
       throw Exception('Failed to mark dose as taken: ${e.message}');
     }
@@ -294,16 +305,6 @@ class PatientService {
                 'Follow doctor instructions',
           });
         }
-
-        // Add additional common medications
-        prescriptions.add({
-          'drug': 'Aspirin',
-          'dosage': '75mg',
-          'frequency': 'Once daily',
-          'startDate':
-              formatDate(report['medical_config']['therapy_start_date']),
-          'instructions': 'Take in the morning with food',
-        });
 
         return prescriptions;
       }

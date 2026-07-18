@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:html' as html;
 
 import 'notification_stream_client_interface.dart';
@@ -19,12 +20,29 @@ class _WebNotificationStreamClient implements NotificationStreamClient {
   }) async {
     await disconnect();
 
-    final withToken = uri.replace(queryParameters: {
+    final ticketUri = uri.replace(
+      path: uri.path.replaceFirst(RegExp(r'/stream$'), '/stream-ticket'),
+    );
+    final ticketResponse = await html.HttpRequest.request(
+      ticketUri.toString(),
+      method: 'POST',
+      requestHeaders: {'Authorization': 'Bearer $token'},
+    );
+    final decoded = jsonDecode(ticketResponse.responseText ?? '');
+    final ticket = decoded is Map
+        ? ((decoded['data'] is Map ? decoded['data']['ticket'] : null) ??
+            decoded['ticket'])
+        : null;
+    if (ticket is! String || ticket.isEmpty) {
+      throw StateError('Notification stream ticket was not returned');
+    }
+
+    final withTicket = uri.replace(queryParameters: {
       ...uri.queryParameters,
-      if (token.isNotEmpty) 'token': token,
+      'ticket': ticket,
     });
 
-    final es = html.EventSource(withToken.toString());
+    final es = html.EventSource(withTicket.toString());
     _eventSource = es;
 
     void listenNamedEvent(String name) {

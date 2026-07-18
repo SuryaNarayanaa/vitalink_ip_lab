@@ -137,6 +137,9 @@ export async function getAdminContext(userId?: string) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'Valid admin profile is required')
   }
   const hospitalId = profile?.hospital_id?._id || profile?.hospital_id
+  if (role === AdminRole.HOSPITAL_ADMIN && !hospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital Admin must be assigned to a hospital')
+  }
   const permissions = await getRolePermissions(role)
   return {
     role,

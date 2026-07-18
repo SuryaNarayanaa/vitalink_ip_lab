@@ -32,6 +32,7 @@ import {
 } from '@alias/services/doctor-update-notification.service'
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
+import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
 
 const normalizeLoginId = (value: string) => value.trim()
 
@@ -188,7 +189,8 @@ const notifyPatientDoctorUpdate = async (
   changeType: DoctorChangeType,
   title: string,
   message: string,
-  changedFields: string[] = []
+  changedFields: string[] = [],
+  options: { session?: mongoose.ClientSession; idempotencyKey?: string } = {},
 ) => {
   // Persists both the in-app notification and durable push outbox before the
   // request completes; queue publication itself remains best-effort.
@@ -199,6 +201,8 @@ const notifyPatientDoctorUpdate = async (
     title,
     message,
     changedFields,
+    session: options.session,
+    idempotencyKey: options.idempotencyKey,
   })
 
 }
@@ -217,15 +221,26 @@ const mapNotificationToAppNotificationItem = (notification: any) => ({
 
 const resolveDoctorStreamUserOrThrow = async (req: Request) => {
   const headerToken = extractTokenFromHeader(req.headers.authorization)
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : null
-  const token = headerToken || queryToken
-  if (!token) {
+  if (headerToken) {
+    const { user } = await validateAuthToken(headerToken, UserType.DOCTOR)
+    return user
+  }
+  const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
+  const payload = ticket ? verifyNotificationStreamTicket(ticket, UserType.DOCTOR) : null
+  if (!payload) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
   }
-
-  const { user } = await validateAuthToken(token, UserType.DOCTOR)
+  const user = await User.findById(payload.user_id)
+  if (!user?.is_active || user.user_type !== UserType.DOCTOR) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+  }
   return user
 }
+
+export const createDoctorNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
+  const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.DOCTOR)
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
+})
 
 export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   const { user_id } = req.user
@@ -461,16 +476,38 @@ export const reassignPatient = asyncHandler(async (
     }
     await releaseAssignmentGuard.assertOwned()
     await releaseCurrentDoctorGuard.assertOwned()
-    patient = await PatientProfile.findOneAndUpdate(
-      doctorOwnedPatientFilter(patientUser.profile_id, currentDoctorUser, existingPatientProfile.hospital_id),
-      {
-        $set: {
-          assigned_doctor_id: doctorUser._id,
-          assigned_doctor_fence: releaseAssignmentGuard.fenceToken,
-        },
-      },
-      { new: true, runValidators: true }
-    )
+    const reassignmentSession = await mongoose.startSession()
+    try {
+      await reassignmentSession.withTransaction(async () => {
+        patient = await PatientProfile.findOneAndUpdate(
+          doctorOwnedPatientFilter(patientUser.profile_id, currentDoctorUser, existingPatientProfile.hospital_id),
+          {
+            $set: {
+              assigned_doctor_id: doctorUser._id,
+              assigned_doctor_fence: releaseAssignmentGuard.fenceToken,
+            },
+          },
+          { new: true, runValidators: true, session: reassignmentSession }
+        )
+        if (!patient) throwOwnershipChanged()
+        await releaseAssignmentGuard.assertOwned()
+        await releaseCurrentDoctorGuard.assertOwned()
+        await notifyPatientDoctorUpdate(
+          patientUser._id,
+          currentDoctorUser._id,
+          'DOCTOR_REASSIGNED',
+          'Doctor assignment changed',
+          `Your case was reassigned to doctor ${new_doctor_id}.`,
+          ['assigned_doctor_id'],
+          {
+            session: reassignmentSession,
+            idempotencyKey: `doctor-reassignment:${patient._id}:${currentDoctorUser._id}:${doctorUser._id}:${releaseAssignmentGuard.fenceToken}`,
+          },
+        )
+      })
+    } finally {
+      await reassignmentSession.endSession()
+    }
     if (patient) {
       try {
         await releaseAssignmentGuard.assertOwned()
@@ -538,15 +575,6 @@ export const reassignPatient = asyncHandler(async (
     if (releaseCurrentDoctorGuard !== releaseAssignmentGuard) await releaseCurrentDoctorGuard()
   }
   if (!patient) throwOwnershipChanged()
-
-  await notifyPatientDoctorUpdate(
-    patientUser._id,
-    currentDoctorUser._id,
-    'DOCTOR_REASSIGNED',
-    'Doctor assignment changed',
-    `Your case was reassigned to doctor ${new_doctor_id}.`,
-    ['assigned_doctor_id']
-  )
 
   try {
     await AuditLog.create({

@@ -498,6 +498,7 @@ class _PatientSearchSheetState extends State<_PatientSearchSheet> {
                 final p = _filteredPatients[index];
                 final patientOp = p.opNumber?.trim();
                 final canSelect = patientOp != null && patientOp.isNotEmpty;
+                final patientName = p.name.trim();
                 return ListTile(
                   enabled: canSelect,
                   contentPadding:
@@ -507,7 +508,7 @@ class _PatientSearchSheetState extends State<_PatientSearchSheet> {
                         ? const Color(0xFF6366F1).withValues(alpha: 0.1)
                         : Colors.grey.withValues(alpha: 0.1),
                     child: Text(
-                      p.name[0],
+                      patientName.isNotEmpty ? patientName[0] : '?',
                       style: TextStyle(
                         color:
                             canSelect ? const Color(0xFF6366F1) : Colors.grey,

@@ -64,7 +64,7 @@ function getTwilioErrorDetails(error: unknown): Record<string, unknown> {
 export class TwilioVerifyService implements TwilioVerifyClient {
   private readonly httpClient: AxiosInstance
 
-  constructor(httpClient: AxiosInstance = axios.create()) {
+  constructor(httpClient: AxiosInstance = axios.create({ timeout: config.requestTimeoutMs })) {
     this.httpClient = httpClient
   }
 

@@ -6,6 +6,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
+import 'package:frontend/features/doctor/models/doctor_profile_model.dart';
 import 'package:styled_widget/styled_widget.dart';
 
 class AddPatientForm extends StatefulWidget {
@@ -55,7 +56,6 @@ class _AddPatientFormState extends State<AddPatientForm> {
     'Sun': false,
   };
   DateTime? _therapyStartDate;
-  final String _doctorName = 'Dr. Doctor 2';
 
   @override
   void dispose() {
@@ -234,13 +234,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Welcome, $_doctorName',
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white),
-                ).padding(bottom: 14),
+                const _DoctorGreeting(),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(20),
                   child: BackdropFilter(
@@ -273,7 +267,11 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                 Expanded(
                                     child: _buildTextField(_ageCtrl, 'Age',
                                         hint: 'Enter your age',
-                                        keyboard: TextInputType.number)),
+                                        keyboard: TextInputType.number,
+                                        numeric: true,
+                                        integerOnly: true,
+                                        min: 1,
+                                        max: 120)),
                                 const SizedBox(width: 12),
                                 Expanded(
                                     child: _buildDropdown(
@@ -291,6 +289,9 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                         _targetMinCtrl, 'Target INR Min',
                                         hint: 'Min',
                                         isRequired: true,
+                                        numeric: true,
+                                        min: 0,
+                                        minExclusive: true,
                                         keyboard: const TextInputType
                                             .numberWithOptions(decimal: true))),
                                 const SizedBox(width: 12),
@@ -299,6 +300,10 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                         _targetMaxCtrl, 'Target INR Max',
                                         hint: 'Max',
                                         isRequired: true,
+                                        numeric: true,
+                                        min: 0,
+                                        minExclusive: true,
+                                        greaterThan: _targetMinCtrl,
                                         keyboard: const TextInputType
                                             .numberWithOptions(decimal: true))),
                               ],
@@ -418,7 +423,11 @@ class _AddPatientFormState extends State<AddPatientForm> {
             children: [
               Expanded(
                   child: _buildTextField(_historyDurationCtrl, 'Duration',
-                      hint: 'Duration', keyboard: TextInputType.number)),
+                      hint: 'Duration',
+                      keyboard: TextInputType.number,
+                      numeric: true,
+                      min: 0,
+                      minExclusive: true)),
               const SizedBox(width: 12),
               Expanded(
                   child: _buildDropdown('Unit', _historyUnit, _durationUnits,
@@ -453,6 +462,12 @@ class _AddPatientFormState extends State<AddPatientForm> {
     bool isRequired = false,
     TextInputType keyboard = TextInputType.text,
     bool readOnly = false,
+    bool numeric = false,
+    bool integerOnly = false,
+    double? min,
+    double? max,
+    bool minExclusive = false,
+    TextEditingController? greaterThan,
     VoidCallback? onTap,
     Widget? suffix,
   }) {
@@ -473,6 +488,31 @@ class _AddPatientFormState extends State<AddPatientForm> {
           validator: (value) {
             if (isRequired && (value == null || value.trim().isEmpty)) {
               return '$label is required';
+            }
+            final text = value?.trim() ?? '';
+            if (numeric && text.isNotEmpty) {
+              final parsed = double.tryParse(text);
+              if (parsed == null || !parsed.isFinite) {
+                return '$label must be a valid number';
+              }
+              if (integerOnly && parsed != parsed.truncateToDouble()) {
+                return '$label must be a whole number';
+              }
+              if (min != null &&
+                  (minExclusive ? parsed <= min : parsed < min)) {
+                return minExclusive
+                    ? '$label must be greater than $min'
+                    : '$label must be at least $min';
+              }
+              if (max != null && parsed > max) {
+                return '$label must not exceed $max';
+              }
+              final comparison = greaterThan == null
+                  ? null
+                  : double.tryParse(greaterThan.text.trim());
+              if (comparison != null && parsed <= comparison) {
+                return '$label must be greater than Target INR Min';
+              }
             }
             return null;
           },
@@ -657,6 +697,17 @@ class _AddPatientFormState extends State<AddPatientForm> {
               enabled: enabled,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              validator: (value) {
+                if (!enabled) return null;
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) return '$day dose is required';
+                final dose = double.tryParse(text);
+                if (dose == null || !dose.isFinite) {
+                  return '$day dose must be numeric';
+                }
+                if (dose <= 0) return '$day dose must be greater than 0';
+                return null;
+              },
               decoration: InputDecoration(
                 hintText: 'mg',
                 suffixText: 'mg',
@@ -705,6 +756,37 @@ class AddPatientPage extends StatelessWidget {
           child: const AddPatientForm(),
         ),
       ),
+    );
+  }
+}
+
+class _DoctorGreeting extends StatelessWidget {
+  const _DoctorGreeting();
+
+  @override
+  Widget build(BuildContext context) {
+    return UseQuery<DoctorProfileModel>(
+      options: QueryOptions<DoctorProfileModel>(
+        queryKey: DoctorQueryKeys.profile(),
+        queryFn: AppDependencies.doctorRepository.getDoctorProfile,
+      ),
+      builder: (context, query) {
+        final doctorName = query.isSuccess ? query.data?.name.trim() : null;
+        if (doctorName == null ||
+            doctorName.isEmpty ||
+            doctorName.toLowerCase() == 'unknown') {
+          return const SizedBox.shrink();
+        }
+
+        return Text(
+          'Welcome, $doctorName',
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ).padding(bottom: 14);
+      },
     );
   }
 }
