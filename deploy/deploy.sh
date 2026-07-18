@@ -50,10 +50,12 @@ get_inactive_slot() {
     fi
 }
 
+#get_container_name returns the Docker container name for a deployment slot.
 get_container_name() {
     echo "vitalink-$1"
 }
 
+# validate_production_env verifies that .env.production exists and contains a non-empty, non-placeholder JWT_SECRET of at least 32 characters.
 validate_production_env() {
     local env_file="$DEPLOY_DIR/.env.production"
     local jwt_secret
@@ -189,7 +191,8 @@ stop_slot() {
 
 # ---------------------------------------------------------------------------
 # DEPLOY: Blue-Green zero-downtime deployment
-# ---------------------------------------------------------------------------
+# deploy performs a blue-green deployment after validating the production environment, switching traffic only after the new slot is healthy.
+# It exits with an error and leaves the active slot unchanged if the new slot fails health checks.
 deploy() {
     local active inactive
 
@@ -304,7 +307,7 @@ status() {
 
 # ---------------------------------------------------------------------------
 # INITIAL: First-time deployment (starts both Nginx and active slot)
-# ---------------------------------------------------------------------------
+# initial performs the first deployment by starting the blue application slot and Nginx, then records blue as active after a successful health check.
 initial() {
     log "============================================="
     log "  VitaLink Initial Deployment"
