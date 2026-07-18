@@ -4,7 +4,11 @@ type AsyncRequestHandler = (req: Request, res: Response, next: NextFunction) => 
 
 const asyncHandler = (requestHandler: AsyncRequestHandler): RequestHandler => {
     return (req: Request, res: Response, next: NextFunction): void => {
-        Promise.resolve(requestHandler(req, res, next)).catch(next)
+        try {
+            Promise.resolve(requestHandler(req, res, next)).catch(next)
+        } catch (error) {
+            next(error)
+        }
     }
 }
 
