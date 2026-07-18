@@ -295,16 +295,6 @@ class PatientService {
           });
         }
 
-        // Add additional common medications
-        prescriptions.add({
-          'drug': 'Aspirin',
-          'dosage': '75mg',
-          'frequency': 'Once daily',
-          'startDate':
-              formatDate(report['medical_config']['therapy_start_date']),
-          'instructions': 'Take in the morning with food',
-        });
-
         return prescriptions;
       }
       return [];

@@ -50,8 +50,59 @@ get_inactive_slot() {
     fi
 }
 
+#get_container_name returns the Docker container name for a deployment slot.
 get_container_name() {
     echo "vitalink-$1"
+}
+
+# validate_production_env verifies that .env.production exists and contains a non-empty, non-placeholder JWT_SECRET of at least 32 characters.
+validate_production_env() {
+    local env_file="$DEPLOY_DIR/.env.production"
+    local jwt_secret
+
+    # Preserve the existing environment-file preflight.
+    if [[ ! -f "$env_file" ]]; then
+        err ".env.production not found in $DEPLOY_DIR"
+        err "Copy .env.example and fill in production values:"
+        err "  cp $DEPLOY_DIR/.env.production.example $env_file"
+        exit 1
+    fi
+
+    jwt_secret=$(sed -n 's/^[[:space:]]*JWT_SECRET[[:space:]]*=[[:space:]]*//p' "$env_file" | tail -n 1)
+    jwt_secret=${jwt_secret%$'\r'}
+
+    # Accept conventional quoted dotenv values without treating the file as shell code.
+    if [[ ${#jwt_secret} -ge 2 ]]; then
+        if [[ "$jwt_secret" == \"*\" && "$jwt_secret" == *\" ]] ||
+           [[ "$jwt_secret" == \'*\' && "$jwt_secret" == *\' ]]; then
+            jwt_secret=${jwt_secret:1:${#jwt_secret}-2}
+        fi
+    fi
+
+    # Strip inline comments (after quote stripping to avoid removing # inside quotes)
+    # Only strip if there's whitespace before the #
+    jwt_secret=$(echo "$jwt_secret" | sed 's/[[:space:]][[:space:]]*#.*//')
+
+    # Strip trailing whitespace
+    jwt_secret=$(echo "$jwt_secret" | sed 's/[[:space:]]*$//')
+
+    if [[ -z "$jwt_secret" ]]; then
+        err "JWT_SECRET is missing or empty in $env_file."
+        err "Set JWT_SECRET to a strong random secret of at least 32 characters."
+        exit 1
+    fi
+
+    if [[ "$jwt_secret" == "CHANGE_ME_TO_A_STRONG_RANDOM_SECRET" ]]; then
+        err "JWT_SECRET in $env_file still uses the example placeholder."
+        err "Replace it with a strong random secret of at least 32 characters."
+        exit 1
+    fi
+
+    if (( ${#jwt_secret} < 32 )); then
+        err "JWT_SECRET in $env_file is too short (${#jwt_secret} characters)."
+        err "JWT_SECRET must be a strong random secret of at least 32 characters."
+        exit 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -147,9 +198,13 @@ stop_slot() {
 
 # ---------------------------------------------------------------------------
 # DEPLOY: Blue-Green zero-downtime deployment
-# ---------------------------------------------------------------------------
+# deploy performs a blue-green deployment after validating the production environment, switching traffic only after the new slot is healthy.
+# It exits with an error and leaves the active slot unchanged if the new slot fails health checks.
 deploy() {
     local active inactive
+
+    validate_production_env
+
     active=$(get_active_slot)
     inactive=$(get_inactive_slot)
 
@@ -259,19 +314,13 @@ status() {
 
 # ---------------------------------------------------------------------------
 # INITIAL: First-time deployment (starts both Nginx and active slot)
-# ---------------------------------------------------------------------------
+# initial performs the first deployment by starting the blue application slot and Nginx, then records blue as active after a successful health check.
 initial() {
     log "============================================="
     log "  VitaLink Initial Deployment"
     log "============================================="
 
-    # Check for .env.production
-    if [[ ! -f "$DEPLOY_DIR/.env.production" ]]; then
-        err ".env.production not found in $DEPLOY_DIR"
-        err "Copy .env.example and fill in production values:"
-        err "  cp ../backend/.env.example $DEPLOY_DIR/.env.production"
-        exit 1
-    fi
+    validate_production_env
 
     # Create required directories
     mkdir -p "$DEPLOY_DIR/nginx/certs"
