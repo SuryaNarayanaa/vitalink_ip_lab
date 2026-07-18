@@ -513,6 +513,7 @@ The following uniqueness guarantees exist in the current implementation.
 | `fileassets` | `{ bucket, object_key }` | Unique compound index | One metadata record per stored object |
 | `notificationdeliveries` | `idempotency_key` | Unique index | One provider/channel outbox row per notification |
 | `adminmfachallenges` | `user_id` where status is `PENDING` | Unique partial index | At most one pending admin MFA challenge per user |
+| `devicetokens` | `fcm_token` | Unique index | Each FCM token has exactly one device owner for push delivery |
 
 Current gaps:
 

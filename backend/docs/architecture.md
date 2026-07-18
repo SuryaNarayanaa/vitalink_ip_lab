@@ -78,8 +78,8 @@ flowchart LR
   Patient --> Mongo
   Doctor --> Mongo
   Admin --> Mongo
-  Patient -->|presigned PUT/GET helpers| Filebase
-  Doctor -->|presigned GET helpers| Filebase
+  Patient -->|server multipart upload + FileAsset| Filebase
+  Doctor -->|server multipart upload + FileAsset| Filebase
 
   Patient --> Outbox
   Doctor --> Outbox
@@ -105,8 +105,12 @@ flowchart LR
   profiles, auth sessions, OTP challenges, notifications, audit logs, hospitals,
   invoices, and system config.
 - File storage uses the AWS SDK against the Filebase S3-compatible endpoint.
-  Report and profile file flows use one-hour presigned PUT/GET URLs or server
-  side upload helpers, and only object keys are stored with domain records.
+  Report and profile uploads are server-side multipart flows: the API authorizes
+  the caller, streams the file to Filebase, creates a tenant-scoped `FileAsset`
+  (hospital, owner, purpose, checksum), and persists `file_asset_id` alongside a
+  compatibility object key. Download URLs are short-lived presigned GETs resolved
+  from FileAsset metadata. On upload failure before the domain record commits,
+  the service compensates by deleting the orphaned object/asset.
 - Twilio Verify is implemented for patient and doctor first-login phone OTP
   verification. Admin TOTP MFA is implemented separately through backend TOTP
   services.
@@ -168,19 +172,22 @@ sequenceDiagram
   participant DB as MongoDB
   participant Doctor as Doctor app
 
-  Patient->>API: POST /api/v1/patient/reports with report metadata + file
-  API->>API: Validate patient auth, mime type, and size
-  API->>S3: Upload via presigned PUT helper
-  S3-->>API: Stored object key
-  API->>DB: Save report record and object key
+  Patient->>API: POST /api/v1/patient/reports multipart (metadata + file)
+  API->>API: Authorize patient, validate mime/size, open file lease
+  API->>S3: Server-side PutObject (tenant-scoped key)
+  S3-->>API: Stored object
+  API->>DB: Create FileAsset (tenant/owner/purpose) + report with file_asset_id + key
+  alt DB commit fails after upload
+    API->>S3: Compensate (delete object / mark asset failed)
+  end
   API-->>Patient: Created report response
 
   Doctor->>API: GET /api/v1/doctors/patients/{op_num}/reports
-  API->>DB: Fetch assigned patient reports
+  API->>DB: Fetch assigned patient reports (ownership + hospital checks)
   API-->>Doctor: Report metadata
   Doctor->>API: GET /api/v1/doctors/patients/{op_num}/reports/{report_id}
-  API->>DB: Check assignment and load report key
-  API->>S3: Generate presigned download URL
+  API->>DB: Authorize via FileAsset metadata (tenant/owner/purpose)
+  API->>S3: Generate short-lived presigned GET
   API-->>Doctor: Report details with temporary download URL
   Doctor->>API: PUT report review/status update
   API->>DB: Persist review status/instructions
