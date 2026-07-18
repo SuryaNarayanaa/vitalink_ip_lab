@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const normalizeIndianPrimaryPhoneNumber = (phoneNumber: string): string => {
+export const normalizeIndianPrimaryPhoneNumber = (phoneNumber: string): string => {
   const compactPhoneNumber = phoneNumber.trim().replace(/[\s()-]/g, '')
 
   if (/^\d{10}$/.test(compactPhoneNumber)) {
