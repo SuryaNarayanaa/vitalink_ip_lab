@@ -26,6 +26,7 @@ import { compensateFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset, 
 import { config } from '@alias/config'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
+import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -121,15 +122,26 @@ const getDoctorUpdateNotifications = async (
 
 const resolvePatientStreamUserOrThrow = async (req: Request) => {
 	const headerToken = extractTokenFromHeader(req.headers.authorization)
-	const queryToken = typeof req.query.token === 'string' ? req.query.token : null
-	const token = headerToken || queryToken
-	if (!token) {
+	if (headerToken) {
+		const { user } = await validateAuthToken(headerToken, UserType.PATIENT)
+		return user
+	}
+	const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
+	const payload = ticket ? verifyNotificationStreamTicket(ticket, UserType.PATIENT) : null
+	if (!payload) {
 		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
 	}
-
-	const { user } = await validateAuthToken(token, UserType.PATIENT)
+	const user = await User.findById(payload.user_id)
+	if (!user?.is_active || user.user_type !== UserType.PATIENT) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+	}
 	return user
 }
+
+export const createPatientNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
+	const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.PATIENT)
+	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
+})
 
 export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 	const { user_id } = req.user
@@ -637,7 +649,7 @@ export const updateHealthLogs = asyncHandler(async (req: Request<{}, {}, UpdateH
 		throw new ApiError(StatusCodes.CONFLICT, 'Patient clinical state changed while health logs were being updated')
 	}
 
-	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Health Logs Updated Suucessfully"))
+	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Health Logs Updated Successfully"))
 })
 
 export const updateProfilePicture = asyncHandler(async (req: Request, res: Response) => {
@@ -792,6 +804,7 @@ export const markAllDoctorUpdatesAsRead = asyncHandler(async (
 			user_id: patientUser._id,
 			type: NotificationType.DOCTOR_UPDATE,
 			is_read: false,
+			push_delivery_cancelled_at: { $exists: false },
 		},
 		{ is_read: true, read_at: new Date() }
 	)

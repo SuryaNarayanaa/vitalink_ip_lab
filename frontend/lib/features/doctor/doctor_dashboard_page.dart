@@ -398,7 +398,7 @@ class _TableView extends StatelessWidget {
           DataColumn(label: Text('OP #')),
           DataColumn(label: Text('Age')),
           DataColumn(label: Text('Gender')),
-          // DataColumn(label: Text('Condition')),
+          DataColumn(label: Text('Condition')),
           DataColumn(label: Text('Action')),
         ],
         rows: patients

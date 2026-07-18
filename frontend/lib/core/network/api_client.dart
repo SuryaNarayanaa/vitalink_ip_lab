@@ -93,6 +93,12 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+class _RefreshRejected implements Exception {
+  const _RefreshRejected(this.cause);
+
+  final Object cause;
+}
+
 /// Lightweight API client that attaches bearer tokens when available and
 /// normalizes the backend's ApiResponse shape.
 class ApiClient {
@@ -117,7 +123,7 @@ class ApiClient {
   static const String _requiresAuthExtra = 'requiresAuth';
   static const String _skipAuthRefreshExtra = 'skipAuthRefresh';
   static const String _hasRetriedAfterRefreshExtra = 'hasRetriedAfterRefresh';
-  Future<String?>? _pendingRefresh;
+  Future<String>? _pendingRefresh;
 
   void _logDebug(String message) {
     if (kDebugMode) debugPrint(message);
@@ -128,21 +134,31 @@ class ApiClient {
       InterceptorsWrapper(
         onError: (error, handler) async {
           if (_shouldHandleUnauthorized(error)) {
-            final token = await _refreshAccessToken();
-            if (token != null && token.isNotEmpty) {
-              try {
-                final retryResponse = await _retryWithAccessToken(error, token);
-                handler.resolve(retryResponse);
-                return;
-              } on DioException catch (retryError) {
-                if (retryError.response?.statusCode == 401) {
+            try {
+              final token = await _refreshAccessToken();
+              final retryResponse = await _retryWithAccessToken(error, token);
+              handler.resolve(retryResponse);
+              return;
+            } on _RefreshRejected catch (refreshError) {
+              await SessionExpiryHandler.clearSessionAndRedirectToLogin();
+              handler.next(_refreshFailureAsDio(error, refreshError.cause));
+              return;
+            } on DioException catch (refreshError) {
+              if (refreshError.requestOptions.extra[
+                      _hasRetriedAfterRefreshExtra] ==
+                  true) {
+                if (refreshError.response?.statusCode == 401) {
                   await SessionExpiryHandler.clearSessionAndRedirectToLogin();
                 }
-                handler.next(retryError);
+                handler.next(refreshError);
                 return;
               }
+              handler.next(refreshError);
+              return;
+            } catch (refreshError) {
+              handler.next(_refreshFailureAsDio(error, refreshError));
+              return;
             }
-            await SessionExpiryHandler.clearSessionAndRedirectToLogin();
           }
           handler.next(error);
         },
@@ -165,15 +181,17 @@ class ApiClient {
     return requiresAuth || hasAuthHeader;
   }
 
-  Future<String?> _refreshAccessToken() {
+  Future<String> _refreshAccessToken() {
     return _pendingRefresh ??= _runRefreshAccessToken().whenComplete(
       () => _pendingRefresh = null,
     );
   }
 
-  Future<String?> _runRefreshAccessToken() async {
+  Future<String> _runRefreshAccessToken() async {
     final refreshToken = await _secureStorage.readRefreshToken();
-    if (refreshToken == null || refreshToken.isEmpty) return null;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw const _RefreshRejected('Refresh token is missing');
+    }
 
     try {
       final response = await _dio.post<Map<String, dynamic>>(
@@ -198,10 +216,17 @@ class ApiClient {
         body['refreshToken'],
       ]);
 
-      if (token == null || rotatedRefreshToken == null) return null;
+      if (token == null || rotatedRefreshToken == null) {
+        throw DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+          message: 'Refresh response did not contain valid tokens',
+        );
+      }
 
-      await _secureStorage.saveToken(token);
       await _secureStorage.saveRefreshToken(rotatedRefreshToken);
+      await _secureStorage.saveToken(token);
       final session = body['session'];
       if (session is Map<String, dynamic>) {
         await _secureStorage.saveAuthSession(session);
@@ -209,10 +234,45 @@ class ApiClient {
       return token;
     } on DioException catch (e) {
       _logDebug('Session refresh failed: ${e.response?.statusCode ?? e.type}');
-      return null;
-    } catch (_) {
-      return null;
+      if (_isConfirmedRefreshRejection(e)) throw _RefreshRejected(e);
+      rethrow;
+    } on ApiException catch (e) {
+      if (_isExplicitInvalidRefreshTokenMessage(e.message)) {
+        throw _RefreshRejected(e);
+      }
+      rethrow;
     }
+  }
+
+  bool _isConfirmedRefreshRejection(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == 401 || statusCode == 403) return true;
+    final data = error.response?.data;
+    if (data is! Map) return false;
+    return _isExplicitInvalidRefreshTokenMessage(
+      '${data['message'] ?? data['error'] ?? ''}',
+    );
+  }
+
+  bool _isExplicitInvalidRefreshTokenMessage(String message) {
+    final normalized = message.toLowerCase();
+    return normalized.contains('refresh token') &&
+        (normalized.contains('invalid') ||
+            normalized.contains('expired') ||
+            normalized.contains('revoked'));
+  }
+
+  DioException _refreshFailureAsDio(
+    DioException originalRequestError,
+    Object cause,
+  ) {
+    if (cause is DioException) return cause;
+    return DioException(
+      requestOptions: originalRequestError.requestOptions,
+      type: DioExceptionType.unknown,
+      error: cause,
+      message: 'Access-token refresh failed: $cause',
+    );
   }
 
   Future<Response<dynamic>> _retryWithAccessToken(

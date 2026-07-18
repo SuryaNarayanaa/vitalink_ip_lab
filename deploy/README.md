@@ -1,4 +1,4 @@
-i# VitaLink EC2 Manual Deployment Guide
+# VitaLink EC2 Manual Deployment Guide
 
 When CI/CD is not working, follow these steps to manually deploy and manage the service on EC2.
 

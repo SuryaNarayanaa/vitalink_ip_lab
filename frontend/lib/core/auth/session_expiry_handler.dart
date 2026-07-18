@@ -14,8 +14,16 @@ class SessionExpiryHandler {
   }
 
   static Future<void> _run() async {
-    await _storage.clearAuthData();
-    await QueryCache.instance.clear();
+    try {
+      await _storage.clearAuthData();
+    } catch (_) {
+      // Session expiry must still reach login if secure storage is unavailable.
+    }
+    try {
+      await QueryCache.instance.clear();
+    } catch (_) {
+      // Cache cleanup is best-effort and must not block login navigation.
+    }
 
     final navigator = AppRouter.navigatorKey.currentState;
     if (navigator == null) {

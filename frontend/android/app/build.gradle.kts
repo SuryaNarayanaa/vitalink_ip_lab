@@ -9,11 +9,15 @@ plugins {
 }
 
 val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystorePropertiesFile = rootProject.file("key.properties")
 
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
+
+val requiredSigningProperties = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
+val releaseSigningConfigured = keystorePropertiesFile.exists() &&
+    requiredSigningProperties.all { !keystoreProperties.getProperty(it).isNullOrBlank() }
 
 android {
     namespace = "com.vitalink.frontend"
@@ -41,7 +45,7 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (releaseSigningConfigured) {
             create("release") {
                 val keyAlias = keystoreProperties.getProperty("keyAlias")
                 val keyPassword = keystoreProperties.getProperty("keyPassword")
@@ -60,10 +64,18 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+}
+
+tasks.configureEach {
+    val isReleaseArtifactTask =
+        (name.startsWith("assemble") || name.startsWith("bundle")) && name.endsWith("Release")
+    if (isReleaseArtifactTask) {
+        doFirst {
+            check(releaseSigningConfigured) {
+                "Release signing requires frontend/android/key.properties with: ${requiredSigningProperties.joinToString()}"
             }
         }
     }

@@ -6,6 +6,8 @@ import { cancelNotificationPush, enqueueNotificationPush } from '@alias/services
 import logger from '@alias/utils/logger'
 import { isFeatureEnabled } from '@alias/services/config.service'
 import { hasActiveClinicalHospitalAccess } from '@alias/services/hospital-access.service'
+import type { ClientSession } from 'mongoose'
+import { createPushDeliveryOutbox } from '@alias/services/notification-delivery.service'
 
 export type DoctorChangeType =
   | 'DOCTOR_REASSIGNED'
@@ -22,6 +24,8 @@ type CreateDoctorUpdateNotificationInput = {
   message: string
   changedFields?: string[]
   priority?: NotificationPriority
+  idempotencyKey?: string
+  session?: ClientSession
 }
 
 export async function createDoctorUpdateNotification(input: CreateDoctorUpdateNotificationInput) {
@@ -36,7 +40,7 @@ export async function createDoctorUpdateNotification(input: CreateDoctorUpdateNo
     // clinical record should be created after the operational pause begins.
     if (!await isFeatureEnabled('notifications_enabled')) return null
 
-    const created = await Notification.create({
+    const notificationData = {
       user_id: String(input.patientUserId),
       type: NotificationType.DOCTOR_UPDATE,
       priority: input.priority ?? NotificationPriority.HIGH,
@@ -49,10 +53,33 @@ export async function createDoctorUpdateNotification(input: CreateDoctorUpdateNo
       },
       push_delivery_required: true,
       expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-    })
+      ...(input.idempotencyKey ? { reminder_key: input.idempotencyKey } : {}),
+    }
+    const created = input.idempotencyKey
+      ? await Notification.findOneAndUpdate(
+        { reminder_key: input.idempotencyKey },
+        { $setOnInsert: notificationData },
+        { new: true, upsert: true, runValidators: true, session: input.session },
+      )
+      : await Notification.create([notificationData], input.session ? { session: input.session } : undefined)
+        .then(([notification]) => notification)
 
     if (!created) {
       throw new Error('Failed to create doctor update notification')
+    }
+
+    // Transactional callers persist the notification and its durable outbox
+    // atomically. Queue/realtime publication is intentionally left to recovery
+    // after commit so no consumer can observe an uncommitted clinical change.
+    if (input.session) {
+      await createPushDeliveryOutbox({
+        notificationId: String(created._id),
+        userId: String(input.patientUserId),
+        title: created.title,
+        body: created.message,
+        data: { change_type: input.changeType },
+      }, input.session)
+      return created
     }
 
     // Close the pre-create tenant-state race before any outbox or realtime
@@ -109,6 +136,7 @@ export async function createDoctorUpdateNotification(input: CreateDoctorUpdateNo
 
     return created
   } catch (error) {
+    if (input.session) throw error
     // The clinical mutation is already committed before this helper runs. A
     // notification outage must not turn that successful mutation into a 500.
     logger.error('notification_delivery.doctor_update_failed', {
