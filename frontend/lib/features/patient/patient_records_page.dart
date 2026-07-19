@@ -18,8 +18,6 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
 
   @override
   Widget build(BuildContext context) {
-    const bottomPadding = 28.0;
-
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.recordsFull(),
@@ -61,13 +59,13 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
             child: RefreshIndicator(
               onRefresh: () async => query.refetch(),
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+                padding: PortalLayout.pagePadding(embedInShell: true),
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildTabBar(),
-                    const SizedBox(height: 20),
+                    PortalLayout.sectionSpacer,
                     if (_selectedTabIndex == 0)
                       _buildINRHistory(profile, history)
                     else if (_selectedTabIndex == 1)

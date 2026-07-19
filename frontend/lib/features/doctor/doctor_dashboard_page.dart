@@ -254,7 +254,7 @@ class _PatientsView extends StatelessWidget {
         final filtered = filterPatients(patients);
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          padding: PortalLayout.doctorShellPadding,
           physics: const BouncingScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -263,12 +263,12 @@ class _PatientsView extends StatelessWidget {
                 isTableView: isTableView,
                 onToggle: onToggleView,
               ),
-              const SizedBox(height: 12),
+              PortalLayout.itemSpacer,
               _SearchBar(
                 controller: searchController,
                 count: filtered.length,
               ),
-              const SizedBox(height: 16),
+              PortalLayout.sectionSpacerTight,
               if (query.isLoading)
                 const ListSkeleton(
                   itemCount: 4,
@@ -316,10 +316,12 @@ class _SearchBar extends StatelessWidget {
         hintText: '$count Viewing Patients',
         filled: true,
         fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: PortalLayout.cardPadding,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(PortalLayout.pillRadius),
           borderSide: BorderSide.none,
         ),
       ),
@@ -348,10 +350,10 @@ class _ToggleBar extends StatelessWidget {
         AnimatedContainer(
           duration: AppMotion.duration(context, AppMotion.state),
           curve: AppMotion.easeOutQuint,
-          padding: const EdgeInsets.all(4),
+          padding: const EdgeInsets.all(AppSpacing.xxs),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.06),
@@ -391,7 +393,9 @@ class _CardView extends StatelessWidget {
       children: [
         for (int i = 0; i < patients.length; i++)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: EdgeInsets.only(
+              bottom: i == patients.length - 1 ? 0 : PortalLayout.itemGap,
+            ),
             child: _PatientCard(
               patient: patients[i],
               allPatients: patients,
@@ -458,7 +462,7 @@ class _TableView extends StatelessWidget {
             .toList(),
       ).decorated(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -466,7 +470,7 @@ class _TableView extends StatelessWidget {
             offset: const Offset(0, 6),
           ),
         ],
-      ).padding(all: 4),
+      ).padding(all: AppSpacing.xxs),
     );
   }
 }
@@ -479,12 +483,12 @@ class _EmptyState extends StatelessWidget {
     return Column(
       children: const [
         Icon(Icons.search_off, size: 36, color: Colors.black54),
-        SizedBox(height: 8),
+        SizedBox(height: AppSpacing.xs),
         Text('No patients found'),
       ],
-    ).center().padding(vertical: 32).decorated(
+    ).center().padding(vertical: PortalLayout.pageBottomStandalone).decorated(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
       boxShadow: [
         BoxShadow(
           color: Colors.black.withValues(alpha: 0.05),
@@ -531,12 +535,12 @@ class _PatientCard extends StatelessWidget {
           style: const TextStyle(
               fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
         ),
-        const SizedBox(height: 4),
+        PortalLayout.metaSpacer,
         Text('OP #: ${patient.opNumber ?? 'N/A'}',
             style: const TextStyle(color: Colors.black54, fontSize: 12)),
         Text('Age: ${patient.age ?? '-'}, Gender: ${patient.gender ?? '-'}',
             style: const TextStyle(color: Colors.black54, fontSize: 12)),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.sm - 2),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
@@ -546,10 +550,10 @@ class _PatientCard extends StatelessWidget {
         ),
       ]
           .toColumn(crossAxisAlignment: CrossAxisAlignment.start)
-          .padding(all: 14)
+          .padding(all: PortalLayout.cardPadding)
           .decorated(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -580,10 +584,13 @@ class _TogglePill extends StatelessWidget {
       child: AnimatedContainer(
         duration: AppMotion.duration(context, AppMotion.state),
         curve: AppMotion.easeOutQuint,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: AppSpacing.xs,
+        ),
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFFFF7643) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(PortalLayout.controlRadius),
         ),
         child: AnimatedDefaultTextStyle(
           duration: AppMotion.duration(context, AppMotion.instant),

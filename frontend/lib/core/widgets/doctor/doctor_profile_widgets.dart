@@ -52,7 +52,7 @@ class DoctorProfileContent extends StatelessWidget {
                 )
               : DoctorAvatarPlaceholder(name: profile.name),
         ),
-        const SizedBox(height: 20),
+        PortalLayout.sectionSpacerTight,
 
         // Doctor Name
         Text(
@@ -64,11 +64,14 @@ class DoctorProfileContent extends StatelessWidget {
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
+        PortalLayout.labelSpacer,
 
         // Department Badge
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+            horizontal: PortalLayout.cardPadding,
+            vertical: AppSpacing.xs,
+          ),
           decoration: BoxDecoration(
             color: const Color(0xFFFF7643).withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
@@ -83,29 +86,30 @@ class DoctorProfileContent extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        PortalLayout.sectionSpacer,
 
-        // Info Cards
+        // Info Cards — tight group
         DoctorInfoCard(
           icon: Icons.people,
           label: 'Patients',
           value: profile.patientsCount.toString(),
           color: const Color(0xFF6366F1),
         ),
-        const SizedBox(height: 12),
+        PortalLayout.itemSpacer,
 
-        if (profile.contactNumber != null)
+        if (profile.contactNumber != null) ...[
           DoctorInfoCard(
             icon: Icons.phone,
             label: 'Contact',
             value: profile.contactNumber!,
             color: const Color(0xFF10B981),
           ),
-        const SizedBox(height: 12),
+          PortalLayout.itemSpacer,
+        ],
 
         // Profile Details Section
         DoctorProfileDetails(profile: profile),
-        const SizedBox(height: 24),
+        PortalLayout.sectionSpacer,
 
         // Action Buttons
         DoctorActionButtons(

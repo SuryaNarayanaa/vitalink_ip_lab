@@ -89,13 +89,17 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                 child: RefreshIndicator(
                   onRefresh: () async => query.refetch(),
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    padding: PortalLayout.pagePadding(
+                      embedInShell: widget.embedInShell,
+                    ),
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: PortalLayout.cardInsetsComfortable,
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(
+                            PortalLayout.cardRadius,
+                          ),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withValues(alpha: 0.06),
@@ -131,17 +135,19 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                   foregroundColor: Colors.white,
                                   minimumSize: const Size.fromHeight(48),
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 12,
+                                    horizontal: PortalLayout.cardPaddingComfortable,
+                                    vertical: PortalLayout.itemGap,
                                   ),
                                   elevation: 0,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(
+                                      PortalLayout.controlRadius,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            PortalLayout.sectionSpacerTight,
                             DosageSection(
                               title: 'Missed Doses',
                               subtitle:
@@ -150,7 +156,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                 if (recentDoses.isEmpty)
                                   Center(
                                     child: Padding(
-                                      padding: const EdgeInsets.all(20),
+                                      padding: PortalLayout.cardInsetsComfortable,
                                       child: Text(
                                         'No missed doses in the last 7 days',
                                         style: TextStyle(
@@ -173,8 +179,8 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                         gridDelegate:
                                             SliverGridDelegateWithFixedCrossAxisCount(
                                           crossAxisCount: isCompact ? 2 : 3,
-                                          crossAxisSpacing: 12,
-                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: PortalLayout.itemGap,
+                                          mainAxisSpacing: PortalLayout.itemGap,
                                           childAspectRatio:
                                               isCompact ? 2.8 : 2.5,
                                         ),
@@ -196,7 +202,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                   ),
                               ],
                             ),
-                            const SizedBox(height: 24),
+                            PortalLayout.sectionSpacer,
                             DosageSection(
                               title: 'Remaining Missed Doses',
                               children: [

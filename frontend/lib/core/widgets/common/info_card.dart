@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:styled_widget/styled_widget.dart';
 
 /// A reusable card widget for displaying information sections.
@@ -33,9 +34,19 @@ class InfoCard extends StatelessWidget {
           if (actions != null) actions!.toRow(mainAxisSize: MainAxisSize.min),
         ]
             .toRow(mainAxisAlignment: MainAxisAlignment.spaceBetween)
-            .padding(horizontal: 16, top: 16, bottom: 8),
+            .padding(
+              horizontal: PortalLayout.cardPadding,
+              top: PortalLayout.cardPadding,
+              bottom: AppSpacing.xs,
+            ),
       Padding(
-        padding: padding ?? const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: padding ??
+            const EdgeInsets.fromLTRB(
+              PortalLayout.cardPadding,
+              AppSpacing.xs,
+              PortalLayout.cardPadding,
+              PortalLayout.cardPadding,
+            ),
         child: child,
       ),
     ]
@@ -45,7 +56,7 @@ class InfoCard extends StatelessWidget {
         )
         .decorated(
           color: backgroundColor ?? Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -80,7 +91,8 @@ class InfoRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return <Widget>[
       if (icon != null)
-        Icon(icon, size: 18, color: const Color(0xFF6B7280)).padding(right: 8),
+        Icon(icon, size: 18, color: const Color(0xFF6B7280))
+            .padding(right: AppSpacing.xs),
       Text(label, style: labelStyle ??
           const TextStyle(
             fontSize: 14,
@@ -95,6 +107,8 @@ class InfoRow extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ))
           .expanded(),
-    ].toRow(crossAxisAlignment: CrossAxisAlignment.start).padding(vertical: 6);
+    ]
+        .toRow(crossAxisAlignment: CrossAxisAlignment.start)
+        .padding(vertical: AppSpacing.xxs + 2);
   }
 }

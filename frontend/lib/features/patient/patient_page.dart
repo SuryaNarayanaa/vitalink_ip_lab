@@ -25,8 +25,6 @@ class _PatientPageState extends State<PatientPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.embedInShell ? 20.0 : 28.0;
-
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.homeData(),
@@ -99,11 +97,14 @@ class _PatientPageState extends State<PatientPage> {
             child: RefreshIndicator(
               onRefresh: () async => query.refetch(),
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(16, 20, 16, bottomPadding),
+                padding: PortalLayout.pagePadding(
+                  embedInShell: widget.embedInShell,
+                  top: PortalLayout.pageTop,
+                ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                     children: [
-                      // 1. Unified Profile Info Card
+                      // 1. Identity + key clinical metrics (primary)
                       _buildSectionCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -117,19 +118,25 @@ class _PatientPageState extends State<PatientPage> {
                                 letterSpacing: 2.0,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            PortalLayout.metaSpacer,
                             if ((profile['opNumber']
                                     ?.toString()
                                     .trim()
                                     .isNotEmpty ??
                                 false))
                               Container(
-                                margin: const EdgeInsets.only(bottom: 8),
+                                margin: const EdgeInsets.only(
+                                  bottom: AppSpacing.xs,
+                                ),
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 5),
+                                  horizontal: PortalLayout.itemGap,
+                                  vertical: 5,
+                                ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFEEF2FF),
-                                  borderRadius: BorderRadius.circular(999),
+                                  borderRadius: BorderRadius.circular(
+                                    PortalLayout.pillRadius,
+                                  ),
                                   border: Border.all(
                                       color: const Color(0xFFC7D2FE), width: 1),
                                 ),
@@ -151,13 +158,17 @@ class _PatientPageState extends State<PatientPage> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            PortalLayout.labelSpacer,
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
+                                horizontal: PortalLayout.itemGap,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: patientConditionBg,
-                                borderRadius: BorderRadius.circular(999),
+                                borderRadius: BorderRadius.circular(
+                                  PortalLayout.pillRadius,
+                                ),
                               ),
                               child: Text(
                                 'Condition: $patientCondition',
@@ -170,7 +181,9 @@ class _PatientPageState extends State<PatientPage> {
                               ),
                             ),
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
+                              padding: EdgeInsets.symmetric(
+                                vertical: PortalLayout.itemGap,
+                              ),
                               child: Divider(height: 1, color: Color(0xFFE2E8F0)),
                             ),
                             _buildRowItem(
@@ -183,7 +196,9 @@ class _PatientPageState extends State<PatientPage> {
                               ),
                             ),
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
+                              padding: EdgeInsets.symmetric(
+                                vertical: PortalLayout.itemGap,
+                              ),
                               child: Divider(height: 1, color: Color(0xFFE2E8F0)),
                             ),
                             _buildRowItem(
@@ -196,7 +211,9 @@ class _PatientPageState extends State<PatientPage> {
                               ),
                             ),
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
+                              padding: EdgeInsets.symmetric(
+                                vertical: PortalLayout.itemGap,
+                              ),
                               child: Divider(height: 1, color: Color(0xFFE2E8F0)),
                             ),
                             LayoutBuilder(
@@ -217,7 +234,7 @@ class _PatientPageState extends State<PatientPage> {
                                               letterSpacing: 1.0,
                                             ),
                                           ),
-                                          const SizedBox(height: 8),
+                                          PortalLayout.labelSpacer,
                                           Text(
                                             latestINR.toStringAsFixed(1),
                                             style: const TextStyle(
@@ -278,16 +295,18 @@ class _PatientPageState extends State<PatientPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      PortalLayout.sectionSpacer,
 
-                      // 2. Instructions
+                      // 2. Instructions (clinical priority)
                       if (profile['instructions'] is List &&
                           (profile['instructions'] as List).isNotEmpty)
                         ...List.generate(
                           (profile['instructions'] as List).length,
                           (index) {
                             return Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.only(
+                                bottom: PortalLayout.sectionGapTight,
+                              ),
                               child: _buildSectionCard(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,7 +330,7 @@ class _PatientPageState extends State<PatientPage> {
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 8),
+                                    PortalLayout.labelSpacer,
                                     Text(
                                       profile['instructions'][index]
                                               ?.toString() ??
@@ -330,7 +349,9 @@ class _PatientPageState extends State<PatientPage> {
                         )
                       else
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.only(
+                            bottom: PortalLayout.sectionGapTight,
+                          ),
                           child: _buildSectionCard(
                             child: const Text(
                               'No special instructions recorded.',
@@ -360,7 +381,7 @@ class _PatientPageState extends State<PatientPage> {
                           },
                         ]),
                       ),
-                      const SizedBox(height: 16),
+                      PortalLayout.sectionSpacer,
 
                       // 4. Medical History (Dynamic Chart) Card
                       _buildSectionCard(
@@ -375,13 +396,13 @@ class _PatientPageState extends State<PatientPage> {
                                 color: Color(0xFF2D3748),
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            PortalLayout.sectionSpacer,
                             _buildINRChart(
                                 history.cast<Map<String, dynamic>>()),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      PortalLayout.sectionSpacer,
 
                       // 5. Prescription Grid Card
                       _buildSectionCard(
@@ -396,13 +417,13 @@ class _PatientPageState extends State<PatientPage> {
                                 color: Color(0xFF2D3748),
                               ),
                             ),
-                            const SizedBox(height: 18),
+                            PortalLayout.sectionSpacerTight,
                             _buildPrescriptionTable(
                                 profile['weeklyDosage'] ?? {}),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      PortalLayout.sectionSpacerTight,
 
                       // 6. Monitoring & Side Effects Card
                       _buildSectionCard(
@@ -417,7 +438,7 @@ class _PatientPageState extends State<PatientPage> {
                                 color: Color(0xFF2D3748),
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            PortalLayout.sectionSpacerTight,
                             _buildHealthNote('Side Effects',
                                 profile['sideEffects'] ?? 'None Reported'),
                             _buildHealthNote('Lifestyle',
@@ -429,7 +450,7 @@ class _PatientPageState extends State<PatientPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      PortalLayout.sectionSpacerTight,
 
                       // 7. Emergency Contact Card
                       _buildSectionCard(
@@ -448,7 +469,6 @@ class _PatientPageState extends State<PatientPage> {
                           },
                         ]),
                       ),
-                      const SizedBox(height: 16),
                     ],
                 ),
               ),
@@ -492,7 +512,7 @@ class _PatientPageState extends State<PatientPage> {
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -501,7 +521,7 @@ class _PatientPageState extends State<PatientPage> {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(20),
+      padding: PortalLayout.cardInsetsComfortable,
       child: child,
     );
   }

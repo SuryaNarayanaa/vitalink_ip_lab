@@ -86,7 +86,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
                   child: _buildCalendarView(dataMap),
                 ),
                 _buildLegend(),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.xs),
               ],
             ),
           );
@@ -104,10 +104,15 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
 
   Widget _buildCalendarView(Map<String, Map<String, dynamic>> dataMap) {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(
+        PortalLayout.pageGutter,
+        PortalLayout.pageTop,
+        PortalLayout.pageGutter,
+        PortalLayout.itemGap,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -130,7 +135,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
           // Load more button
           if (_loadedMonths < 12)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(PortalLayout.itemGap),
               child: TextButton.icon(
                 onPressed: () {
                   _loadMoreData();
@@ -151,7 +156,10 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
     final monthYear = DateFormat('MMMM yyyy').format(_currentMonth);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: PortalLayout.itemGap,
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isCompact = constraints.maxWidth < 360;

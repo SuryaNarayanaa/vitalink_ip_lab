@@ -24,8 +24,6 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
-
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.profileFull(),
@@ -72,7 +70,10 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
             child: RefreshIndicator(
               onRefresh: () async => query.refetch(),
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(20, 32, 20, bottomPadding),
+                padding: PortalLayout.pagePadding(
+                  embedInShell: widget.embedInShell,
+                  top: PortalLayout.pageTopComfortable,
+                ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -81,7 +82,7 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
                       profile: profile,
                       onProfileUpdated: () => query.refetch(),
                     ),
-                    const SizedBox(height: 20),
+                    PortalLayout.sectionSpacer,
                     _DoctorUpdatesCard(
                       updates: doctorUpdates,
                       unreadCount: unreadCount,
@@ -161,10 +162,10 @@ class _DoctorUpdatesCard extends StatelessWidget {
         (visibleCount * _updateTileHeight) + ((visibleCount - 1) * 10);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: PortalLayout.cardInsets,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
@@ -172,8 +173,8 @@ class _DoctorUpdatesCard extends StatelessWidget {
         children: [
           Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
             children: [
               const Icon(
                 Icons.notifications_active_outlined,
@@ -186,11 +187,13 @@ class _DoctorUpdatesCard extends StatelessWidget {
               ),
               if (unreadCount > 0)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                    vertical: AppSpacing.xxs,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFEF4444),
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(PortalLayout.pillRadius),
                   ),
                   child: Text(
                     '$unreadCount new',
@@ -203,7 +206,7 @@ class _DoctorUpdatesCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          PortalLayout.itemSpacer,
           if (updates.isEmpty)
             const Text(
               'No recent doctor changes.',
@@ -217,7 +220,8 @@ class _DoctorUpdatesCard extends StatelessWidget {
                 child: ListView.separated(
                   primary: false,
                   itemCount: updates.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppSpacing.sm - 2),
                   itemBuilder: (context, index) => _DoctorUpdateTile(
                     event: updates[index],
                   ),
@@ -240,7 +244,7 @@ class _DoctorUpdateTile extends StatelessWidget {
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(minHeight: 112),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(PortalLayout.itemGap),
       decoration: BoxDecoration(
         color: event['isRead'] == true
             ? const Color(0xFFF9FAFB)

@@ -139,7 +139,10 @@ class _ViewPatientPageState extends State<ViewPatientPage> {
       bottomNavigationBar: hasMultiple
           ? Container(
               color: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: PortalLayout.pageGutter,
+                vertical: PortalLayout.itemGap,
+              ),
               child: SafeArea(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -257,17 +260,17 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
+            padding: PortalLayout.pagePadding(embedInShell: false),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Patient Header Card
+                // Patient Header Card — primary identity
                 _PatientHeaderCard(
                   patient: patient,
                   opNumber: widget.opNumber
                 ),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacer,
 
                 // Quick Actions
                 _QuickActionsCard(
@@ -277,12 +280,12 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
                   onPatientUpdated: () => patientQuery.refetch(),
                 ),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacer,
 
                 // Medical Configuration
                 _MedicalConfigCard(patient: patient),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacerTight,
 
                 // Weekly Dosage
                 _DosageCard(
@@ -292,17 +295,17 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
                   onUpdated: () => patientQuery.refetch(),
                 ),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacerTight,
 
                 // Next of Kin
                 _NextOfKinCard(patient: patient),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacerTight,
 
                 // Medical History
                 _MedicalHistoryCard(patient: patient),
 
-                const SizedBox(height: 16),
+                PortalLayout.sectionSpacer,
 
                 // INR Reports Section
                 _InrReportsCard(
@@ -311,8 +314,6 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
                   isExpanded: _showReports,
                   onToggle: () => setState(() => _showReports = !_showReports),
                 ),
-
-                const SizedBox(height: 32),
               ],
             ),
           ),
@@ -334,10 +335,10 @@ class _PatientHeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: PortalLayout.cardInsetsComfortable,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -368,7 +369,7 @@ class _PatientHeaderCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: PortalLayout.cardPadding),
           // Info
           Expanded(
             child: Column(
@@ -382,7 +383,7 @@ class _PatientHeaderCard extends StatelessWidget {
                     color: Color(0xFF1F2937),
                   ),
                 ),
-                const SizedBox(height: 4),
+                PortalLayout.metaSpacer,
                 Row(
                   children: [
                     _InfoChip(
@@ -392,7 +393,7 @@ class _PatientHeaderCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                PortalLayout.labelSpacer,
                 Row(
                   children: [
                     if (patient.age != null) ...[
@@ -401,7 +402,7 @@ class _PatientHeaderCard extends StatelessWidget {
                         label: '${patient.age} yrs',
                         color: const Color(0xFF059669),
                       ),
-                      const SizedBox(width: 8),
+                      PortalLayout.inlineSpacer,
                     ],
                     if (patient.gender != null)
                       _InfoChip(
@@ -414,12 +415,12 @@ class _PatientHeaderCard extends StatelessWidget {
                   ],
                 ),
                 if (patient.phone != null) ...[
-                  const SizedBox(height: 8),
+                  PortalLayout.labelSpacer,
                   Row(
                     children: [
                       const Icon(Icons.phone,
                           size: 14, color: Color(0xFF6B7280)),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: AppSpacing.xxs),
                       Text(
                         patient.phone!,
                         style: const TextStyle(
@@ -493,10 +494,10 @@ class _QuickActionsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: PortalLayout.cardInsets,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -516,7 +517,7 @@ class _QuickActionsCard extends StatelessWidget {
               color: Color(0xFF1F2937),
             ),
           ),
-          const SizedBox(height: 12),
+          PortalLayout.itemSpacer,
           Row(
             children: [
               Expanded(
@@ -527,7 +528,7 @@ class _QuickActionsCard extends StatelessWidget {
                   onTap: () => _showUpdateReviewDialog(context),
                 ),
               ),
-              const SizedBox(width: 12),
+              PortalLayout.columnSpacer,
               Expanded(
                 child: _ActionButton(
                   icon: Icons.swap_horiz,
@@ -886,7 +887,7 @@ class _MedicalConfigCard extends StatelessWidget {
           ),
           if (config?['instructions'] != null &&
               (config!['instructions'] as List).isNotEmpty) ...[
-            const Divider(height: 24),
+            const Divider(height: PortalLayout.sectionGap),
             const Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -898,9 +899,9 @@ class _MedicalConfigCard extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            PortalLayout.labelSpacer,
             ...((config['instructions'] as List).map((instr) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xxs),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1150,7 +1151,7 @@ class _InrReportsCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -1164,16 +1165,18 @@ class _InrReportsCard extends StatelessWidget {
           // Header
           InkWell(
             onTap: onToggle,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(PortalLayout.cardRadius),
+            ),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: PortalLayout.cardInsets,
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(AppSpacing.xs),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(AppSpacing.xs),
                     ),
                     child: const Icon(
                       Icons.science,
@@ -1181,7 +1184,7 @@ class _InrReportsCard extends StatelessWidget {
                       color: Color(0xFFF59E0B),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  PortalLayout.columnSpacer,
                   const Expanded(
                     child: Text(
                       'INR Reports',
@@ -1203,7 +1206,12 @@ class _InrReportsCard extends StatelessWidget {
           // Content
           if (isExpanded)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.fromLTRB(
+                PortalLayout.cardPadding,
+                0,
+                PortalLayout.cardPadding,
+                PortalLayout.cardPadding,
+              ),
               child: UseQuery<List<dynamic>>(
                 options: QueryOptions<List<dynamic>>(
                   queryKey: DoctorQueryKeys.patientReports(opNumber),

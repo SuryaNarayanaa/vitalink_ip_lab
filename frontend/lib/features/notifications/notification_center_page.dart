@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/di/theme.dart';
 import 'package:frontend/core/motion/app_motion.dart';
@@ -129,15 +130,15 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                                 else
                                   SliverPadding(
                                     padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      6,
-                                      16,
-                                      20,
+                                      PortalLayout.pageGutter,
+                                      AppSpacing.xs - 2,
+                                      PortalLayout.pageGutter,
+                                      PortalLayout.pageBottomStandalone,
                                     ),
                                     sliver: SliverList.separated(
                                       itemCount: filteredNotifications.length,
                                       separatorBuilder: (_, __) =>
-                                          const SizedBox(height: 12),
+                                          PortalLayout.itemSpacer,
                                       itemBuilder: (context, index) {
                                         final item =
                                             filteredNotifications[index];

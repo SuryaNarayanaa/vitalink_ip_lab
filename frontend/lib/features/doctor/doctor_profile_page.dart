@@ -20,7 +20,7 @@ class DoctorProfilePage extends StatelessWidget {
       ),
       builder: (context, query) {
         return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          padding: PortalLayout.doctorShellPadding,
           physics: const BouncingScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

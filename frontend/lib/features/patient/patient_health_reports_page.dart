@@ -49,8 +49,6 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
-
     return _buildPageContainer(
       bodyDecoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -60,18 +58,20 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+        padding: PortalLayout.pagePadding(
+          embedInShell: widget.embedInShell,
+        ),
         child: Container(
-          padding: const EdgeInsets.all(20),
+          padding: PortalLayout.cardInsetsComfortable,
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildTabBar(),
-              const SizedBox(height: 24),
+              PortalLayout.sectionSpacer,
               if (_selectedTabIndex == 0)
                 _buildSideEffectsTab()
               else if (_selectedTabIndex == 1)

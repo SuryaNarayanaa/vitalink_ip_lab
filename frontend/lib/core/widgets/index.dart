@@ -2,6 +2,9 @@
 export 'package:frontend/core/motion/app_motion.dart';
 export 'package:frontend/core/motion/motion_widgets.dart';
 
+// Layout tokens (Doctor + Patient portals)
+export 'package:frontend/core/constants/layout.dart';
+
 // Common widgets
 export 'common/app_navbar.dart';
 export 'common/app_scaffold.dart';

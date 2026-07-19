@@ -4,6 +4,7 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/patient_model.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/core/widgets/common/page_skeleton.dart';
 import 'package:frontend/core/widgets/common/premium_report_card.dart';
@@ -37,7 +38,12 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+        PortalLayout.pageGutter,
+        PortalLayout.pageTop,
+        PortalLayout.pageGutter,
+        AppSpacing.xs,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -49,7 +55,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               color: const Color(0xFF1E1E5E),
             ),
           ),
-          const SizedBox(height: 16),
+          PortalLayout.sectionSpacerTight,
           _buildPatientPicker(),
         ],
       ),
@@ -178,7 +184,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
                 size: 80,
                 color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
           ),
-          const SizedBox(height: 24),
+          PortalLayout.sectionSpacer,
           Text(
             'No Patient Selected',
             style: GoogleFonts.outfit(
@@ -187,9 +193,9 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               color: const Color(0xFF1E1E5E),
             ),
           ),
-          const SizedBox(height: 8),
+          PortalLayout.labelSpacer,
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
             child: Text(
               'Please select a patient from the dropdown above to view their INR report history.',
               textAlign: TextAlign.center,
@@ -228,7 +234,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
           child = const KeyedSubtree(
             key: ValueKey('doctor-reports-loading'),
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: EdgeInsets.all(PortalLayout.pageGutter),
               child: ListSkeleton(itemCount: 4, shrinkWrap: true),
             ),
           );
@@ -243,7 +249,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
                   children: [
                     Icon(Icons.history_rounded,
                         size: 64, color: Colors.grey.withValues(alpha: 0.3)),
-                    const SizedBox(height: 16),
+                    PortalLayout.sectionSpacerTight,
                     Text(
                       'No reports found for ${_selectedPatientName ?? 'selected patient'}'
                       ' (OP #${_selectedPatientOp ?? 'N/A'})',
@@ -260,12 +266,21 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               child: RefreshIndicator(
                 onRefresh: () async => query.refetch(),
                 child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                  padding: const EdgeInsets.fromLTRB(
+                    PortalLayout.pageGutter,
+                    PortalLayout.pageTop,
+                    PortalLayout.pageGutter,
+                    PortalLayout.pageBottomShell,
+                  ),
                   itemCount: reports.length,
                   itemBuilder: (context, index) {
                     final report = reports[index];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: EdgeInsets.only(
+                        bottom: index == reports.length - 1
+                            ? 0
+                            : PortalLayout.itemGap,
+                      ),
                       child: PremiumReportCard(
                         report: report,
                         showActions: true,
