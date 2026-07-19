@@ -183,7 +183,7 @@ Security notes:
 - `profile_id` is a one-to-one link to the owning role profile.
 - `user_type_model` is computed from `user_type` and is used by Mongoose `refPath`.
 - Admin TOTP secrets are stored encrypted with AES-GCM using `ADMIN_TOTP_ENCRYPTION_KEY` when configured.
-- Startup idempotently backfills missing legacy `security_version`, TOTP `factor_generation`, and session generation fields to zero before authentication is served.
+- Missing legacy `security_version`, TOTP `factor_generation`, and session generation fields are **not** backfilled on process start. Run the operational migration `npm run migrate:auth-schema-defaults` (prod: `migrate:auth-schema-defaults:prod` / `migrateAuthSchemaDefaults.js`) once per environment upgrade or greenfield deploy; it is idempotent and sets those fields to zero. Auth predicates require exact generation matches, so legacy documents without the fields fail authentication until the migration has run.
 
 ### `adminprofiles`
 

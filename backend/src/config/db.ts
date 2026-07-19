@@ -4,6 +4,22 @@ import { config } from '@alias/config'
 import { AdminMfaChallenge, AuthSession, OtpChallenge, User } from '@alias/models'
 import { sanitizeLogText } from '@alias/utils/logger'
 
+export type ChallengeAuditRetentionSummary = {
+  collections: Array<{
+    name: string
+    pendingMfaDuplicatesCancelled: number
+    purgeAtBackfilled: number
+  }>
+}
+
+export type AuthGenerationDefaultsSummary = {
+  usersSecurityVersionBackfilled: number
+  usersFactorGenerationBackfilled: number
+  sessionsSecurityVersionBackfilled: number
+  adminMfaChallengesCancelled: number
+  otpChallengesCancelled: number
+}
+
 /**
  * One-time / operational migration: challenge audit retention indexes and
  * purge_at backfill. Run via `migrateAuthSchemaDefaults` — not on every boot.
@@ -11,8 +27,11 @@ import { sanitizeLogText } from '@alias/utils/logger'
  * Safe to re-run (idempotent). Concurrent instances may race on index drop;
  * IndexNotFound is treated as success.
  */
-export async function ensureChallengeAuditRetention() {
+export async function ensureChallengeAuditRetention(): Promise<ChallengeAuditRetentionSummary> {
+  const collections: ChallengeAuditRetentionSummary['collections'] = []
+
   for (const model of [OtpChallenge, AdminMfaChallenge]) {
+    let pendingMfaDuplicatesCancelled = 0
     if (model === AdminMfaChallenge) {
       // Older deployments allowed more than one pending challenge per admin.
       // Retain the newest and cancel the rest before building the singleton index.
@@ -24,10 +43,11 @@ export async function ensureChallengeAuditRetention() {
           { $match: { 'ids.1': { $exists: true } } },
         ]).toArray()
         for (const group of duplicateGroups) {
-          await model.collection.updateMany(
+          const result = await model.collection.updateMany(
             { _id: { $in: group.ids.slice(1) } },
             { $set: { status: 'CANCELLED' } },
           )
+          pendingMfaDuplicatesCancelled += result.modifiedCount ?? 0
         }
       }
       // Build directly (rather than schema auto-indexing) so a duplicate
@@ -63,12 +83,19 @@ export async function ensureChallengeAuditRetention() {
         if (error?.codeName !== 'IndexNotFound' && error?.code !== 27) throw error
       }
     }
-    await model.collection.updateMany(
+    const purgeResult = await model.collection.updateMany(
       { purge_at: { $exists: false }, expires_at: { $type: 'date' } },
       [{ $set: { purge_at: { $dateAdd: { startDate: '$expires_at', unit: 'day', amount: 30 } } } }],
     )
     await model.collection.createIndex({ purge_at: 1 }, { expireAfterSeconds: 0, name: 'purge_at_1' })
+    collections.push({
+      name: model.collection.collectionName,
+      pendingMfaDuplicatesCancelled,
+      purgeAtBackfilled: purgeResult.modifiedCount ?? 0,
+    })
   }
+
+  return { collections }
 }
 
 /**
@@ -80,12 +107,12 @@ export async function ensureChallengeAuditRetention() {
  * predicates intentionally require an exact generation match.
  * Safe to re-run (idempotent).
  */
-export async function ensureAuthGenerationDefaults() {
-  await User.collection.updateMany(
+export async function ensureAuthGenerationDefaults(): Promise<AuthGenerationDefaultsSummary> {
+  const usersSecurity = await User.collection.updateMany(
     { security_version: { $exists: false } },
     { $set: { security_version: 0 } },
   )
-  await User.collection.updateMany(
+  const usersFactor = await User.collection.updateMany(
     {
       'admin_mfa.totp': { $exists: true },
       'admin_mfa.totp.factor_generation': { $exists: false },
@@ -94,18 +121,18 @@ export async function ensureAuthGenerationDefaults() {
   )
   // Preserve legacy sessions at generation zero. They remain subject to all
   // existing expiry/revocation/account-state checks.
-  await AuthSession.collection.updateMany(
+  const sessionsSecurity = await AuthSession.collection.updateMany(
     { security_version: { $exists: false } },
     { $set: { security_version: 0 } },
   )
   // Password-authenticated challenges cannot be safely inferred after the
   // generation fields were introduced. Force legacy clients to authenticate
   // again instead of allowing old password proof to cross a credential reset.
-  await AdminMfaChallenge.collection.updateMany(
+  const adminMfaCancelled = await AdminMfaChallenge.collection.updateMany(
     { status: 'PENDING', security_version: { $exists: false } },
     { $set: { status: 'CANCELLED' } },
   )
-  await OtpChallenge.collection.updateMany(
+  const otpCancelled = await OtpChallenge.collection.updateMany(
     {
       status: 'PENDING',
       $or: [
@@ -115,6 +142,14 @@ export async function ensureAuthGenerationDefaults() {
     },
     { $set: { status: 'CANCELLED' } },
   )
+
+  return {
+    usersSecurityVersionBackfilled: usersSecurity.modifiedCount ?? 0,
+    usersFactorGenerationBackfilled: usersFactor.modifiedCount ?? 0,
+    sessionsSecurityVersionBackfilled: sessionsSecurity.modifiedCount ?? 0,
+    adminMfaChallengesCancelled: adminMfaCancelled.modifiedCount ?? 0,
+    otpChallengesCancelled: otpCancelled.modifiedCount ?? 0,
+  }
 }
 
 const connectDB = async () => {
