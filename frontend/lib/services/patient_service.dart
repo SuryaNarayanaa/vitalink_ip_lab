@@ -4,7 +4,8 @@ import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/auth/session_expiry_handler.dart';
 
 class PatientService {
-  static const String baseUrl =
+  // apiBaseUrl is a runtime getter (env / platform), so this cannot be const.
+  static final String baseUrl =
       '${AppStrings.apiBaseUrl}${AppStrings.apiPathPrefix}/patient';
   static const storage = FlutterSecureStorage();
 

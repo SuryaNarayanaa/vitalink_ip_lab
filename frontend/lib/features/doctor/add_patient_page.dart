@@ -5,6 +5,7 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/network/api_client.dart';
+import 'package:frontend/core/utils/phone_utils.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/doctor_profile_model.dart';
 import 'package:styled_widget/styled_widget.dart';
@@ -19,8 +20,6 @@ class AddPatientForm extends StatefulWidget {
 }
 
 class _AddPatientFormState extends State<AddPatientForm> {
-  static final _indianPhoneRegex = RegExp(r'^[6-9]\d{9}$');
-
   final _formKey = GlobalKey<FormState>();
   final DoctorRepository _repo = AppDependencies.doctorRepository;
 
@@ -129,7 +128,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
           ? null
           : int.tryParse(_ageCtrl.text.trim()),
       'gender': _gender,
-      'contact_no': '+91${_contactCtrl.text.trim()}',
+      'contact_no': PhoneUtils.formatForApi(_contactCtrl.text),
       'target_inr_min': numFromCtrl(_targetMinCtrl),
       'target_inr_max': numFromCtrl(_targetMaxCtrl),
       'therapy': _therapy,
@@ -140,7 +139,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
       'medical_history': medicalHistory() == null ? null : [medicalHistory()],
       'kin_name':
           _kinNameCtrl.text.trim().isEmpty ? null : _kinNameCtrl.text.trim(),
-      'kin_contact_number': '+91${_kinContactCtrl.text.trim()}',
+      'kin_contact_number': PhoneUtils.formatForApi(_kinContactCtrl.text),
     };
 
     payload.removeWhere((key, value) => value == null);
@@ -334,16 +333,22 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                 hint: '10-digit Indian number (+91 automatic)',
                                 isRequired: true,
                                 keyboard: TextInputType.phone,
-                                validator: (value) =>
-                                    _phoneValidator('Contact', value)),
+                                validator: (value) => PhoneUtils.validate(
+                                      value,
+                                      label: 'Contact',
+                                      required: true,
+                                    )),
                             _buildTextField(_kinNameCtrl, 'Kin Name',
                                 hint: 'Enter Kin name', isRequired: true),
                             _buildTextField(_kinContactCtrl, 'Kin Contact',
                                 hint: '10-digit Indian number',
                                 isRequired: true,
                                 keyboard: TextInputType.phone,
-                                validator: (value) =>
-                                    _phoneValidator('Kin Contact', value)),
+                                validator: (value) => PhoneUtils.validate(
+                                      value,
+                                      label: 'Kin Contact',
+                                      required: true,
+                                    )),
                             const SizedBox(height: 10),
                             SizedBox(
                               width: double.infinity,
@@ -462,15 +467,6 @@ class _AddPatientFormState extends State<AddPatientForm> {
         ],
       ),
     );
-  }
-
-  String? _phoneValidator(String label, String? value) {
-    final text = value?.trim() ?? '';
-    if (text.isEmpty) return '$label is required';
-    if (!_indianPhoneRegex.hasMatch(text)) {
-      return '$label must be a valid 10-digit number';
-    }
-    return null;
   }
 
   Widget _buildTextField(

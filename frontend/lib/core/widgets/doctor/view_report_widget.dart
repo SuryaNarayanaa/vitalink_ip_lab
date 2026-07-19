@@ -22,12 +22,26 @@ class ViewReportWidget extends StatefulWidget {
 
 class _ViewReportWidgetState extends State<ViewReportWidget> {
   bool _isPreviewMode = false;
-  late final Future<Map<String, dynamic>> _reportFuture;
+  late Future<Map<String, dynamic>> _reportFuture;
 
   @override
   void initState() {
     super.initState();
-    _reportFuture = AppDependencies.doctorRepository.getReport(
+    _reportFuture = _loadReport();
+  }
+
+  @override
+  void didUpdateWidget(covariant ViewReportWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.opNumber != widget.opNumber ||
+        oldWidget.reportId != widget.reportId) {
+      _isPreviewMode = false;
+      _reportFuture = _loadReport();
+    }
+  }
+
+  Future<Map<String, dynamic>> _loadReport() {
+    return AppDependencies.doctorRepository.getReport(
       widget.opNumber,
       widget.reportId,
     );
