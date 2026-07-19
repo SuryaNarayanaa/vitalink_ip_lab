@@ -24,7 +24,8 @@ class DoctorDashboardPage extends StatefulWidget {
   State<DoctorDashboardPage> createState() => _DoctorDashboardPageState();
 }
 
-class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
+class _DoctorDashboardPageState extends State<DoctorDashboardPage>
+    with WidgetsBindingObserver {
   static const int _tabCount = 4;
 
   int _currentNavIndex = 0;
@@ -42,6 +43,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _searchController.addListener(() => setState(() {}));
     unawaited(
       _realtimeService.start(
@@ -53,18 +55,44 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_realtimeService.stop());
     _searchController.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshClinicalData();
+    }
+  }
+
   void _handleRealtimeNotification(Map<String, dynamic> notification) {
     if (!mounted) return;
     _refreshNotificationsUnread();
-    if (_notificationPopupScheduled) return;
 
     final type = notification['type']?.toString();
-    if (type != 'SYSTEM_ANNOUNCEMENT') return;
+    // Patient INR uploads arrive as REPORT_AVAILABLE (and critical as URGENT).
+    // Bust patient list + that patient's report cache so Reports tab updates.
+    if (type == 'REPORT_AVAILABLE' || type == 'CRITICAL_ALERT') {
+      final data = notification['data'];
+      final dataMap = data is Map<String, dynamic>
+          ? data
+          : data is Map
+              ? Map<String, dynamic>.from(data)
+              : const <String, dynamic>{};
+      final patientOp = (dataMap['patient_login_id'] ??
+              dataMap['patient_op'] ??
+              dataMap['op_num'] ??
+              '')
+          .toString()
+          .trim();
+      _refreshClinicalData(patientOp: patientOp.isEmpty ? null : patientOp);
+    }
+
+    if (_notificationPopupScheduled) return;
+    if (type != 'SYSTEM_ANNOUNCEMENT' && type != 'REPORT_AVAILABLE') return;
 
     final id = notification['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -159,8 +187,12 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
   }
 
   void _onNavChanged(int index) {
-    final clamped = index.clamp(0, _tabCount - 1);
+    final clamped = index.clamp(0, _tabCount - 1).toInt();
     if (clamped == _currentNavIndex && _activatedTabs.contains(clamped)) {
+      // Re-tapping Reports should still refresh clinical caches.
+      if (clamped == 2) {
+        _refreshClinicalData();
+      }
       return;
     }
     setState(() {
@@ -174,6 +206,10 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
         ..clear()
         ..addAll(updated);
     });
+    // Entering Patients or Reports: drop stale list/report caches.
+    if (clamped == 0 || clamped == 2) {
+      _refreshClinicalData();
+    }
   }
 
   Widget _tabForIndex(int index) {
@@ -218,6 +254,29 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
     final queryClient = QueryClientProvider.of(context);
     queryClient.invalidateQueries(DoctorQueryKeys.notificationsUnread());
     queryClient.invalidateQueries(DoctorQueryKeys.notifications());
+  }
+
+  /// Invalidate patient roster and optional per-patient report/detail caches.
+  /// Also purges Hive entries so reopen does not restore a stale empty list.
+  void _refreshClinicalData({String? patientOp}) {
+    if (!mounted) return;
+    final queryClient = QueryClientProvider.of(context);
+    queryClient.invalidateQueries(DoctorQueryKeys.patients());
+    queryClient.invalidateQueries(DoctorQueryKeys.notificationsUnread());
+    queryClient.invalidateQueries(DoctorQueryKeys.notifications());
+    unawaited(
+      QueryCache.instance.remove(DoctorQueryKeys.patients().toString()),
+    );
+    final op = patientOp?.trim();
+    if (op != null && op.isNotEmpty) {
+      final reportsKey = DoctorQueryKeys.patientReports(op);
+      final detailKey = DoctorQueryKeys.patientDetail(op);
+      queryClient.invalidateQueries(reportsKey);
+      queryClient.invalidateQueries(detailKey);
+      queryClient.refetchQueries(reportsKey);
+      unawaited(QueryCache.instance.remove(reportsKey.toString()));
+      unawaited(QueryCache.instance.remove(detailKey.toString()));
+    }
   }
 
   String _titleForIndex(int index) {

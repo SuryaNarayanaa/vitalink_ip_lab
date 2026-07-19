@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
@@ -21,6 +23,19 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
   final DoctorRepository _repository = AppDependencies.doctorRepository;
   String? _selectedPatientOp;
   String? _selectedPatientName;
+
+  Future<void> _refreshSelectedReports() async {
+    final op = _selectedPatientOp;
+    if (op == null || op.isEmpty || !mounted) return;
+    final queryClient = QueryClientProvider.of(context);
+    // Drop both live query + Hive entry so pull-to-refresh never serves stale
+    // empty results after a patient uploads a new INR report.
+    queryClient.invalidateQueries(DoctorQueryKeys.patientReports(op));
+    await QueryCache.instance.remove(DoctorQueryKeys.patientReports(op).toString());
+    queryClient.refetchQueries(DoctorQueryKeys.patientReports(op));
+    // Patients list condition (critical flag) also depends on latest INR.
+    queryClient.invalidateQueries(DoctorQueryKeys.patients());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -160,9 +175,23 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
           if (selectedOp == null || selectedOp.isEmpty) {
             return;
           }
+          final samePatient = selectedOp == _selectedPatientOp;
           setState(() {
             _selectedPatientOp = selectedOp;
             _selectedPatientName = p.name;
+          });
+          // Re-selecting (or switching patients) must hit the network — the
+          // default 5m query cache otherwise keeps an empty/outdated list.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final queryClient = QueryClientProvider.of(context);
+            if (samePatient) {
+              unawaited(_refreshSelectedReports());
+            } else {
+              queryClient.invalidateQueries(
+                DoctorQueryKeys.patientReports(selectedOp),
+              );
+            }
           });
         },
       ),
@@ -215,22 +244,30 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
     return UseQuery<List<dynamic>>(
       options: QueryOptions<List<dynamic>>(
         queryKey: DoctorQueryKeys.patientReports(_selectedPatientOp!),
+        // Clinical report lists must not sit on the default 5-minute stale window.
+        staleTime: Duration.zero,
+        refetchOnWindowFocus: true,
         queryFn: () => _repository.getPatientReports(
               _selectedPatientOp!,
               includeUrls: true,
             ),
       ),
       builder: (context, query) {
+        Future<void> onRefresh() async {
+          await _refreshSelectedReports();
+          await query.refetch();
+        }
+
         final Widget child;
         if (query.isError) {
           child = KeyedSubtree(
             key: const ValueKey('doctor-reports-error'),
             child: ApiErrorState(
               error: query.error,
-              onRetry: () => query.refetch(),
+              onRetry: () => onRefresh(),
             ),
           );
-        } else if (query.isLoading) {
+        } else if (query.isLoading && !query.hasData) {
           child = const KeyedSubtree(
             key: ValueKey('doctor-reports-loading'),
             child: Padding(
@@ -241,23 +278,39 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
         } else {
           final reports = query.data ?? [];
           if (reports.isEmpty) {
+            // Empty state must still be pull-to-refreshable; a non-scrollable
+            // Center previously swallowed refresh after patient uploads.
             child = KeyedSubtree(
               key: const ValueKey('doctor-reports-empty'),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.history_rounded,
-                        size: 64, color: Colors.grey.withValues(alpha: 0.3)),
-                    PortalLayout.sectionSpacerTight,
-                    Text(
-                      'No reports found for ${_selectedPatientName ?? 'selected patient'}'
-                      ' (OP #${_selectedPatientOp ?? 'N/A'})',
-                      style: GoogleFonts.outfit(color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageTop,
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageBottomShell,
                 ),
+                children: [
+                  const SizedBox(height: 80),
+                  Icon(Icons.history_rounded,
+                      size: 64, color: Colors.grey.withValues(alpha: 0.3)),
+                  PortalLayout.sectionSpacerTight,
+                  Text(
+                    'No reports found for ${_selectedPatientName ?? 'selected patient'}'
+                    ' (OP #${_selectedPatientOp ?? 'N/A'})',
+                    style: GoogleFonts.outfit(color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  PortalLayout.sectionSpacer,
+                  Text(
+                    'Pull down to refresh after a patient uploads a new INR report.',
+                    style: GoogleFonts.outfit(
+                      color: Colors.grey.withValues(alpha: 0.85),
+                      fontSize: 13,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             );
           } else {
@@ -265,38 +318,40 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               key: ValueKey(
                 'doctor-reports-$_selectedPatientOp-${reports.length}',
               ),
-              child: RefreshIndicator(
-                onRefresh: () async => query.refetch(),
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(
-                    PortalLayout.pageGutter,
-                    PortalLayout.pageTop,
-                    PortalLayout.pageGutter,
-                    PortalLayout.pageBottomShell,
-                  ),
-                  itemCount: reports.length,
-                  itemBuilder: (context, index) {
-                    final report = reports[index];
-                    return Padding(
-                      padding: EdgeInsets.only(
-                        bottom: index == reports.length - 1
-                            ? 0
-                            : PortalLayout.itemGap,
-                      ),
-                      child: PremiumReportCard(
-                        report: report,
-                        showActions: true,
-                        onUpdatePressed: () =>
-                            _updateDialog(context, _repository, report),
-                      ),
-                    );
-                  },
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageTop,
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageBottomShell,
                 ),
+                itemCount: reports.length,
+                itemBuilder: (context, index) {
+                  final report = reports[index];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index == reports.length - 1
+                          ? 0
+                          : PortalLayout.itemGap,
+                    ),
+                    child: PremiumReportCard(
+                      report: report,
+                      showActions: true,
+                      onUpdatePressed: () =>
+                          _updateDialog(context, _repository, report),
+                    ),
+                  );
+                },
               ),
             );
           }
         }
-        return child;
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: child,
+        );
       },
     );
   }

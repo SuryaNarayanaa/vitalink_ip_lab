@@ -1215,6 +1215,8 @@ class _InrReportsCard extends StatelessWidget {
               child: UseQuery<List<dynamic>>(
                 options: QueryOptions<List<dynamic>>(
                   queryKey: DoctorQueryKeys.patientReports(opNumber),
+                  staleTime: Duration.zero,
+                  refetchOnWindowFocus: true,
                   queryFn: () => repository.getPatientReports(
                         opNumber,
                         includeUrls: true,
@@ -1223,9 +1225,15 @@ class _InrReportsCard extends StatelessWidget {
                 builder: (context, query) {
                   return InrReportsSection(
                     reports: query.data ?? [],
-                    isLoading: query.isLoading,
+                    isLoading: query.isLoading && !query.hasData,
                     error: query.isError ? _formatApiError(query.error) : null,
-                    onRefresh: () => query.refetch(),
+                    onRefresh: () async {
+                      final queryClient = QueryClientProvider.of(context);
+                      final key = DoctorQueryKeys.patientReports(opNumber);
+                      queryClient.invalidateQueries(key);
+                      await QueryCache.instance.remove(key.toString());
+                      await query.refetch();
+                    },
                     enableReportViewAction: true,
                   );
                 },

@@ -2,13 +2,17 @@ import { Request, Response } from 'express'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
 import { Notification, PatientProfile, User } from '@alias/models'
-import { NotificationType } from '@alias/models/notification.model'
+import { NotificationPriority, NotificationType } from '@alias/models/notification.model'
 import { UserType } from '@alias/validators'
-import { getSystemConfig } from '@alias/services/config.service'
+import { getSystemConfig, isFeatureEnabled } from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
 import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
 import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
+import { publishClinicalNotificationToUser } from '@alias/services/realtime-notification.service'
+import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { getObjectIdString } from '@alias/utils/objectid'
+import { hasActiveClinicalHospitalAccess } from '@alias/services/hospital-access.service'
 import type {
 	DoctorUpdatesQueryInput,
 	MarkNotificationReadInput,
@@ -92,6 +96,115 @@ const getPatientProfileOrThrow = async (profileId: unknown, notFoundMessage = 'P
 const ensureClinicalMutationAllowed = (profile: { account_status?: string }) => {
 	if (profile.account_status === 'AssignmentConflict') {
 		throw new ApiError(StatusCodes.CONFLICT, 'Clinical updates are paused while care assignment is under review')
+	}
+}
+
+/**
+ * Notify the assigned doctor that a patient submitted an INR report.
+ * Best-effort: never fails the clinical write if notification delivery fails.
+ */
+const notifyDoctorOfInrReport = async (input: {
+	assignedDoctorId: unknown
+	patientUserId: unknown
+	patientLoginId?: string | null
+	patientName?: string | null
+	inrValue: number
+	isCritical: boolean
+	testDate: Date
+}) => {
+	try {
+		if (!await isFeatureEnabled('notifications_enabled')) return
+
+		const doctorUserId = getObjectIdString(input.assignedDoctorId)
+		if (!doctorUserId) return
+
+		const doctor = await User.findById(doctorUserId)
+			.select('_id is_active user_type profile_id')
+			.lean()
+		if (!doctor?.is_active || doctor.user_type !== UserType.DOCTOR) return
+		if (!await hasActiveClinicalHospitalAccess(doctor)) return
+
+		let patientLoginId = input.patientLoginId?.trim() || ''
+		if (!patientLoginId) {
+			const patientAccount = await User.findById(input.patientUserId)
+				.select('login_id')
+				.lean()
+			patientLoginId = String(patientAccount?.login_id ?? '').trim()
+		}
+
+		const patientName = (input.patientName ?? '').trim() || 'A patient'
+		const title = input.isCritical
+			? 'Critical INR report submitted'
+			: 'New INR report submitted'
+		const message = input.isCritical
+			? `${patientName} submitted a critical INR of ${input.inrValue}. Review their report history.`
+			: `${patientName} submitted an INR of ${input.inrValue}. Open Reports to review.`
+
+		const data = {
+			patient_user_id: String(input.patientUserId),
+			patient_login_id: patientLoginId,
+			patient_op: patientLoginId,
+			inr_value: input.inrValue,
+			is_critical: input.isCritical,
+			test_date: input.testDate.toISOString(),
+			change_type: 'INR_REPORT_SUBMITTED',
+		}
+
+		if (!await isFeatureEnabled('notifications_enabled')) return
+
+		const created = await Notification.create({
+			user_id: doctorUserId,
+			type: NotificationType.REPORT_AVAILABLE,
+			priority: input.isCritical
+				? NotificationPriority.URGENT
+				: NotificationPriority.HIGH,
+			title,
+			message,
+			data,
+			push_delivery_required: true,
+			expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+		})
+
+		const stillEligible = await User.findById(doctorUserId)
+			.select('is_active user_type profile_id')
+			.lean()
+		if (
+			!await isFeatureEnabled('notifications_enabled') ||
+			!stillEligible?.is_active ||
+			!await hasActiveClinicalHospitalAccess(stillEligible)
+		) {
+			return
+		}
+
+		await publishClinicalNotificationToUser(doctorUserId, 'notification', {
+			id: String(created._id),
+			title: created.title,
+			message: created.message,
+			type: created.type,
+			priority: created.priority,
+			is_read: created.is_read,
+			created_at: created.createdAt,
+			data: created.data,
+		})
+
+		if (!await isFeatureEnabled('notifications_enabled')) return
+		await enqueueNotificationPush({
+			notificationId: String(created._id),
+			userId: doctorUserId,
+			title: created.title,
+			body: created.message,
+			data: {
+				notification_type: String(created.type),
+				patient_login_id: patientLoginId,
+				change_type: 'INR_REPORT_SUBMITTED',
+			},
+		})
+	} catch (error) {
+		logger.error('notification_delivery.inr_report_to_doctor_failed', {
+			errorName: error instanceof Error ? error.name : 'UnknownError',
+			patientUserId: String(input.patientUserId),
+			assignedDoctorId: String(input.assignedDoctorId ?? ''),
+		})
 	}
 }
 
@@ -354,11 +467,13 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	}
 
 	let patient
+	let submittedIsCritical = false
 	try {
 		await fileOperation?.assertOwned()
 		const systemConfig = await getSystemConfig()
 		const { criticalLow, criticalHigh } = getSafeInrThresholds(systemConfig?.inr_thresholds)
 		const isCritical = parsed_inr_value < criticalLow || parsed_inr_value > criticalHigh
+		submittedIsCritical = isCritical
 		await fileOperation?.assertOwned()
 		patient = await PatientProfile.findOneAndUpdate(
 			{
@@ -401,6 +516,21 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 	} finally {
 		await fileOperation?.release()
 	}
+
+	// Keep doctor portal caches in sync: push an in-app/SSE notification so the
+	// assigned doctor refetches patient + report lists without reinstall/login.
+	const patientAccount = await User.findById(patientUser._id).select('login_id').lean()
+	await notifyDoctorOfInrReport({
+		assignedDoctorId: patient.assigned_doctor_id,
+		patientUserId: patientUser._id,
+		patientLoginId: patientAccount?.login_id != null
+			? String(patientAccount.login_id)
+			: null,
+		patientName: (patient as any)?.demographics?.name ?? null,
+		inrValue: parsed_inr_value,
+		isCritical: submittedIsCritical,
+		testDate: parsedTestDate,
+	})
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
 })
