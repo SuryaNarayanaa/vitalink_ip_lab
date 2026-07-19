@@ -9,17 +9,6 @@ import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service
 import { ApiError } from '@alias/utils'
 import { getPasswordPolicyState } from '@alias/services/password.service'
 
-/**
- * Extend Express Request to include user data
- */
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JWTPayload
-    }
-  }
-}
-
 export const validateAuthToken = async (
   token: string,
   expectedUserType?: UserType,
@@ -94,8 +83,20 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const path = req.originalUrl.split('?')[0]
     const allowPasswordChangeRequired = /\/auth\/(?:me|logout|change-password|admin\/mfa\/totp\/(?:setup|status|activate))\/*$/.test(path)
-    const { payload } = await validateAuthToken(token, undefined, { allowPasswordChangeRequired })
+    const { payload, user } = await validateAuthToken(token, undefined, { allowPasswordChangeRequired })
     req.user = payload
+    // Reuse this lean row in controllers to avoid a second User.findById.
+    req.authUser = {
+      _id: user._id as import('mongoose').Types.ObjectId | string,
+      user_type: String(user.user_type),
+      profile_id: user.profile_id as import('mongoose').Types.ObjectId | string | undefined,
+      is_active: Boolean(user.is_active),
+      security_version: Number(user.security_version || 0),
+      must_change_password: Boolean((user as { must_change_password?: boolean }).must_change_password),
+      password_changed_at: (user as { password_changed_at?: Date | string | null }).password_changed_at,
+      createdAt: (user as { createdAt?: Date | string }).createdAt,
+      updatedAt: (user as { updatedAt?: Date | string }).updatedAt,
+    }
     next()
   } catch (error) {
     if (error instanceof ApiError) {

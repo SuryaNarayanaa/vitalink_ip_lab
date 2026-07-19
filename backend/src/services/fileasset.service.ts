@@ -192,3 +192,81 @@ export async function resolveAssetDownloadUrl(input: ResolveAssetInput) {
   if (!asset) throw new ApiError(StatusCodes.NOT_FOUND, 'File asset not found')
   return getDownloadUrl(asset.object_key, asset.bucket)
 }
+
+/**
+ * Resolve many download URLs with a single FileAsset query + parallel signing.
+ * Items without fileAssetId use the same legacy key rules as resolveAssetDownloadUrl.
+ * Missing assets throw NOT_FOUND (same fail-closed behavior as the single path).
+ */
+export async function resolveAssetDownloadUrls(
+  items: ResolveAssetInput[],
+  options?: { concurrency?: number },
+): Promise<(string | null)[]> {
+  if (items.length === 0) return []
+
+  for (const input of items) {
+    if (!input.hospitalId || !input.requesterHospitalId || String(input.hospitalId) !== String(input.requesterHospitalId)) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant file access is not allowed')
+    }
+  }
+
+  const assetIds = items
+    .map((item) => item.fileAssetId)
+    .filter((id): id is string | Types.ObjectId => id != null && String(id).length > 0)
+
+  const assetsById = new Map<string, { object_key: string; bucket?: string; hospital_id: unknown; owner_user_id: unknown; purpose: string; patient_profile_id?: unknown }>()
+  if (assetIds.length > 0) {
+    // Narrow by shared constraints that apply to all items in a typical list
+    // (same hospital/owner/purpose). Per-item checks still run below.
+    const first = items.find((i) => i.fileAssetId)!
+    const assets = await FileAsset.find({
+      _id: { $in: assetIds as Types.ObjectId[] },
+      hospital_id: first.hospitalId,
+      owner_user_id: first.ownerUserId,
+      purpose: first.purpose,
+      status: FileAssetStatus.ACTIVE,
+      deleted_at: { $exists: false },
+    }).lean()
+    for (const asset of assets) {
+      assetsById.set(String(asset._id), asset as any)
+    }
+  }
+
+  const concurrency = Math.max(1, Math.min(options?.concurrency ?? 8, 32))
+  const results: (string | null)[] = new Array(items.length).fill(null)
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      const input = items[index]
+      if (!input.fileAssetId) {
+        if (!input.legacyObjectKey) {
+          results[index] = null
+          continue
+        }
+        if (!input.legacyEligible) {
+          throw new ApiError(StatusCodes.NOT_FOUND, 'File asset metadata is required')
+        }
+        results[index] = await getDownloadUrl(input.legacyObjectKey)
+        continue
+      }
+
+      const asset = assetsById.get(String(input.fileAssetId))
+      if (
+        !asset ||
+        String(asset.hospital_id) !== String(input.hospitalId) ||
+        String(asset.owner_user_id) !== String(input.ownerUserId) ||
+        asset.purpose !== input.purpose ||
+        (input.patientProfileId && String(asset.patient_profile_id || '') !== String(input.patientProfileId))
+      ) {
+        throw new ApiError(StatusCodes.NOT_FOUND, 'File asset not found')
+      }
+      results[index] = await getDownloadUrl(asset.object_key, asset.bucket)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+  return results
+}
