@@ -44,61 +44,57 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return _buildPageContainer(
-            body: const PageSkeleton(cardCount: 3),
-          );
-        }
-
+        final Widget body;
         if (query.isError) {
-          return _buildPageContainer(
-            body: ApiErrorState(
+          body = KeyedSubtree(
+            key: const ValueKey('patient-profile-error'),
+            child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
           );
-        }
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('patient-profile-loading'),
+            child: PageSkeleton(cardCount: 3),
+          );
+        } else {
+          final data = query.data!;
+          final profile = data['profile'] as Map<String, dynamic>;
+          final doctorUpdates =
+              (data['doctorUpdates'] as List?)?.cast<Map<String, dynamic>>() ??
+                  [];
+          final unreadCount =
+              (profile['doctorUpdatesUnreadCount'] as num?)?.toInt() ?? 0;
 
-        if (!query.hasData) {
-          return _buildPageContainer(
-            body: const PageSkeleton(cardCount: 3),
+          body = KeyedSubtree(
+            key: const ValueKey('patient-profile-ready'),
+            child: RefreshIndicator(
+              onRefresh: () async => query.refetch(),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(20, 32, 20, bottomPadding),
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PatientProfileContent(
+                      profile: profile,
+                      onProfileUpdated: () => query.refetch(),
+                    ),
+                    const SizedBox(height: 20),
+                    _DoctorUpdatesCard(
+                      updates: doctorUpdates,
+                      unreadCount: unreadCount,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         }
 
-        final data = query.data!;
-        final profile = data['profile'] as Map<String, dynamic>;
-        final doctorUpdates =
-            (data['doctorUpdates'] as List?)?.cast<Map<String, dynamic>>() ??
-                [];
-        final unreadCount =
-            (profile['doctorUpdatesUnreadCount'] as num?)?.toInt() ?? 0;
-
         return _buildPageContainer(
-          bodyDecoration: const BoxDecoration(
-            color: Color(0xFFF9FAFB),
-          ),
-          body: RefreshIndicator(
-            onRefresh: () async => query.refetch(),
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20, 32, 20, bottomPadding),
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Top Section (Avatar, Name, Info Cards, Details, Actions)
-                  PatientProfileContent(
-                    profile: profile,
-                    onProfileUpdated: () => query.refetch(),
-                  ),
-                  const SizedBox(height: 20),
-                  _DoctorUpdatesCard(
-                    updates: doctorUpdates,
-                    unreadCount: unreadCount,
-                  ),
-                ],
-              ),
-            ),
-          ),
+          body: body,
         );
       },
     );

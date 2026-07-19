@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/motion/app_motion.dart';
 
 class AppColors {
 	// Primary palette
@@ -21,6 +22,13 @@ class AppColors {
 }
 
 class AppTheme {
+	static final PageTransitionsTheme _pageTransitions = PageTransitionsTheme(
+		builders: {
+			for (final platform in TargetPlatform.values)
+				platform: const _FadeSlidePageTransitionsBuilder(),
+		},
+	);
+
 	static ThemeData light = ThemeData(
 		useMaterial3: true,
 		colorScheme: ColorScheme.fromSeed(
@@ -34,6 +42,7 @@ class AppTheme {
 			error: AppColors.error,
 		),
 		scaffoldBackgroundColor: AppColors.backgroundLight,
+		pageTransitionsTheme: _pageTransitions,
 		snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
 		inputDecorationTheme: const InputDecorationTheme(
 			border: OutlineInputBorder(),
@@ -44,7 +53,16 @@ class AppTheme {
 			backgroundColor: Colors.white,
 		),
 		elevatedButtonTheme: ElevatedButtonThemeData(
-			style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+			style: ElevatedButton.styleFrom(
+				minimumSize: const Size.fromHeight(44),
+				animationDuration: AppMotion.state,
+			),
+		),
+		filledButtonTheme: FilledButtonThemeData(
+			style: FilledButton.styleFrom(
+				minimumSize: const Size.fromHeight(44),
+				animationDuration: AppMotion.state,
+			),
 		),
 	);
 
@@ -61,6 +79,7 @@ class AppTheme {
 			error: AppColors.error,
 		),
 		scaffoldBackgroundColor: AppColors.backgroundDark,
+		pageTransitionsTheme: _pageTransitions,
 		snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
 		inputDecorationTheme: const InputDecorationTheme(
 			border: OutlineInputBorder(),
@@ -71,7 +90,49 @@ class AppTheme {
 			backgroundColor: AppColors.backgroundDark,
 		),
 		elevatedButtonTheme: ElevatedButtonThemeData(
-			style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+			style: ElevatedButton.styleFrom(
+				minimumSize: const Size.fromHeight(44),
+				animationDuration: AppMotion.state,
+			),
+		),
+		filledButtonTheme: FilledButtonThemeData(
+			style: FilledButton.styleFrom(
+				minimumSize: const Size.fromHeight(44),
+				animationDuration: AppMotion.state,
+			),
 		),
 	);
+}
+
+/// Shared product page transition: short fade + lateral slide.
+class _FadeSlidePageTransitionsBuilder extends PageTransitionsBuilder {
+	const _FadeSlidePageTransitionsBuilder();
+
+	@override
+	Widget buildTransitions<T>(
+		PageRoute<T> route,
+		BuildContext context,
+		Animation<double> animation,
+		Animation<double> secondaryAnimation,
+		Widget child,
+	) {
+		if (MediaQuery.disableAnimationsOf(context)) {
+			return child;
+		}
+		final curved = CurvedAnimation(
+			parent: animation,
+			curve: AppMotion.easeOutQuint,
+			reverseCurve: AppMotion.easeInSoft,
+		);
+		return FadeTransition(
+			opacity: curved,
+			child: SlideTransition(
+				position: Tween<Offset>(
+					begin: const Offset(0.03, 0),
+					end: Offset.zero,
+				).animate(curved),
+				child: child,
+			),
+		);
+	}
 }

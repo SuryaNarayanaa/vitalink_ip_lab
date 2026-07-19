@@ -70,11 +70,8 @@ class _PatientHealthReportsPageState extends State<PatientHealthReportsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Tabs
               _buildTabBar(),
               const SizedBox(height: 24),
-
-              // Content based on selected tab
               if (_selectedTabIndex == 0)
                 _buildSideEffectsTab()
               else if (_selectedTabIndex == 1)

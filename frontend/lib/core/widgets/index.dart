@@ -1,3 +1,7 @@
+// Motion
+export 'package:frontend/core/motion/app_motion.dart';
+export 'package:frontend/core/motion/motion_widgets.dart';
+
 // Common widgets
 export 'common/app_navbar.dart';
 export 'common/app_scaffold.dart';

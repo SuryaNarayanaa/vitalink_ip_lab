@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/di/theme.dart';
+import 'package:frontend/core/motion/app_motion.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/query/patient_query_keys.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/core/widgets/common/page_skeleton.dart';
 
 class NotificationCenterPage extends StatefulWidget {
   const NotificationCenterPage({
@@ -533,7 +535,8 @@ class _FilterPill extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: AppMotion.duration(context, AppMotion.state),
+        curve: AppMotion.easeOutQuint,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: selected
@@ -542,12 +545,14 @@ class _FilterPill extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
         ),
         child: Center(
-          child: Text(
-            label,
-            style: theme.textTheme.labelLarge?.copyWith(
+          child: AnimatedDefaultTextStyle(
+            duration: AppMotion.duration(context, AppMotion.instant),
+            curve: AppMotion.easeOutQuint,
+            style: (theme.textTheme.labelLarge ?? const TextStyle()).copyWith(
               color: selected ? scheme.onPrimary : scheme.onSurface,
               fontWeight: FontWeight.w700,
             ),
+            child: Text(label),
           ),
         ),
       ),
@@ -560,7 +565,10 @@ class _LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(child: CircularProgressIndicator());
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 20, 16, 24),
+      child: ListSkeleton(itemCount: 5, shrinkWrap: true),
+    );
   }
 }
 

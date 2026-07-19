@@ -5,6 +5,7 @@ import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/patient_model.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/core/widgets/common/page_skeleton.dart';
 import 'package:frontend/core/widgets/common/premium_report_card.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -24,10 +25,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Patient Selector Header
         _buildHeader(),
-
-        // Reports Content
         Expanded(
           child: _selectedPatientOp == null
               ? _buildNoSelectionState()
@@ -217,53 +215,71 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
             ),
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
+        final Widget child;
         if (query.isError) {
-          return ApiErrorState(
-            error: query.error,
-            onRetry: () => query.refetch(),
-          );
-        }
-
-        final reports = query.data ?? [];
-        if (reports.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.history_rounded,
-                    size: 64, color: Colors.grey.withValues(alpha: 0.3)),
-                const SizedBox(height: 16),
-                Text(
-                  'No reports found for ${_selectedPatientName ?? 'selected patient'}'
-                  ' (OP #${_selectedPatientOp ?? 'N/A'})',
-                  style: GoogleFonts.outfit(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+          child = KeyedSubtree(
+            key: const ValueKey('doctor-reports-error'),
+            child: ApiErrorState(
+              error: query.error,
+              onRetry: () => query.refetch(),
             ),
           );
+        } else if (query.isLoading) {
+          child = const KeyedSubtree(
+            key: ValueKey('doctor-reports-loading'),
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: ListSkeleton(itemCount: 4, shrinkWrap: true),
+            ),
+          );
+        } else {
+          final reports = query.data ?? [];
+          if (reports.isEmpty) {
+            child = KeyedSubtree(
+              key: const ValueKey('doctor-reports-empty'),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.history_rounded,
+                        size: 64, color: Colors.grey.withValues(alpha: 0.3)),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No reports found for ${_selectedPatientName ?? 'selected patient'}'
+                      ' (OP #${_selectedPatientOp ?? 'N/A'})',
+                      style: GoogleFonts.outfit(color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          } else {
+            child = KeyedSubtree(
+              key: ValueKey('doctor-reports-${reports.length}'),
+              child: RefreshIndicator(
+                onRefresh: () async => query.refetch(),
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                  itemCount: reports.length,
+                  itemBuilder: (context, index) {
+                    final report = reports[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: PremiumReportCard(
+                        report: report,
+                        showActions: true,
+                        onUpdatePressed: () =>
+                            _updateDialog(context, _repository, report),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          }
         }
-
-        return RefreshIndicator(
-          onRefresh: () async => query.refetch(),
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-            itemCount: reports.length,
-            itemBuilder: (context, index) {
-              final report = reports[index];
-              return PremiumReportCard(
-                report: report,
-                showActions: true,
-                onUpdatePressed: () =>
-                    _updateDialog(context, _repository, report),
-              );
-            },
-          ),
-        );
+        return child;
       },
     );
   }

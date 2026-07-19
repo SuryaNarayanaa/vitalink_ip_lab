@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/motion/motion_widgets.dart';
 
 /// Lightweight placeholder used while dashboard queries load.
 /// Prefer this over a full-screen spinner so layout and hierarchy stay visible.
@@ -19,20 +20,22 @@ class PageSkeleton extends StatelessWidget {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: padding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (showHeader) ...[
-            const _SkeletonBar(height: 22, widthFactor: 0.45),
-            const SizedBox(height: 12),
-            const _SkeletonBar(height: 14, widthFactor: 0.7),
-            const SizedBox(height: 20),
+      child: Shimmer(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (showHeader) ...[
+              const _SkeletonBar(height: 22, widthFactor: 0.45),
+              const SizedBox(height: 12),
+              const _SkeletonBar(height: 14, widthFactor: 0.7),
+              const SizedBox(height: 20),
+            ],
+            for (var i = 0; i < cardCount; i++) ...[
+              if (i > 0) const SizedBox(height: 14),
+              const _SkeletonCard(),
+            ],
           ],
-          for (var i = 0; i < cardCount; i++) ...[
-            if (i > 0) const SizedBox(height: 14),
-            const _SkeletonCard(),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -53,16 +56,18 @@ class ListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      primary: !shrinkWrap,
-      physics: shrinkWrap
-          ? const NeverScrollableScrollPhysics()
-          : const AlwaysScrollableScrollPhysics(),
-      shrinkWrap: shrinkWrap,
-      padding: padding,
-      itemCount: itemCount,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (_, _) => const _SkeletonCard(compact: true),
+    return Shimmer(
+      child: ListView.separated(
+        primary: !shrinkWrap,
+        physics: shrinkWrap
+            ? const NeverScrollableScrollPhysics()
+            : const AlwaysScrollableScrollPhysics(),
+        shrinkWrap: shrinkWrap,
+        padding: padding,
+        itemCount: itemCount,
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (_, _) => const _SkeletonCard(compact: true),
+      ),
     );
   }
 }
@@ -81,9 +86,9 @@ class _SkeletonCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),

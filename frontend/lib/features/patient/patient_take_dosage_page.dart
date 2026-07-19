@@ -34,32 +34,11 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return _buildPageContainer(
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        if (query.isError) {
-          return _buildPageContainer(
-            body: ApiErrorState(
-              error: query.error,
-              onRetry: () => query.refetch(),
-            ),
-          );
-        }
-
-        if (!query.hasData) {
-          return _buildPageContainer(
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        final data = query.data!;
+        final data = query.data;
         final recentDoses =
-            (data['recent_missed_doses'] as List<dynamic>?) ?? const [];
+            (data?['recent_missed_doses'] as List<dynamic>?) ?? const [];
         final remainingDoses =
-            (data['missed_doses'] as List<dynamic>?) ?? const [];
+            (data?['missed_doses'] as List<dynamic>?) ?? const [];
 
         return UseMutation<void, Map<String, dynamic>>(
           options: MutationOptions<void, Map<String, dynamic>>(
@@ -71,11 +50,10 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
             onSuccess: (data, variables) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Dose marked as taken!'),
+                  content: Text('Dose marked as taken'),
                   backgroundColor: Colors.green,
                 ),
               );
-              // Invalidate queries to refetch updated data
               final queryClient = QueryClientProvider.of(context);
               queryClient.invalidateQueries(PatientQueryKeys.homeData());
               queryClient.invalidateQueries(PatientQueryKeys.recordsFull());
@@ -91,6 +69,163 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
             },
           ),
           builder: (context, mutation) {
+            final Widget body;
+            if (query.isError) {
+              body = KeyedSubtree(
+                key: const ValueKey('patient-dosage-error'),
+                child: ApiErrorState(
+                  error: query.error,
+                  onRetry: () => query.refetch(),
+                ),
+              );
+            } else if (query.isLoading || !query.hasData) {
+              body = const KeyedSubtree(
+                key: ValueKey('patient-dosage-loading'),
+                child: PageSkeleton(cardCount: 3),
+              );
+            } else {
+              body = KeyedSubtree(
+                key: const ValueKey('patient-dosage-ready'),
+                child: RefreshIndicator(
+                  onRefresh: () async => query.refetch(),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.of(context).pushNamed(
+                                    AppRoutes.patientDosageCalendar,
+                                  );
+                                },
+                                icon: const Icon(
+                                  Icons.calendar_month_rounded,
+                                  size: 20,
+                                ),
+                                label: const Text(
+                                  'View Dosage Calendar',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade600,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size.fromHeight(48),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 12,
+                                  ),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            DosageSection(
+                              title: 'Missed Doses',
+                              subtitle:
+                                  'Missed doses from the last 7 days.\nTap a date to mark it as taken.',
+                              children: [
+                                if (recentDoses.isEmpty)
+                                  Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(20),
+                                      child: Text(
+                                        'No missed doses in the last 7 days',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final isCompact =
+                                          constraints.maxWidth < 360;
+                                      return GridView.builder(
+                                        shrinkWrap: true,
+                                        physics:
+                                            const NeverScrollableScrollPhysics(),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: isCompact ? 2 : 3,
+                                          crossAxisSpacing: 12,
+                                          mainAxisSpacing: 12,
+                                          childAspectRatio:
+                                              isCompact ? 2.8 : 2.5,
+                                        ),
+                                        itemCount: recentDoses.length,
+                                        itemBuilder: (context, index) {
+                                          final date =
+                                              recentDoses[index] as String;
+                                          return DosageDateCard(
+                                            date: date,
+                                            onTap: () =>
+                                                _showMarkAsTakenDialog(
+                                              date,
+                                              mutation,
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            DosageSection(
+                              title: 'Remaining Missed Doses',
+                              children: [
+                                if (remainingDoses.isEmpty)
+                                  Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(20),
+                                      child: Text(
+                                        'No remaining missed doses',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  _buildPaginatedRemainingDoses(remainingDoses),
+                              ],
+                            ),
+                          ],
+                        ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
             return _buildPageContainer(
               bodyDecoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -99,129 +234,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                   colors: [Color(0xFFC8B5E1), Color(0xFFF8C7D7)],
                 ),
               ),
-              body: RefreshIndicator(
-                onRefresh: () async => query.refetch(),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Calendar Button
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context)
-                                  .pushNamed(AppRoutes.patientDosageCalendar);
-                            },
-                            icon: const Icon(Icons.calendar_month_rounded,
-                                size: 20),
-                            label: const Text(
-                              'View Dosage Calendar',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue.shade600,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 12),
-                              elevation: 2,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Recent Missed Doses Section
-                        DosageSection(
-                          title: 'Missed Doses',
-                          subtitle:
-                              'Below are the missed doses for the last 7 days.\nClick on the date to mark it as taken.',
-                          children: [
-                            if (recentDoses.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Text(
-                                    'No missed doses in the last 7 days',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ),
-                              )
-                            else
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isCompact = constraints.maxWidth < 360;
-
-                                  return GridView.builder(
-                                    shrinkWrap: true,
-                                    physics:
-                                        const NeverScrollableScrollPhysics(),
-                                    gridDelegate:
-                                        SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: isCompact ? 2 : 3,
-                                      crossAxisSpacing: 12,
-                                      mainAxisSpacing: 12,
-                                      childAspectRatio: isCompact ? 2.8 : 2.5,
-                                    ),
-                                    itemCount: recentDoses.length,
-                                    itemBuilder: (context, index) {
-                                      final date = recentDoses[index] as String;
-                                      return DosageDateCard(
-                                        date: date,
-                                        onTap: () => _showMarkAsTakenDialog(
-                                          date,
-                                          mutation,
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Remaining Missed Doses Section
-                        DosageSection(
-                          title: 'Remaining Missed Doses',
-                          children: [
-                            if (remainingDoses.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Text(
-                                    'No remaining missed doses',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ),
-                              )
-                            else
-                              _buildPaginatedRemainingDoses(remainingDoses),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              body: body,
             );
           },
         );

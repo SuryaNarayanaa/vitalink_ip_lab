@@ -37,39 +37,52 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return PatientScaffold(
-            pageTitle: 'My Records',
-            currentNavIndex: 3,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
+        final Widget body;
         if (query.isError) {
-          return PatientScaffold(
-            pageTitle: 'My Records',
-            currentNavIndex: 3,
-            onNavChanged: (index) => _handleNav(index),
-            body: ApiErrorState(
+          body = KeyedSubtree(
+            key: const ValueKey('records-error'),
+            child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
           );
-        }
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('records-loading'),
+            child: PageSkeleton(cardCount: 3),
+          );
+        } else {
+          final data = query.data!;
+          final profile = data['profile'] as Map<String, dynamic>;
+          final history = data['history'] as List<Map<String, dynamic>>;
 
-        if (!query.hasData) {
-          return PatientScaffold(
-            pageTitle: 'My Records',
-            currentNavIndex: 3,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
+          body = KeyedSubtree(
+            key: const ValueKey('records-ready'),
+            child: RefreshIndicator(
+              onRefresh: () async => query.refetch(),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildTabBar(),
+                    const SizedBox(height: 20),
+                    if (_selectedTabIndex == 0)
+                      _buildINRHistory(profile, history)
+                    else if (_selectedTabIndex == 1)
+                      _buildHealthLogs(
+                        profile,
+                        onDataChanged: () async => query.refetch(),
+                      )
+                    else
+                      _buildDosageSchedule(profile),
+                  ],
+                ),
+              ),
+            ),
           );
         }
-
-        final data = query.data!;
-        final profile = data['profile'] as Map<String, dynamic>;
-        final history = data['history'] as List<Map<String, dynamic>>;
 
         return PatientScaffold(
           pageTitle: 'My Records',
@@ -82,32 +95,7 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
             ),
           ),
           onNavChanged: (index) => _handleNav(index),
-          body: RefreshIndicator(
-            onRefresh: () async => query.refetch(),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Tabs
-                  _buildTabBar(),
-                  const SizedBox(height: 20),
-
-                  // Content based on selected tab
-                  if (_selectedTabIndex == 0)
-                    _buildINRHistory(profile, history)
-                  else if (_selectedTabIndex == 1)
-                    _buildHealthLogs(
-                      profile,
-                      onDataChanged: () async => query.refetch(),
-                    )
-                  else
-                    _buildDosageSchedule(profile),
-                ],
-              ),
-            ),
-          ),
+          body: body,
         );
       },
     );

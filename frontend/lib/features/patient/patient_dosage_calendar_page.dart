@@ -54,60 +54,49 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
+        final Widget body;
         if (query.isError) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: ApiErrorState(
+          body = KeyedSubtree(
+            key: const ValueKey('calendar-error'),
+            child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
           );
-        }
-
-        if (!query.hasData) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('calendar-loading'),
+            child: PageSkeleton(cardCount: 2),
           );
-        }
+        } else {
+          final data = query.data!;
+          final calendarData = data['calendar_data'] as List<dynamic>;
+          final dataMap = <String, Map<String, dynamic>>{};
+          for (var entry in calendarData) {
+            dataMap[entry['date'] as String] = entry as Map<String, dynamic>;
+          }
 
-        final data = query.data!;
-        final calendarData = data['calendar_data'] as List<dynamic>;
-
-        // Convert to map for quick lookup
-        final dataMap = <String, Map<String, dynamic>>{};
-        for (var entry in calendarData) {
-          dataMap[entry['date'] as String] = entry as Map<String, dynamic>;
+          body = KeyedSubtree(
+            key: ValueKey(
+              'calendar-${_currentMonth.year}-${_currentMonth.month}',
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: _buildCalendarView(dataMap),
+                ),
+                _buildLegend(),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
         }
 
         return PatientScaffold(
           pageTitle: 'Dosage Calendar',
           currentNavIndex: _currentNavIndex,
           onNavChanged: (index) => _handleNav(index),
-          body: Column(
-            children: [
-              // Calendar view
-              Expanded(
-                child: _buildCalendarView(dataMap),
-              ),
-              // Legend at bottom
-              _buildLegend(),
-              const SizedBox(height: 8),
-            ],
-          ),
+          body: body,
         );
       },
     );

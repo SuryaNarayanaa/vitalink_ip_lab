@@ -142,7 +142,7 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
     if (!_activatedTabs.contains(index)) {
       // Placeholder keeps IndexedStack child count stable without mounting
       // heavy tab trees (and their network queries).
-      return const SizedBox.shrink();
+      return const SizedBox.expand();
     }
     return _tabCache[index] ??= KeyedSubtree(
       key: ValueKey<String>('patient-shell-tab-$index'),
@@ -225,9 +225,11 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
                 _refreshUnreadUpdates();
                 _refreshNotificationsUnread();
               },
-              bodyDecoration: _decorationForIndex(_currentNavIndex),
+              bodyDecoration: _portalBodyDecoration,
+              // Instant tab switch — no crossfade/stack (avoids overlapping content).
               body: IndexedStack(
                 index: _currentNavIndex,
+                sizing: StackFit.expand,
                 children: List<Widget>.generate(
                   _tabCount,
                   _tabForIndex,
@@ -415,17 +417,12 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
     }
   }
 
-  Decoration _decorationForIndex(int index) {
-    if (index == 4) {
-      return const BoxDecoration(color: Color(0xFFF9FAFB));
-    }
-
-    return const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFFC8B5E1), Color(0xFFF8C7D7)],
-      ),
-    );
-  }
+  /// Same surface for every tab so the switcher never fights a background cut.
+  static const Decoration _portalBodyDecoration = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFFC8B5E1), Color(0xFFF8C7D7)],
+    ),
+  );
 }

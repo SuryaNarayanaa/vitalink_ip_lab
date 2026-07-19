@@ -26,12 +26,7 @@ class DoctorProfilePage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (query.isLoading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
+                const PageSkeleton(cardCount: 3, showHeader: false),
               if (query.isError)
                 ApiErrorState(
                   error: query.error,

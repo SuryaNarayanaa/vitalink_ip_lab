@@ -23,9 +23,14 @@ class DoctorDashboardPage extends StatefulWidget {
 }
 
 class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
+  static const int _tabCount = 4;
+
   int _currentNavIndex = 0;
   bool _isTableView = false;
   bool _notificationPopupScheduled = false;
+  /// Lazy-mount tabs (same pattern as patient) so heavy screens load on demand.
+  final Set<int> _activatedTabs = <int>{0};
+  final List<Widget?> _tabCache = List<Widget?>.filled(_tabCount, null);
   final Set<String> _seenAnnouncementIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
   final DoctorRepository _doctorRepository = AppDependencies.doctorRepository;
@@ -120,9 +125,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
         return DoctorScaffold(
           pageTitle: _titleForIndex(_currentNavIndex),
           currentNavIndex: _currentNavIndex,
-          onNavChanged: (index) {
-            setState(() => _currentNavIndex = index);
-          },
+          onNavChanged: _onNavChanged,
           notificationBadgeCount: unreadNotifications,
           onNotificationPressed: () async {
             await Navigator.of(context).pushNamed(AppRoutes.doctorNotifications);
@@ -137,53 +140,68 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
           ),
           body: SafeArea(
             top: false,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              layoutBuilder: (current, previousChildren) => Stack(
-                alignment: Alignment.topCenter,
-                children: [
-                  ...previousChildren,
-                  if (current != null)
-                    Align(alignment: Alignment.topCenter, child: current),
-                ],
+            // Instant tab switch — no crossfade/stack (avoids overlapping content).
+            child: IndexedStack(
+              index: _currentNavIndex,
+              sizing: StackFit.expand,
+              children: List<Widget>.generate(
+                _tabCount,
+                _tabForIndex,
+                growable: false,
               ),
-              child: () {
-                switch (_currentNavIndex) {
-                  case 1:
-                    return const KeyedSubtree(
-                      key: ValueKey('doctor-nav-add'),
-                      child: AddPatientForm(),
-                    );
-                  case 2:
-                    return const KeyedSubtree(
-                      key: ValueKey('doctor-nav-reports'),
-                      child: DoctorReportsPage(),
-                    );
-                  case 3:
-                    return const KeyedSubtree(
-                      key: ValueKey('doctor-nav-profile'),
-                      child: DoctorProfilePage(),
-                    );
-                  case 0:
-                  default:
-                    return KeyedSubtree(
-                      key: const ValueKey('doctor-nav-patients'),
-                      child: _PatientsView(
-                        repository: _doctorRepository,
-                        isTableView: _isTableView,
-                        onToggleView: (table) =>
-                            setState(() => _isTableView = table),
-                        searchController: _searchController,
-                        filterPatients: _filteredPatients,
-                      ),
-                    );
-                }
-              }(),
             ),
           ),
         );
       },
     );
+  }
+
+  void _onNavChanged(int index) {
+    final clamped = index.clamp(0, _tabCount - 1);
+    if (clamped == _currentNavIndex && _activatedTabs.contains(clamped)) {
+      return;
+    }
+    setState(() {
+      _currentNavIndex = clamped;
+      _activatedTabs.add(clamped);
+    });
+  }
+
+  Widget _tabForIndex(int index) {
+    if (!_activatedTabs.contains(index)) {
+      return const SizedBox.expand();
+    }
+    // Patients tab binds to parent toggle/search state — rebuild, don't cache.
+    if (index == 0) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('doctor-shell-tab-0'),
+        child: _PatientsView(
+          repository: _doctorRepository,
+          isTableView: _isTableView,
+          onToggleView: (table) => setState(() => _isTableView = table),
+          searchController: _searchController,
+          filterPatients: _filteredPatients,
+        ),
+      );
+    }
+    return _tabCache[index] ??= KeyedSubtree(
+      key: ValueKey<String>('doctor-shell-tab-$index'),
+      child: _createTab(index),
+    );
+  }
+
+  Widget _createTab(int index) {
+    switch (index) {
+      case 1:
+        return const AddPatientForm();
+      case 2:
+        return const DoctorReportsPage();
+      case 3:
+        return const DoctorProfilePage();
+      case 0:
+      default:
+        return const SizedBox.expand();
+    }
   }
 
   void _refreshNotificationsUnread() {
@@ -263,20 +281,15 @@ class _PatientsView extends StatelessWidget {
                   compact: true,
                 ),
               if (!query.isLoading && !query.isError)
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  switchInCurve: Curves.easeOutBack,
-                  switchOutCurve: Curves.easeIn,
-                  child: isTableView
-                      ? _TableView(
-                          filtered,
-                          key: const ValueKey('patients-table-view'),
-                        )
-                      : _CardView(
-                          filtered,
-                          key: const ValueKey('patients-card-view'),
-                        ),
-                ),
+                isTableView
+                    ? _TableView(
+                        filtered,
+                        key: const ValueKey('patients-table-view'),
+                      )
+                    : _CardView(
+                        filtered,
+                        key: const ValueKey('patients-card-view'),
+                      ),
             ],
           ),
         );
@@ -333,16 +346,17 @@ class _ToggleBar extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
+          duration: AppMotion.duration(context, AppMotion.state),
+          curve: AppMotion.easeOutQuint,
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -376,13 +390,14 @@ class _CardView extends StatelessWidget {
     return Column(
       children: [
         for (int i = 0; i < patients.length; i++)
-          _PatientCard(
-            patient: patients[i],
-            allPatients: patients,
-            index: i,
-          )
-              .animate(const Duration(milliseconds: 300), Curves.easeOut)
-              .padding(bottom: 12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _PatientCard(
+              patient: patients[i],
+              allPatients: patients,
+              index: i,
+            ),
+          ),
       ],
     );
   }
@@ -424,7 +439,7 @@ class _TableView extends StatelessWidget {
                       onPressed: entry.value.opNumber != null
                           ? () {
                               Navigator.of(context).push(
-                                MaterialPageRoute(
+                                FadeSlidePageRoute(
                                   builder: (_) => ViewPatientPage(
                                     opNumber: entry.value.opNumber!,
                                     allPatients: patients,
@@ -495,7 +510,7 @@ class _PatientCard extends StatelessWidget {
   void _navigateToPatient(BuildContext context) {
     if (patient.opNumber != null) {
       Navigator.of(context).push(
-        MaterialPageRoute(
+        FadeSlidePageRoute(
           builder: (_) => ViewPatientPage(
             opNumber: patient.opNumber!,
             allPatients: allPatients,
@@ -508,7 +523,7 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return PressScale(
       onTap: () => _navigateToPatient(context),
       child: <Widget>[
         Text(
@@ -521,10 +536,6 @@ class _PatientCard extends StatelessWidget {
             style: const TextStyle(color: Colors.black54, fontSize: 12)),
         Text('Age: ${patient.age ?? '-'}, Gender: ${patient.gender ?? '-'}',
             style: const TextStyle(color: Colors.black54, fontSize: 12)),
-        // Text(
-        //   'Condition: ${patient.condition ?? 'Not Available'}',
-        //   style: const TextStyle(color: Colors.black54, fontSize: 12),
-        // ),
         const SizedBox(height: 10),
         Align(
           alignment: Alignment.centerRight,
@@ -541,9 +552,9 @@ class _PatientCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -567,18 +578,21 @@ class _TogglePill extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
+        duration: AppMotion.duration(context, AppMotion.state),
+        curve: AppMotion.easeOutQuint,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFFFF7643) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Text(
-          label,
+        child: AnimatedDefaultTextStyle(
+          duration: AppMotion.duration(context, AppMotion.instant),
+          curve: AppMotion.easeOutQuint,
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: isActive ? Colors.white : const Color(0xFF6B7280),
           ),
+          child: Text(label),
         ),
       ),
     );
