@@ -47,11 +47,19 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
   bool _isOpeningExternal = false;
   late final String _detectedFileType;
   final PdfViewerController _pdfController = PdfViewerController();
+  Timer? _imageLoadingTimer;
+  bool _imageLoadingTimedOut = false;
 
   @override
   void initState() {
     super.initState();
     _detectedFileType = _resolveFileType();
+  }
+
+  @override
+  void dispose() {
+    _imageLoadingTimer?.cancel();
+    super.dispose();
   }
 
   String _resolveFileType() {
@@ -286,6 +294,18 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
   }
 
   Widget _buildImagePreview() {
+    if (_imageLoadingTimedOut) {
+      return ColoredBox(
+        color: const Color(0xFFF9FAFB),
+        child: _ErrorPane(
+          message:
+              'Could not load this image in the app. The link may have expired, or the file is unavailable.',
+          detail: 'Loading timed out after 45 seconds.',
+          onRetryExternal: _openExternally,
+        ),
+      );
+    }
+
     return ColoredBox(
       color: const Color(0xFFF9FAFB),
       child: InteractiveViewer(
@@ -296,13 +316,26 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
             widget.fileUrl,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
+              _imageLoadingTimer?.cancel();
               return _ErrorPane(
                 message: 'Failed to load image.',
                 onRetryExternal: _openExternally,
               );
             },
             loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
+              if (loadingProgress == null) {
+                // Image loaded successfully, cancel timeout.
+                _imageLoadingTimer?.cancel();
+                return child;
+              }
+              // Start timeout timer on first loading frame.
+              if (_imageLoadingTimer == null && !_imageLoadingTimedOut) {
+                _imageLoadingTimer = Timer(const Duration(seconds: 45), () {
+                  if (mounted) {
+                    setState(() => _imageLoadingTimedOut = true);
+                  }
+                });
+              }
               return Center(
                 child: CircularProgressIndicator(
                   value: loadingProgress.expectedTotalBytes != null
