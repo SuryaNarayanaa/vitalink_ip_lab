@@ -205,7 +205,10 @@ class _DoctorPatientReportsPageAltState
         children: [
           // Header Section
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: PortalLayout.pageGutter,
+              vertical: PortalLayout.itemGap,
+            ),
             color: Colors.white,
             child: Row(
               children: [
@@ -223,6 +226,7 @@ class _DoctorPatientReportsPageAltState
                               fontWeight: FontWeight.bold,
                             ),
                       ),
+                      PortalLayout.metaSpacer,
                       Text(
                         'OP: ${widget.patientOpNumber}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -239,7 +243,7 @@ class _DoctorPatientReportsPageAltState
               ],
             ),
           ),
-          const Divider(),
+          const Divider(height: 1),
           // Reports List
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(

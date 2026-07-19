@@ -56,11 +56,12 @@ class AppMotion {
       return Duration(milliseconds: (enterMs * 0.75).round());
     }
     final ms = (enterMs * 0.75).round();
-    return Duration(milliseconds: ms.clamp(80, enterMs));
+    // int.clamp returns num; Duration requires int.
+    return Duration(milliseconds: ms.clamp(80, enterMs).toInt());
   }
 
   static Duration staggerDelay(int index) {
-    final capped = index.clamp(0, maxStaggerItems - 1);
+    final capped = index.clamp(0, maxStaggerItems - 1).toInt();
     return staggerStep * capped;
   }
 
