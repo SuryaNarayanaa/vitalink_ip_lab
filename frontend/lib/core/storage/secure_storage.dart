@@ -1,17 +1,36 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:frontend/core/constants/strings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Thin wrapper around [FlutterSecureStorage] to centralize key names and
 /// serialization.
 class SecureStorage {
-  SecureStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+  SecureStorage({
+    FlutterSecureStorage? storage,
+    SharedPreferences? preferences,
+  })  : _storage = storage ?? const FlutterSecureStorage(),
+        _preferences = preferences;
 
   final FlutterSecureStorage _storage;
+  SharedPreferences? _preferences;
   static String? _cachedToken;
   static Map<String, dynamic>? _cachedUser;
+  static bool? _cachedOnboardingCompleted;
+
+  /// Clears process-local caches so tests can simulate an app restart.
+  @visibleForTesting
+  static void debugResetCaches() {
+    _cachedToken = null;
+    _cachedUser = null;
+    _cachedOnboardingCompleted = null;
+  }
+
+  Future<SharedPreferences> _prefs() async {
+    return _preferences ??= await SharedPreferences.getInstance();
+  }
 
   Future<void> saveToken(String token) async {
     _cachedToken = token;
@@ -108,14 +127,62 @@ class SecureStorage {
   }
 
   /// Onboarding completion flag ──────────────────────────────────────────────
+  ///
+  /// Stored in both secure storage (legacy) and [SharedPreferences] because
+  /// this is a non-sensitive first-run preference that must survive logout,
+  /// session expiry, and platforms where secure storage is flaky.
 
   Future<void> markOnboardingCompleted() async {
-    await _storage.write(key: AppStrings.onboardingCompletedKey, value: 'true');
+    _cachedOnboardingCompleted = true;
+    try {
+      await _storage.write(
+        key: AppStrings.onboardingCompletedKey,
+        value: 'true',
+      );
+    } catch (_) {
+      // Prefer SharedPreferences if secure storage is unavailable.
+    }
+    final prefs = await _prefs();
+    await prefs.setBool(AppStrings.onboardingCompletedKey, true);
   }
 
   Future<bool> isOnboardingCompleted() async {
-    final value = await _storage.read(key: AppStrings.onboardingCompletedKey);
-    return value == 'true';
+    if (_cachedOnboardingCompleted == true) return true;
+
+    var completed = false;
+    try {
+      final secureValue =
+          await _storage.read(key: AppStrings.onboardingCompletedKey);
+      completed = secureValue == 'true';
+    } catch (_) {
+      completed = false;
+    }
+
+    if (!completed) {
+      try {
+        final prefs = await _prefs();
+        completed = prefs.getBool(AppStrings.onboardingCompletedKey) ?? false;
+      } catch (_) {
+        completed = false;
+      }
+    }
+
+    // Repair either store so future reads stay consistent.
+    if (completed) {
+      _cachedOnboardingCompleted = true;
+      try {
+        await _storage.write(
+          key: AppStrings.onboardingCompletedKey,
+          value: 'true',
+        );
+      } catch (_) {}
+      try {
+        final prefs = await _prefs();
+        await prefs.setBool(AppStrings.onboardingCompletedKey, true);
+      } catch (_) {}
+    }
+
+    return completed;
   }
 
   Future<void> clearAuthData({bool preserveOnboarding = true}) async {
@@ -126,7 +193,12 @@ class SecureStorage {
     await _storage.delete(key: AppStrings.authSessionKey);
     await _storage.delete(key: AppStrings.userKey);
     if (!preserveOnboarding) {
+      _cachedOnboardingCompleted = false;
       await _storage.delete(key: AppStrings.onboardingCompletedKey);
+      try {
+        final prefs = await _prefs();
+        await prefs.remove(AppStrings.onboardingCompletedKey);
+      } catch (_) {}
     }
   }
 
