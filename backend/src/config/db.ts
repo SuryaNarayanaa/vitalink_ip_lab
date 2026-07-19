@@ -4,6 +4,13 @@ import { config } from '@alias/config'
 import { AdminMfaChallenge, AuthSession, OtpChallenge, User } from '@alias/models'
 import { sanitizeLogText } from '@alias/utils/logger'
 
+/**
+ * One-time / operational migration: challenge audit retention indexes and
+ * purge_at backfill. Run via `migrateAuthSchemaDefaults` — not on every boot.
+ *
+ * Safe to re-run (idempotent). Concurrent instances may race on index drop;
+ * IndexNotFound is treated as success.
+ */
 export async function ensureChallengeAuditRetention() {
   for (const model of [OtpChallenge, AdminMfaChallenge]) {
     if (model === AdminMfaChallenge) {
@@ -49,7 +56,12 @@ export async function ensureChallengeAuditRetention() {
       index.key?.expires_at === 1 && index.expireAfterSeconds !== undefined
     )
     if (destructiveExpiryIndex?.name) {
-      await model.collection.dropIndex(destructiveExpiryIndex.name)
+      try {
+        await model.collection.dropIndex(destructiveExpiryIndex.name)
+      } catch (error: any) {
+        // Another instance may have already dropped this index concurrently.
+        if (error?.codeName !== 'IndexNotFound' && error?.code !== 27) throw error
+      }
     }
     await model.collection.updateMany(
       { purge_at: { $exists: false }, expires_at: { $type: 'date' } },
@@ -60,9 +72,13 @@ export async function ensureChallengeAuditRetention() {
 }
 
 /**
- * Backfill generation fields introduced after the first production schema.
+ * One-time / operational migration: backfill generation fields introduced
+ * after the first production schema. Run via `migrateAuthSchemaDefaults` —
+ * not on every boot.
+ *
  * Mongoose defaults are not applied to existing raw documents, while auth
  * predicates intentionally require an exact generation match.
+ * Safe to re-run (idempotent).
  */
 export async function ensureAuthGenerationDefaults() {
   await User.collection.updateMany(
@@ -104,8 +120,10 @@ export async function ensureAuthGenerationDefaults() {
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(config.databaseUrl);
-    await ensureAuthGenerationDefaults()
-    await ensureChallengeAuditRetention()
+    // Full-collection auth schema backfills and index repairs are operational
+    // migrations (see migrateAuthSchemaDefaults). Do not run them on every
+    // boot — that adds startup latency, multiplies work across replicas, and
+    // races concurrent index drops during rolling deploys.
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
   }
   catch (err) {
