@@ -24,8 +24,6 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
-
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.profileFull(),
@@ -44,61 +42,67 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return _buildPageContainer(
-            body: const PageSkeleton(cardCount: 3),
-          );
-        }
-
+        final Widget body;
         if (query.isError) {
-          return _buildPageContainer(
-            body: ApiErrorState(
+          body = KeyedSubtree(
+            key: const ValueKey('patient-profile-error'),
+            child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
           );
-        }
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('patient-profile-loading'),
+            child: PageSkeleton(cardCount: 3),
+          );
+        } else {
+          final data = query.data!;
+          final profile = data['profile'] as Map<String, dynamic>;
+          final doctorUpdates =
+              (data['doctorUpdates'] as List?)?.cast<Map<String, dynamic>>() ??
+                  [];
+          final unreadCount =
+              (profile['doctorUpdatesUnreadCount'] as num?)?.toInt() ?? 0;
 
-        if (!query.hasData) {
-          return _buildPageContainer(
-            body: const PageSkeleton(cardCount: 3),
+          body = KeyedSubtree(
+            key: const ValueKey('patient-profile-ready'),
+            child: RefreshIndicator(
+              onRefresh: () async => query.refetch(),
+              child: SingleChildScrollView(
+                padding: PortalLayout.pagePadding(
+                  embedInShell: widget.embedInShell,
+                  top: PortalLayout.pageTopComfortable,
+                ),
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PatientProfileContent(
+                      profile: profile,
+                      onProfileUpdated: () => query.refetch(),
+                    ),
+                    PortalLayout.sectionSpacer,
+                    _DoctorUpdatesCard(
+                      updates: doctorUpdates,
+                      unreadCount: unreadCount,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         }
 
-        final data = query.data!;
-        final profile = data['profile'] as Map<String, dynamic>;
-        final doctorUpdates =
-            (data['doctorUpdates'] as List?)?.cast<Map<String, dynamic>>() ??
-                [];
-        final unreadCount =
-            (profile['doctorUpdatesUnreadCount'] as num?)?.toInt() ?? 0;
-
         return _buildPageContainer(
           bodyDecoration: const BoxDecoration(
-            color: Color(0xFFF9FAFB),
-          ),
-          body: RefreshIndicator(
-            onRefresh: () async => query.refetch(),
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20, 32, 20, bottomPadding),
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Top Section (Avatar, Name, Info Cards, Details, Actions)
-                  PatientProfileContent(
-                    profile: profile,
-                    onProfileUpdated: () => query.refetch(),
-                  ),
-                  const SizedBox(height: 20),
-                  _DoctorUpdatesCard(
-                    updates: doctorUpdates,
-                    unreadCount: unreadCount,
-                  ),
-                ],
-              ),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFC0C9FA), Color(0xFFFDC5DF)],
             ),
           ),
+          body: body,
         );
       },
     );
@@ -165,10 +169,10 @@ class _DoctorUpdatesCard extends StatelessWidget {
         (visibleCount * _updateTileHeight) + ((visibleCount - 1) * 10);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: PortalLayout.cardInsets,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
@@ -176,8 +180,8 @@ class _DoctorUpdatesCard extends StatelessWidget {
         children: [
           Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
             children: [
               const Icon(
                 Icons.notifications_active_outlined,
@@ -190,11 +194,13 @@ class _DoctorUpdatesCard extends StatelessWidget {
               ),
               if (unreadCount > 0)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                    vertical: AppSpacing.xxs,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFEF4444),
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(PortalLayout.pillRadius),
                   ),
                   child: Text(
                     '$unreadCount new',
@@ -207,7 +213,7 @@ class _DoctorUpdatesCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          PortalLayout.itemSpacer,
           if (updates.isEmpty)
             const Text(
               'No recent doctor changes.',
@@ -221,7 +227,8 @@ class _DoctorUpdatesCard extends StatelessWidget {
                 child: ListView.separated(
                   primary: false,
                   itemCount: updates.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppSpacing.sm - 2),
                   itemBuilder: (context, index) => _DoctorUpdateTile(
                     event: updates[index],
                   ),
@@ -244,7 +251,7 @@ class _DoctorUpdateTile extends StatelessWidget {
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(minHeight: 112),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(PortalLayout.itemGap),
       decoration: BoxDecoration(
         color: event['isRead'] == true
             ? const Color(0xFFF9FAFB)

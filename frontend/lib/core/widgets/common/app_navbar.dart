@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/motion/motion_widgets.dart';
 
 class AppNavBar extends StatelessWidget {
   final String pageTitle;
@@ -42,9 +43,8 @@ class AppNavBar extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.07),
-                blurRadius: 14,
-                spreadRadius: 1,
-                offset: const Offset(0, 6),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -98,6 +98,7 @@ class AppNavBar extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    // Static title — animated crossfade stacked old/new text and overlapped.
                     Text(
                       pageTitle,
                       textAlign: TextAlign.center,
@@ -121,37 +122,11 @@ class AppNavBar extends StatelessWidget {
                           icon: const Icon(Icons.notifications_outlined),
                           tooltip: 'Notifications',
                         ),
-                        if (notificationBadgeCount > 0)
-                          Positioned(
-                            right: 8,
-                            top: 6,
-                            child: Container(
-                              constraints: const BoxConstraints(
-                                minWidth: 16,
-                                minHeight: 16,
-                              ),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 4),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFDC2626),
-                                shape: BoxShape.rectangle,
-                                borderRadius:
-                                    BorderRadius.all(Radius.circular(10)),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  notificationBadgeCount > 99
-                                      ? '99+'
-                                      : notificationBadgeCount.toString(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                        Positioned(
+                          right: 8,
+                          top: 6,
+                          child: MotionBadge(count: notificationBadgeCount),
+                        ),
                       ],
                     ),
                   ),

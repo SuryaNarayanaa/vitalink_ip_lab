@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/core/network/api_client.dart';
@@ -233,21 +234,28 @@ class _AddPatientFormState extends State<AddPatientForm> {
           behavior: const MaterialScrollBehavior()
               .copyWith(physics: const BouncingScrollPhysics()),
           child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(20, 22, 20, 22 + keyboardInset),
+            padding: EdgeInsets.fromLTRB(
+              PortalLayout.pageGutter,
+              PortalLayout.pageTop,
+              PortalLayout.pageGutter,
+              PortalLayout.pageBottomShell + keyboardInset,
+            ),
             physics: const BouncingScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const _DoctorGreeting(),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius:
+                      BorderRadius.circular(PortalLayout.cardRadius + 4),
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.94),
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius:
+                            BorderRadius.circular(PortalLayout.cardRadius + 4),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.08),
@@ -276,7 +284,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                         integerOnly: true,
                                         min: 1,
                                         max: 120)),
-                                const SizedBox(width: 12),
+                                PortalLayout.columnSpacer,
                                 Expanded(
                                     child: _buildDropdown(
                                         'Gender',
@@ -298,7 +306,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                         minExclusive: true,
                                         keyboard: const TextInputType
                                             .numberWithOptions(decimal: true))),
-                                const SizedBox(width: 12),
+                                PortalLayout.columnSpacer,
                                 Expanded(
                                     child: _buildTextField(
                                         _targetMaxCtrl, 'Target INR Max',
@@ -315,9 +323,9 @@ class _AddPatientFormState extends State<AddPatientForm> {
                             _buildDropdown('Therapy', _therapy, _therapyOptions,
                                 (v) => setState(() => _therapy = v),
                                 isRequired: true),
-                            const SizedBox(height: 12),
+                            PortalLayout.fieldSpacer,
                             _medicalHistoryCard(),
-                            const SizedBox(height: 14),
+                            PortalLayout.sectionSpacerTight,
                             _buildDateField(
                               controller: _therapyStartCtrl,
                               label: 'Therapy Start Date',
@@ -325,10 +333,10 @@ class _AddPatientFormState extends State<AddPatientForm> {
                               isRequired: true,
                               onTap: _pickTherapyDate,
                             ),
-                            const SizedBox(height: 10),
+                            PortalLayout.itemSpacer,
                             _sectionTitle('Prescription *'),
                             _dosageList(),
-                            const SizedBox(height: 14),
+                            PortalLayout.sectionSpacerTight,
                             _buildTextField(_contactCtrl, 'Contact',
                                 hint: '10-digit Indian number (+91 automatic)',
                                 isRequired: true,
@@ -349,7 +357,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                       label: 'Kin Contact',
                                       required: true,
                                     )),
-                            const SizedBox(height: 10),
+                            PortalLayout.itemSpacer,
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -367,10 +375,14 @@ class _AddPatientFormState extends State<AddPatientForm> {
                                   elevation: 0,
                                   side: const BorderSide(
                                       color: Colors.black87, width: 1),
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: PortalLayout.cardPadding,
+                                  ),
                                   shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
+                                    borderRadius: BorderRadius.circular(
+                                      PortalLayout.controlRadius,
+                                    ),
+                                  ),
                                 ),
                                 child: mutation.isLoading
                                     ? const SizedBox(
@@ -382,7 +394,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
                               ),
                             ),
                           ],
-                        ).padding(all: 18),
+                        ).padding(all: PortalLayout.cardPaddingComfortable),
                       ),
                     ),
                   ),
@@ -396,7 +408,10 @@ class _AddPatientFormState extends State<AddPatientForm> {
   }
 
   Widget _sectionTitle(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8, top: 12),
+        padding: const EdgeInsets.only(
+          bottom: AppSpacing.xs,
+          top: PortalLayout.itemGap,
+        ),
         child: Text(
           text,
           style: const TextStyle(
@@ -407,7 +422,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
   Widget _medicalHistoryCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(PortalLayout.itemGap),
       decoration: BoxDecoration(
         color: const Color(0xFFF8F7FB),
         borderRadius: BorderRadius.circular(14),

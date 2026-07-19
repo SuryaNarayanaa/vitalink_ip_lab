@@ -54,60 +54,49 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
         },
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-
+        final Widget body;
         if (query.isError) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: ApiErrorState(
+          body = KeyedSubtree(
+            key: const ValueKey('calendar-error'),
+            child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
           );
-        }
-
-        if (!query.hasData) {
-          return PatientScaffold(
-            pageTitle: 'Dosage Calendar',
-            currentNavIndex: _currentNavIndex,
-            onNavChanged: (index) => _handleNav(index),
-            body: const Center(child: CircularProgressIndicator()),
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('calendar-loading'),
+            child: PageSkeleton(cardCount: 2),
           );
-        }
+        } else {
+          final data = query.data!;
+          final calendarData = data['calendar_data'] as List<dynamic>;
+          final dataMap = <String, Map<String, dynamic>>{};
+          for (var entry in calendarData) {
+            dataMap[entry['date'] as String] = entry as Map<String, dynamic>;
+          }
 
-        final data = query.data!;
-        final calendarData = data['calendar_data'] as List<dynamic>;
-
-        // Convert to map for quick lookup
-        final dataMap = <String, Map<String, dynamic>>{};
-        for (var entry in calendarData) {
-          dataMap[entry['date'] as String] = entry as Map<String, dynamic>;
+          body = KeyedSubtree(
+            key: ValueKey(
+              'calendar-${_currentMonth.year}-${_currentMonth.month}',
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: _buildCalendarView(dataMap),
+                ),
+                _buildLegend(),
+                const SizedBox(height: AppSpacing.xs),
+              ],
+            ),
+          );
         }
 
         return PatientScaffold(
           pageTitle: 'Dosage Calendar',
           currentNavIndex: _currentNavIndex,
           onNavChanged: (index) => _handleNav(index),
-          body: Column(
-            children: [
-              // Calendar view
-              Expanded(
-                child: _buildCalendarView(dataMap),
-              ),
-              // Legend at bottom
-              _buildLegend(),
-              const SizedBox(height: 8),
-            ],
-          ),
+          body: body,
         );
       },
     );
@@ -115,10 +104,15 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
 
   Widget _buildCalendarView(Map<String, Map<String, dynamic>> dataMap) {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(
+        PortalLayout.pageGutter,
+        PortalLayout.pageTop,
+        PortalLayout.pageGutter,
+        PortalLayout.itemGap,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
@@ -141,7 +135,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
           // Load more button
           if (_loadedMonths < 12)
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(PortalLayout.itemGap),
               child: TextButton.icon(
                 onPressed: () {
                   _loadMoreData();
@@ -162,7 +156,10 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
     final monthYear = DateFormat('MMMM yyyy').format(_currentMonth);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: PortalLayout.itemGap,
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isCompact = constraints.maxWidth < 360;

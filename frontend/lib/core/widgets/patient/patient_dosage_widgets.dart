@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/constants/layout.dart';
 
 class DosageDateCard extends StatelessWidget {
   final String date;
@@ -22,12 +23,12 @@ class DosageDateCard extends StatelessWidget {
           onTap: isClickable ? onTap : null,
           child: Container(
             padding: EdgeInsets.symmetric(
-              horizontal: isCompact ? 10 : 16,
-              vertical: 12,
+              horizontal: isCompact ? 10 : PortalLayout.cardPadding,
+              vertical: PortalLayout.itemGap,
             ),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppSpacing.xs),
               border: Border.all(color: Colors.grey.shade300),
             ),
             alignment: Alignment.center,
@@ -61,16 +62,16 @@ class RemainingDoseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(PortalLayout.itemGap),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppSpacing.xs),
         border: Border.all(color: Colors.red.shade300, width: 2),
       ),
       child: Row(
         children: [
           Icon(Icons.error_outline, color: Colors.red.shade400, size: 20),
-          const SizedBox(width: 8),
+          PortalLayout.inlineSpacer,
           Expanded(
             child: Text(
               date,
@@ -105,7 +106,8 @@ class DosageSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding ?? const EdgeInsets.symmetric(vertical: 8),
+      padding: padding ??
+          const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -118,7 +120,7 @@ class DosageSection extends StatelessWidget {
             ),
           ),
           if (subtitle != null) ...[
-            const SizedBox(height: 4),
+            PortalLayout.metaSpacer,
             Text(
               subtitle!,
               style: TextStyle(
@@ -127,7 +129,7 @@ class DosageSection extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 12),
+          PortalLayout.itemSpacer,
           ...children,
         ],
       ),

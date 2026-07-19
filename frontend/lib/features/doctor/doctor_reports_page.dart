@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/doctor_query_keys.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/patient_model.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/core/widgets/common/page_skeleton.dart';
 import 'package:frontend/core/widgets/common/premium_report_card.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -20,14 +24,31 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
   String? _selectedPatientOp;
   String? _selectedPatientName;
 
+  Future<void> _refreshSelectedReports({
+    Future<void> Function()? awaitReportsRefetch,
+  }) async {
+    final op = _selectedPatientOp;
+    if (op == null || op.isEmpty || !mounted) return;
+    final queryClient = QueryClientProvider.of(context);
+    final reportsKey = DoctorQueryKeys.patientReports(op);
+    // Drop Hive entry so reopen never restores a stale empty list.
+    await QueryCache.instance.remove(reportsKey.toString());
+    // Prefer a single awaited refetch when available (RefreshIndicator path).
+    // Outside UseQuery, fire one client refetch — never invalidate+refetch.
+    if (awaitReportsRefetch != null) {
+      await awaitReportsRefetch();
+    } else {
+      queryClient.refetchQueries(reportsKey);
+    }
+    // Patients list condition (critical flag) also depends on latest INR.
+    queryClient.invalidateQueries(DoctorQueryKeys.patients());
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Patient Selector Header
         _buildHeader(),
-
-        // Reports Content
         Expanded(
           child: _selectedPatientOp == null
               ? _buildNoSelectionState()
@@ -39,7 +60,12 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+        PortalLayout.pageGutter,
+        PortalLayout.pageTop,
+        PortalLayout.pageGutter,
+        AppSpacing.xs,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -51,7 +77,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               color: const Color(0xFF1E1E5E),
             ),
           ),
-          const SizedBox(height: 16),
+          PortalLayout.sectionSpacerTight,
           _buildPatientPicker(),
         ],
       ),
@@ -156,9 +182,23 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
           if (selectedOp == null || selectedOp.isEmpty) {
             return;
           }
+          final samePatient = selectedOp == _selectedPatientOp;
           setState(() {
             _selectedPatientOp = selectedOp;
             _selectedPatientName = p.name;
+          });
+          // Re-selecting (or switching patients) must hit the network — the
+          // default 5m query cache otherwise keeps an empty/outdated list.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final queryClient = QueryClientProvider.of(context);
+            if (samePatient) {
+              unawaited(_refreshSelectedReports());
+            } else {
+              queryClient.invalidateQueries(
+                DoctorQueryKeys.patientReports(selectedOp),
+              );
+            }
           });
         },
       ),
@@ -180,7 +220,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
                 size: 80,
                 color: const Color(0xFF6366F1).withValues(alpha: 0.2)),
           ),
-          const SizedBox(height: 24),
+          PortalLayout.sectionSpacer,
           Text(
             'No Patient Selected',
             style: GoogleFonts.outfit(
@@ -189,9 +229,9 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
               color: const Color(0xFF1E1E5E),
             ),
           ),
-          const SizedBox(height: 8),
+          PortalLayout.labelSpacer,
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
             child: Text(
               'Please select a patient from the dropdown above to view their INR report history.',
               textAlign: TextAlign.center,
@@ -211,58 +251,114 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
     return UseQuery<List<dynamic>>(
       options: QueryOptions<List<dynamic>>(
         queryKey: DoctorQueryKeys.patientReports(_selectedPatientOp!),
+        // Clinical report lists must not sit on the default 5-minute stale window.
+        staleTime: Duration.zero,
+        refetchOnWindowFocus: true,
         queryFn: () => _repository.getPatientReports(
               _selectedPatientOp!,
               includeUrls: true,
             ),
       ),
       builder: (context, query) {
-        if (query.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (query.isError) {
-          return ApiErrorState(
-            error: query.error,
-            onRetry: () => query.refetch(),
+        Future<void> onRefresh() async {
+          await _refreshSelectedReports(
+            awaitReportsRefetch: query.refetch,
           );
         }
 
-        final reports = query.data ?? [];
-        if (reports.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.history_rounded,
-                    size: 64, color: Colors.grey.withValues(alpha: 0.3)),
-                const SizedBox(height: 16),
-                Text(
-                  'No reports found for ${_selectedPatientName ?? 'selected patient'}'
-                  ' (OP #${_selectedPatientOp ?? 'N/A'})',
-                  style: GoogleFonts.outfit(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+        final Widget child;
+        if (query.isError) {
+          child = KeyedSubtree(
+            key: const ValueKey('doctor-reports-error'),
+            child: ApiErrorState(
+              error: query.error,
+              onRetry: () => onRefresh(),
             ),
           );
+        } else if (query.isLoading && !query.hasData) {
+          child = const KeyedSubtree(
+            key: ValueKey('doctor-reports-loading'),
+            child: Padding(
+              padding: EdgeInsets.all(PortalLayout.pageGutter),
+              child: ListSkeleton(itemCount: 4, shrinkWrap: true),
+            ),
+          );
+        } else {
+          final reports = query.data ?? [];
+          if (reports.isEmpty) {
+            // Empty state must still be pull-to-refreshable; a non-scrollable
+            // Center previously swallowed refresh after patient uploads.
+            child = KeyedSubtree(
+              key: const ValueKey('doctor-reports-empty'),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageTop,
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageBottomShell,
+                ),
+                children: [
+                  const SizedBox(height: 80),
+                  Icon(Icons.history_rounded,
+                      size: 64, color: Colors.grey.withValues(alpha: 0.3)),
+                  PortalLayout.sectionSpacerTight,
+                  Text(
+                    'No reports found for ${_selectedPatientName ?? 'selected patient'}'
+                    ' (OP #${_selectedPatientOp ?? 'N/A'})',
+                    style: GoogleFonts.outfit(color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  PortalLayout.sectionSpacer,
+                  Text(
+                    'Pull down to refresh after a patient uploads a new INR report.',
+                    style: GoogleFonts.outfit(
+                      color: Colors.grey.withValues(alpha: 0.85),
+                      fontSize: 13,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            );
+          } else {
+            child = KeyedSubtree(
+              key: ValueKey(
+                'doctor-reports-$_selectedPatientOp-${reports.length}',
+              ),
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageTop,
+                  PortalLayout.pageGutter,
+                  PortalLayout.pageBottomShell,
+                ),
+                itemCount: reports.length,
+                itemBuilder: (context, index) {
+                  final report = reports[index];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index == reports.length - 1
+                          ? 0
+                          : PortalLayout.itemGap,
+                    ),
+                    child: PremiumReportCard(
+                      report: report,
+                      showActions: true,
+                      onUpdatePressed: () =>
+                          _updateDialog(context, _repository, report),
+                    ),
+                  );
+                },
+              ),
+            );
+          }
         }
 
         return RefreshIndicator(
-          onRefresh: () async => query.refetch(),
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-            itemCount: reports.length,
-            itemBuilder: (context, index) {
-              final report = reports[index];
-              return PremiumReportCard(
-                report: report,
-                showActions: true,
-                onUpdatePressed: () =>
-                    _updateDialog(context, _repository, report),
-              );
-            },
-          ),
+          onRefresh: onRefresh,
+          child: child,
         );
       },
     );

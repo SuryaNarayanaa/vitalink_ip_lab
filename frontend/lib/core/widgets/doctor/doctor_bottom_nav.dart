@@ -32,8 +32,8 @@ class DoctorBottomNavBar extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 15,
-                offset: const Offset(0, 5),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
