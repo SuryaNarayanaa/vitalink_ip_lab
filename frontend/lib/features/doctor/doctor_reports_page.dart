@@ -24,15 +24,22 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
   String? _selectedPatientOp;
   String? _selectedPatientName;
 
-  Future<void> _refreshSelectedReports() async {
+  Future<void> _refreshSelectedReports({
+    Future<void> Function()? awaitReportsRefetch,
+  }) async {
     final op = _selectedPatientOp;
     if (op == null || op.isEmpty || !mounted) return;
     final queryClient = QueryClientProvider.of(context);
-    // Drop both live query + Hive entry so pull-to-refresh never serves stale
-    // empty results after a patient uploads a new INR report.
-    queryClient.invalidateQueries(DoctorQueryKeys.patientReports(op));
-    await QueryCache.instance.remove(DoctorQueryKeys.patientReports(op).toString());
-    queryClient.refetchQueries(DoctorQueryKeys.patientReports(op));
+    final reportsKey = DoctorQueryKeys.patientReports(op);
+    // Drop Hive entry so reopen never restores a stale empty list.
+    await QueryCache.instance.remove(reportsKey.toString());
+    // Prefer a single awaited refetch when available (RefreshIndicator path).
+    // Outside UseQuery, fire one client refetch — never invalidate+refetch.
+    if (awaitReportsRefetch != null) {
+      await awaitReportsRefetch();
+    } else {
+      queryClient.refetchQueries(reportsKey);
+    }
     // Patients list condition (critical flag) also depends on latest INR.
     queryClient.invalidateQueries(DoctorQueryKeys.patients());
   }
@@ -254,8 +261,9 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
       ),
       builder: (context, query) {
         Future<void> onRefresh() async {
-          await _refreshSelectedReports();
-          await query.refetch();
+          await _refreshSelectedReports(
+            awaitReportsRefetch: query.refetch,
+          );
         }
 
         final Widget child;
