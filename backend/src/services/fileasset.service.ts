@@ -233,7 +233,10 @@ export async function resolveAssetDownloadUrls(
     }
   }
 
-  const concurrency = Math.max(1, Math.min(options?.concurrency ?? 8, 32))
+  const requestedConcurrency = options?.concurrency ?? 8
+  const concurrency = Number.isFinite(requestedConcurrency)
+    ? Math.max(1, Math.min(Math.floor(requestedConcurrency), 32))
+    : 8
   const results: (string | null)[] = new Array(items.length).fill(null)
   let nextIndex = 0
 
