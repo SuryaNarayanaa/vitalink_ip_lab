@@ -45,9 +45,12 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
             ),
           );
         } else if (query.isLoading || !query.hasData) {
-          body = const KeyedSubtree(
-            key: ValueKey('records-loading'),
-            child: PageSkeleton(cardCount: 3),
+          body = KeyedSubtree(
+            key: const ValueKey('records-loading'),
+            child: PageSkeleton(
+              cardCount: 3,
+              padding: PortalLayout.pagePadding(embedInShell: true),
+            ),
           );
         } else {
           final data = query.data!;

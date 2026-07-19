@@ -79,9 +79,14 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                 ),
               );
             } else if (query.isLoading || !query.hasData) {
-              body = const KeyedSubtree(
-                key: ValueKey('patient-dosage-loading'),
-                child: PageSkeleton(cardCount: 3),
+              body = KeyedSubtree(
+                key: const ValueKey('patient-dosage-loading'),
+                child: PageSkeleton(
+                  cardCount: 3,
+                  padding: PortalLayout.pagePadding(
+                    embedInShell: widget.embedInShell,
+                  ),
+                ),
               );
             } else {
               body = KeyedSubtree(

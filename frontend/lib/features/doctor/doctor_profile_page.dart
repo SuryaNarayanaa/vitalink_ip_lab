@@ -19,14 +19,22 @@ class DoctorProfilePage extends StatelessWidget {
         queryFn: repository.getDoctorProfile,
       ),
       builder: (context, query) {
+        // PageSkeleton owns its own SingleChildScrollView — never nest it
+        // inside another vertical scrollable (unbounded height assertion).
+        if (query.isLoading) {
+          return PageSkeleton(
+            cardCount: 3,
+            showHeader: false,
+            padding: PortalLayout.doctorShellPadding,
+          );
+        }
+
         return SingleChildScrollView(
           padding: PortalLayout.doctorShellPadding,
           physics: const BouncingScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (query.isLoading)
-                const PageSkeleton(cardCount: 3, showHeader: false),
               if (query.isError)
                 ApiErrorState(
                   error: query.error,

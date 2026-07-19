@@ -1230,8 +1230,10 @@ class _InrReportsCard extends StatelessWidget {
                     onRefresh: () async {
                       final queryClient = QueryClientProvider.of(context);
                       final key = DoctorQueryKeys.patientReports(opNumber);
-                      queryClient.invalidateQueries(key);
+                      // Bust Hive, then await network so RefreshIndicator waits.
                       await QueryCache.instance.remove(key.toString());
+                      queryClient.invalidateQueries(key);
+                      await query.refetch();
                     },
                     enableReportViewAction: true,
                   );

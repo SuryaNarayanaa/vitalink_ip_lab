@@ -519,23 +519,36 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
 
-	// Keep doctor portal caches in sync: push an in-app/SSE notification so the
-	// assigned doctor refetches patient + report lists without reinstall/login.
-	// Fire-and-forget: response is already sent; rely on internal error handling.
-	const patientAccount = await User.findById(patientUser._id).select('login_id').lean()
-	notifyDoctorOfInrReport({
-		assignedDoctorId: patient.assigned_doctor_id,
-		patientUserId: patientUser._id,
-		patientLoginId: patientAccount?.login_id != null
-			? String(patientAccount.login_id)
-			: null,
-		patientName: (patient as any)?.demographics?.name ?? null,
-		inrValue: parsed_inr_value,
-		isCritical: submittedIsCritical,
-		testDate: parsedTestDate,
-	}).catch(err => {
-		logger.error('unhandled_notification_error', { error: err })
-	})
+	// Keep doctor portal caches in sync after the clinical response is already
+	// on the wire. Entire notify path is fire-and-forget (no awaits on this
+	// request handler) so login_id lookup + delivery cannot slow or fail submit.
+	const assignedDoctorId = patient.assigned_doctor_id
+	const patientUserId = patientUser._id
+	const patientName = (patient as any)?.demographics?.name ?? null
+	const inrValue = parsed_inr_value
+	const isCritical = submittedIsCritical
+	const testDate = parsedTestDate
+	void (async () => {
+		try {
+			const patientAccount = await User.findById(patientUserId).select('login_id').lean()
+			await notifyDoctorOfInrReport({
+				assignedDoctorId,
+				patientUserId,
+				patientLoginId: patientAccount?.login_id != null
+					? String(patientAccount.login_id)
+					: null,
+				patientName,
+				inrValue,
+				isCritical,
+				testDate,
+			})
+		} catch (err) {
+			logger.error('unhandled_notification_error', {
+				errorName: err instanceof Error ? err.name : 'UnknownError',
+				patientUserId: String(patientUserId),
+			})
+		}
+	})()
 })
 
 export const missedDoses = asyncHandler(async (req: Request<{}, {}, {}>, res: Response) => {
