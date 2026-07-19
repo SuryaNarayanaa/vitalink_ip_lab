@@ -12,9 +12,43 @@ const userStreams = new Map<string, Set<Response>>()
 
 const toJson = (value: unknown) => JSON.stringify(value)
 
-const writeSseEvent = (res: Response, envelope: StreamEnvelope) => {
-  res.write(`event: ${envelope.event}\n`)
-  res.write(`data: ${toJson(envelope.data)}\n\n`)
+const waitForDrain = (res: Response): Promise<boolean> => new Promise((resolve) => {
+  if (res.writableEnded || res.destroyed) {
+    resolve(false)
+    return
+  }
+  const onDrain = () => {
+    cleanup()
+    resolve(true)
+  }
+  const onClose = () => {
+    cleanup()
+    resolve(false)
+  }
+  const cleanup = () => {
+    res.off('drain', onDrain)
+    res.off('close', onClose)
+    res.off('error', onClose)
+  }
+  res.once('drain', onDrain)
+  res.once('close', onClose)
+  res.once('error', onClose)
+})
+
+/** Write an SSE frame; when the socket buffers, wait for drain before continuing. */
+const writeSseEvent = async (res: Response, envelope: StreamEnvelope): Promise<boolean> => {
+  if (res.writableEnded || res.destroyed) return false
+  const payload = `event: ${envelope.event}\ndata: ${toJson(envelope.data)}\n\n`
+  const ok = res.write(payload)
+  if (ok) return true
+  return waitForDrain(res)
+}
+
+const writeSseComment = async (res: Response, comment: string): Promise<boolean> => {
+  if (res.writableEnded || res.destroyed) return false
+  const ok = res.write(`: ${comment}\n\n`)
+  if (ok) return true
+  return waitForDrain(res)
 }
 
 const removeClient = (userId: string, res: Response) => {
@@ -37,9 +71,11 @@ export function registerUserNotificationStream(userId: string, res: Response) {
   streams.add(res)
   userStreams.set(userId, streams)
 
-  writeSseEvent(res, {
+  void writeSseEvent(res, {
     event: 'connected',
     data: { connected: true, timestamp: new Date().toISOString() }
+  }).then((ok) => {
+    if (!ok) removeClient(userId, res)
   })
 
   const heartbeat = setInterval(() => {
@@ -48,7 +84,12 @@ export function registerUserNotificationStream(userId: string, res: Response) {
       removeClient(userId, res)
       return
     }
-    res.write(': ping\n\n')
+    void writeSseComment(res, 'ping').then((ok) => {
+      if (!ok) {
+        clearInterval(heartbeat)
+        removeClient(userId, res)
+      }
+    })
   }, 25000)
 
   const cleanup = () => {
@@ -72,11 +113,11 @@ export function publishNotificationToUser(userId: string, event: string, data: u
       continue
     }
 
-    try {
-      writeSseEvent(res, { event, data })
-    } catch {
+    void writeSseEvent(res, { event, data }).then((ok) => {
+      if (!ok) removeClient(userId, res)
+    }).catch(() => {
       removeClient(userId, res)
-    }
+    })
   }
 }
 
@@ -109,4 +150,3 @@ export async function publishClinicalNotificationToUser(userId: string, event: s
   publishNotificationToUser(userId, event, data)
   return true
 }
-

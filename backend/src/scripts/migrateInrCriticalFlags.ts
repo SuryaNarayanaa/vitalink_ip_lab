@@ -160,6 +160,10 @@ async function main() {
   }
   console.log(`Skipped profiles (no history): ${stats.skippedProfiles}`)
 
+  if (stats.failedProfiles > 0) {
+    process.exitCode = 1
+  }
+
   await mongoose.disconnect()
 }
 

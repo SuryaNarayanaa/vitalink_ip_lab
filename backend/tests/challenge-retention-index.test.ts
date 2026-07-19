@@ -63,7 +63,8 @@ describe('authentication challenge audit retention', () => {
       })
 
     try {
-      await expect(ensureChallengeAuditRetention()).resolves.toBeUndefined()
+      const summary = await ensureChallengeAuditRetention()
+      expect(summary.collections.length).toBeGreaterThan(0)
       expect(injected).toBe(true)
       expect(await AdminMfaChallenge.countDocuments({ user_id: userId, status: 'PENDING' })).toBe(1)
       const indexes = await AdminMfaChallenge.collection.indexes()
@@ -116,8 +117,16 @@ describe('legacy authentication generation migration', () => {
     } as any)
 
     try {
-      await ensureAuthGenerationDefaults()
-      await ensureAuthGenerationDefaults()
+      const first = await ensureAuthGenerationDefaults()
+      expect(first.usersSecurityVersionBackfilled).toBe(1)
+      expect(first.usersFactorGenerationBackfilled).toBe(1)
+      expect(first.sessionsSecurityVersionBackfilled).toBe(1)
+
+      const second = await ensureAuthGenerationDefaults()
+      expect(second.usersSecurityVersionBackfilled).toBe(0)
+      expect(second.usersFactorGenerationBackfilled).toBe(0)
+      expect(second.sessionsSecurityVersionBackfilled).toBe(0)
+
       const [user, session] = await Promise.all([
         User.collection.findOne({ _id: userId }),
         AuthSession.collection.findOne({ _id: sessionId }),

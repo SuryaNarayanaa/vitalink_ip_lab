@@ -260,6 +260,9 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
         ],
       ),
     );
+    name.dispose();
+    location.dispose();
+    admin.dispose();
   }
 }
 
@@ -579,6 +582,7 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
   Future<void> _runAction(Future<dynamic> Function() action) async {
     try {
       await action();
+      if (!mounted) return;
       _refresh();
     } catch (e) {
       if (mounted) _showError(context, e);

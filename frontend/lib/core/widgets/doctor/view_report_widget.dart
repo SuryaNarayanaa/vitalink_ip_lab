@@ -22,14 +22,35 @@ class ViewReportWidget extends StatefulWidget {
 
 class _ViewReportWidgetState extends State<ViewReportWidget> {
   bool _isPreviewMode = false;
+  late Future<Map<String, dynamic>> _reportFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _reportFuture = _loadReport();
+  }
+
+  @override
+  void didUpdateWidget(covariant ViewReportWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.opNumber != widget.opNumber ||
+        oldWidget.reportId != widget.reportId) {
+      _isPreviewMode = false;
+      _reportFuture = _loadReport();
+    }
+  }
+
+  Future<Map<String, dynamic>> _loadReport() {
+    return AppDependencies.doctorRepository.getReport(
+      widget.opNumber,
+      widget.reportId,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
-      future: AppDependencies.doctorRepository.getReport(
-        widget.opNumber,
-        widget.reportId,
-      ),
+      future: _reportFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildLoadingState();
@@ -45,7 +66,6 @@ class _ViewReportWidgetState extends State<ViewReportWidget> {
         }
 
         final reportData = snapshot.data!;
-        debugPrint('Report data: $reportData');
         final report = ReportModel.fromJson(reportData);
 
         return _isPreviewMode

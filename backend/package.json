@@ -19,6 +19,8 @@
     "migrate:patient-hospital-ids:prod": "node build/src/scripts/backfillPatientHospitalIds.js",
     "migrate:inr-critical-flags": "ts-node --require tsconfig-paths/register src/scripts/migrateInrCriticalFlags.ts",
     "migrate:inr-critical-flags:prod": "node build/src/scripts/migrateInrCriticalFlags.js",
+    "migrate:auth-schema-defaults": "ts-node --require tsconfig-paths/register src/scripts/migrateAuthSchemaDefaults.ts",
+    "migrate:auth-schema-defaults:prod": "node build/src/scripts/migrateAuthSchemaDefaults.js",
     "migrate:doctor-update-notifications": "ts-node --require tsconfig-paths/register src/scripts/migrateDoctorChangeEventsToNotifications.ts",
     "migrate:doctor-update-notifications:prod": "node build/src/scripts/migrateDoctorChangeEventsToNotifications.js",
     "migrate:file-assets": "ts-node --require tsconfig-paths/register src/scripts/backfillFileAssets.ts",

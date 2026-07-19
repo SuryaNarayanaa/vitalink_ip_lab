@@ -405,7 +405,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
           );
         },
       ),
-    );
+    ).then((_) => notesController.dispose());
   }
 }
 
@@ -427,6 +427,12 @@ class _PatientSearchSheetState extends State<_PatientSearchSheet> {
   void initState() {
     super.initState();
     _filteredPatients = widget.patients;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _filter(String query) {

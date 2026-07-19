@@ -192,6 +192,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
   }
 
   Future<void> _invalidateNotificationKeys() async {
+    if (!mounted) return;
     final queryClient = QueryClientProvider.of(context);
     if (widget.forDoctor) {
       queryClient.invalidateQueries(DoctorQueryKeys.notifications());

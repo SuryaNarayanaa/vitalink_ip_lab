@@ -480,6 +480,37 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         throw new ApiError(StatusCodes.CONFLICT, 'Registered phone number must be updated before OTP verification')
       }
 
+      // Reuse an unexpired pending challenge so password re-login cannot bypass
+      // resend_count, cooldown, or max-resend limits by cancelling and re-issuing.
+      const now = new Date()
+      const phoneHash = hashPhoneNumber(phoneNumber)
+      const existingPending = await OtpChallenge.findOne({
+        user_id: user._id,
+        purpose: OtpChallengePurpose.PHONE_FIRST_LOGIN,
+        status: OtpChallengeStatus.PENDING,
+        phone_hash: phoneHash,
+        expires_at: { $gt: now },
+      }).sort({ createdAt: -1 })
+
+      if (existingPending) {
+        await auditIssuedLoginChallenge(
+          req,
+          user,
+          String(existingPending._id),
+          'Password accepted; existing phone OTP challenge reused',
+          loginAttemptMetadata('otp_required'),
+          async () => undefined,
+        )
+
+        res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
+          StatusCodes.ACCEPTED,
+          'Phone OTP verification required',
+          buildOtpChallengeResponse(existingPending, phoneNumber)
+        ))
+        return
+      }
+
+      // Cancel only expired or non-matching leftovers before issuing a new challenge.
       await OtpChallenge.updateMany(
         {
           user_id: user._id,

@@ -27,7 +27,7 @@ class SystemConfigModel {
       ),
       featureFlags:
           (json['feature_flags'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(k, v as bool),
+            (k, v) => MapEntry(k, v == true),
           ) ??
           {},
       isActive: json['is_active'] as bool? ?? true,

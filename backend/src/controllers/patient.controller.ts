@@ -688,9 +688,9 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 		throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
 	}
 
+	const previousAssetId = patientProfile.profile_picture_file_asset_id
 	try {
 		await fileOperation.assertOwned()
-		const previousAssetId = patientProfile.profile_picture_file_asset_id
 		const referenceFilter = previousAssetId
 			? { profile_picture_file_asset_id: previousAssetId }
 			: { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
@@ -704,6 +704,16 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 			profile_picture_file_asset_id: fileAsset._id,
 		}, { new: true })
 		if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+	} catch (error) {
+		// Compensate only when the new asset was not committed to the profile.
+		await compensateFileAsset(fileAsset, error)
+		throw error
+	} finally {
+		await fileOperation.release()
+	}
+
+	// Best-effort retirement of the previous asset; failure must not roll back the new profile picture.
+	try {
 		await retireReplacedFileAsset({
 			fileAssetId: previousAssetId,
 			hospitalId: patientProfile.hospital_id,
@@ -711,10 +721,10 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 			purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
 		})
 	} catch (error) {
-		await compensateFileAsset(fileAsset, error)
-		throw error
-	} finally {
-		await fileOperation.release()
+		logger.warn('Failed to retire replaced patient profile picture asset', {
+			error: sanitizeLogText(error),
+			previousAssetId: previousAssetId ? String(previousAssetId) : undefined,
+		})
 	}
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })

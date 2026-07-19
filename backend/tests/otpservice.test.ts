@@ -282,6 +282,7 @@ describe('OTP service metadata and policy helpers', () => {
     expect(result?.allowed).toBe(false)
 
     findOneAndUpdate.mockRestore()
+    findById.mockRestore()
   })
 
   test('reserves verification attempt atomically before checking Twilio code', async () => {
@@ -353,9 +354,15 @@ describe('OTP service metadata and policy helpers', () => {
       expires_at: new Date('2026-07-06T10:10:00.000Z'),
       status: OtpChallengeStatus.PENDING,
     }
+    const terminalChallenge = {
+      ...reservedChallenge,
+      status: OtpChallengeStatus.VERIFIED,
+      verified_at: now,
+    }
     const findOneAndUpdate = jest.spyOn(OtpChallenge, 'findOneAndUpdate')
       .mockResolvedValueOnce(reservedChallenge as any)
       .mockResolvedValueOnce(null)
+    const findById = jest.spyOn(OtpChallenge, 'findById').mockResolvedValue(terminalChallenge as any)
     const provider = {
       startVerification: jest.fn(),
       checkVerification: jest.fn().mockResolvedValue({
@@ -383,10 +390,11 @@ describe('OTP service metadata and policy helpers', () => {
       { new: true }
     )
     expect(result?.verified).toBe(false)
-    expect(result?.result).toBe(OtpVerificationResult.IN_PROGRESS)
+    expect(result?.result).toBe(OtpVerificationResult.ALREADY_VERIFIED)
     expect(result?.update).toEqual({})
 
     findOneAndUpdate.mockRestore()
+    findById.mockRestore()
   })
 
   test('releases the resend reservation when Twilio fails to start verification', async () => {

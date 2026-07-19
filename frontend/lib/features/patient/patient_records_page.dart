@@ -741,6 +741,10 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                       }
 
                       setDialogState(() => isSubmitting = true);
+                      // Once the dialog is closed after a successful submit,
+                      // never call setDialogState again (builder is disposed)
+                      // and do not re-enable submit (avoids duplicate posts).
+                      var dialogClosed = false;
                       try {
                         await AppDependencies.patientRepository.submitHealthLog(
                           type: selectedType,
@@ -750,6 +754,7 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                         if (!mounted) return;
                         if (dialogNavigator.canPop()) {
                           dialogNavigator.pop();
+                          dialogClosed = true;
                         }
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -772,6 +777,9 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
                         await onDataChanged();
                       } catch (error) {
                         if (!mounted) return;
+                        // Submission already succeeded and dialog closed:
+                        // keep success outcome; skip disposed setDialogState.
+                        if (dialogClosed) return;
                         setDialogState(() => isSubmitting = false);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
+import 'package:frontend/core/utils/phone_utils.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 
 /// Reusable dialog helpers for admin CRUD operations.
@@ -16,6 +17,12 @@ String? _validateStrongPassword(String? value) {
     return 'Use 8+ chars with upper/lower/number/special';
   }
   return null;
+}
+
+void _disposeControllers(Iterable<TextEditingController> controllers) {
+  for (final controller in controllers) {
+    controller.dispose();
+  }
 }
 
 // =============================================================================
@@ -46,13 +53,15 @@ Future<bool> showAddDoctorDialog(
   String? selectedHospitalId;
   List<Map<String, dynamic>> hospitalList = [];
   bool hospitalsLoading = true;
+  bool hospitalsRequested = false;
   String? hospitalsError;
 
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
-        if (hospitalsLoading && hospitalsError == null) {
+        if (!hospitalsRequested) {
+          hospitalsRequested = true;
           _repo.getHospitals().then((response) {
             final items = response['hospitals'] as List? ?? [];
             if (ctx.mounted) {
@@ -132,6 +141,7 @@ Future<bool> showAddDoctorDialog(
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
+                    validator: (v) => PhoneUtils.validate(v, label: 'Contact'),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
@@ -194,6 +204,8 @@ Future<bool> showAddDoctorDialog(
                       if (!formKey.currentState!.validate()) return;
                       setState(() => loading = true);
                       try {
+                        final contactNumber =
+                            PhoneUtils.formatForApi(contact.text);
                         await _repo.createDoctor({
                           'login_id': loginId.text.trim(),
                           'password': password.text,
@@ -201,8 +213,8 @@ Future<bool> showAddDoctorDialog(
                           'department': department.text.trim().isNotEmpty
                               ? department.text.trim()
                               : 'General',
-                          if (contact.text.trim().isNotEmpty)
-                            'contact_number': contact.text.trim(),
+                          if (contactNumber != null)
+                            'contact_number': contactNumber,
                           if (selectedHospitalId != null &&
                               selectedHospitalId!.isNotEmpty)
                             'hospital_id': selectedHospitalId,
@@ -234,6 +246,8 @@ Future<bool> showAddDoctorDialog(
     ),
   );
 
+  _disposeControllers([loginId, password, name, department, contact]);
+
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -260,19 +274,23 @@ Future<bool> showEditDoctorDialog(
     text: currentData['department'] as String? ?? '',
   );
   final contact = TextEditingController(
-    text: currentData['contact_number'] as String? ?? '',
+    text: PhoneUtils.toLocalDigits(
+      currentData['contact_number'] as String? ?? '',
+    ),
   );
   bool loading = false;
   String? selectedHospitalId = _resolveHospitalId(currentData['hospital_id']);
   List<Map<String, dynamic>> hospitalList = [];
   bool hospitalsLoading = true;
+  bool hospitalsRequested = false;
   String? hospitalsError;
 
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
-        if (hospitalsLoading && hospitalsError == null) {
+        if (!hospitalsRequested) {
+          hospitalsRequested = true;
           _repo.getHospitals().then((response) {
             final items = response['hospitals'] as List? ?? [];
             if (ctx.mounted) {
@@ -322,6 +340,7 @@ Future<bool> showEditDoctorDialog(
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
+                    validator: (v) => PhoneUtils.validate(v, label: 'Contact'),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
@@ -384,10 +403,13 @@ Future<bool> showEditDoctorDialog(
                       if (!formKey.currentState!.validate()) return;
                       setState(() => loading = true);
                       try {
+                        final contactNumber =
+                            PhoneUtils.formatForApi(contact.text);
                         await _repo.updateDoctor(doctorId, {
                           'name': name.text.trim(),
                           'department': department.text.trim(),
-                          'contact_number': contact.text.trim(),
+                          if (contactNumber != null)
+                            'contact_number': contactNumber,
                           if (selectedHospitalId != null &&
                               selectedHospitalId!.isNotEmpty)
                             'hospital_id': selectedHospitalId,
@@ -418,6 +440,8 @@ Future<bool> showEditDoctorDialog(
       },
     ),
   );
+
+  _disposeControllers([name, department, contact]);
 
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -452,6 +476,7 @@ Future<bool> showAddPatientDialog(
   // Auto-fetch doctors if none provided
   List<Map<String, dynamic>> doctorList = List.from(doctors);
   bool doctorsLoading = doctorList.isEmpty;
+  bool doctorsRequested = !doctorsLoading;
   String? doctorsError;
   bool loading = false;
 
@@ -460,7 +485,8 @@ Future<bool> showAddPatientDialog(
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
         // Fetch doctors on first build if list is empty
-        if (doctorsLoading && doctorsError == null) {
+        if (!doctorsRequested) {
+          doctorsRequested = true;
           _repo.getAllDoctors(limit: 100, isActive: 'true').then((response) {
             final items = response['doctors'] as List? ?? [];
             if (ctx.mounted) {
@@ -610,6 +636,11 @@ Future<bool> showAddPatientDialog(
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
+                    validator: (v) => PhoneUtils.validate(
+                      v,
+                      label: 'Phone',
+                      required: true,
+                    ),
                   ),
                 ],
               ),
@@ -630,6 +661,7 @@ Future<bool> showAddPatientDialog(
                       }
                       setState(() => loading = true);
                       try {
+                        final phoneNumber = PhoneUtils.formatForApi(phone.text);
                         await _repo.createPatient({
                           'login_id': loginId.text.trim(),
                           'password': password.text,
@@ -640,8 +672,7 @@ Future<bool> showAddPatientDialog(
                               'age': int.tryParse(age.text),
                             if (selectedGender != null)
                               'gender': selectedGender,
-                            if (phone.text.trim().isNotEmpty)
-                              'phone': phone.text.trim(),
+                            if (phoneNumber != null) 'phone': phoneNumber,
                           },
                         });
                         if (ctx.mounted) Navigator.pop(ctx, true);
@@ -671,6 +702,8 @@ Future<bool> showAddPatientDialog(
     ),
   );
 
+  _disposeControllers([loginId, password, name, age, phone]);
+
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -696,7 +729,7 @@ Future<bool> showEditPatientDialog(
     text: currentData['age'] != null ? '${currentData['age']}' : '',
   );
   final phone = TextEditingController(
-    text: currentData['phone'] as String? ?? '',
+    text: PhoneUtils.toLocalDigits(currentData['phone'] as String? ?? ''),
   );
   String? selectedGender = currentData['gender'] as String?;
   bool loading = false;
@@ -772,6 +805,7 @@ Future<bool> showEditPatientDialog(
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
+                    validator: (v) => PhoneUtils.validate(v, label: 'Phone'),
                   ),
                 ],
               ),
@@ -789,6 +823,7 @@ Future<bool> showEditPatientDialog(
                       if (!formKey.currentState!.validate()) return;
                       setState(() => loading = true);
                       try {
+                        final phoneNumber = PhoneUtils.formatForApi(phone.text);
                         await _repo.updatePatient(patientId, {
                           'demographics': {
                             'name': name.text.trim(),
@@ -796,8 +831,7 @@ Future<bool> showEditPatientDialog(
                               'age': int.tryParse(age.text.trim()),
                             if (selectedGender != null)
                               'gender': selectedGender,
-                            if (phone.text.trim().isNotEmpty)
-                              'phone': phone.text.trim(),
+                            if (phoneNumber != null) 'phone': phoneNumber,
                           },
                         });
                         if (ctx.mounted) Navigator.pop(ctx, true);
@@ -826,6 +860,8 @@ Future<bool> showEditPatientDialog(
       },
     ),
   );
+
+  _disposeControllers([name, age, phone]);
 
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1092,6 +1128,7 @@ Future<bool> showReassignPatientDialog(
   // Auto-fetch doctors if none provided
   List<Map<String, dynamic>> doctorList = List.from(doctors);
   bool doctorsLoading = doctorList.isEmpty;
+  bool doctorsRequested = !doctorsLoading;
   String? doctorsError;
   bool loading = false;
 
@@ -1100,7 +1137,8 @@ Future<bool> showReassignPatientDialog(
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
         // Fetch doctors on first build if list is empty
-        if (doctorsLoading && doctorsError == null) {
+        if (!doctorsRequested) {
+          doctorsRequested = true;
           _repo.getAllDoctors(limit: 100, isActive: 'true').then((response) {
             final items = response['doctors'] as List? ?? [];
             if (ctx.mounted) {

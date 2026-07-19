@@ -46,8 +46,11 @@ class PremiumReportCard extends StatelessWidget {
       
       final uri = Uri.parse(urlString);
       
-      // Validate URL format
-      if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      // Validate URL format (require authority/host so hostless schemes fail)
+      if (!uri.hasScheme ||
+          (uri.scheme != 'http' && uri.scheme != 'https') ||
+          !uri.hasAuthority ||
+          uri.host.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Invalid URL format: $urlString')),
@@ -83,7 +86,7 @@ class PremiumReportCard extends StatelessWidget {
         : double.tryParse(report['inr_value']?.toString() ?? '');
     
     final bool isCritical = report['is_critical'] == true;
-    final String? notes = report['notes'];
+    final notes = report['notes']?.toString();
     
     Color statusColor = isCritical 
         ? const Color(0xFFEF4444) 

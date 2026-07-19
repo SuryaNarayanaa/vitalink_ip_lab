@@ -876,11 +876,12 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileInput["body"]>, res: Response) => {
   const { name, contact_number, department } = req.body
   const { user_id } = req.user
-  const doctorUser = await User.findById(user_id).populate('profile_id')
-  if (!doctorUser) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
-  }
+  const doctorUser = await getDoctorUserOrThrow(user_id)
+  await doctorUser.populate('profile_id')
   const currentProfile = doctorUser.profile_id as any
+  if (!currentProfile) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
+  }
   const profileUpdate: any = {}
   if (name !== undefined) profileUpdate.name = name
   if (department !== undefined) profileUpdate.department = department
@@ -891,10 +892,13 @@ export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
     }
   }
   const updatedProfile = await DoctorProfile.findByIdAndUpdate(
-    currentProfile?._id ?? doctorUser.profile_id,
+    currentProfile._id,
     profileUpdate,
     { new: true, runValidators: true }
   )
+  if (!updatedProfile) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
+  }
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Profile updated successfully'))
 })
 
@@ -903,7 +907,8 @@ export const getDoctors = asyncHandler(async (req: Request, res: Response) => {
   const hospitalId = await getDoctorHospitalId(doctorUser)
   let doctorsQuery = User.find({ user_type: UserType.DOCTOR, is_active: true })
     .populate('profile_id')
-    .select('-password -salt -password_history -admin_mfa')
+    // Peer-facing list: explicit allowlist only (exclude lockout/MFA/auth material).
+    .select('_id login_id user_type user_type_model profile_id is_active createdAt updatedAt')
   const doctors = (await doctorsQuery.lean()).filter((doctor: any) => {
     const doctorHospitalId = doctor?.profile_id?.hospital_id ? String(doctor.profile_id.hospital_id) : undefined
     return hospitalId ? doctorHospitalId === hospitalId : String(doctor._id) === String(doctorUser._id)
@@ -980,8 +985,8 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
     throw new ApiError(StatusCodes.INSUFFICIENT_STORAGE, "Error While Uploading report to cloud")
   }
 
+  const previousAssetId = doctorProfile.profile_picture_file_asset_id
   try {
-    const previousAssetId = doctorProfile.profile_picture_file_asset_id
     const referenceFilter = previousAssetId
       ? { profile_picture_file_asset_id: previousAssetId }
       : { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
@@ -990,6 +995,14 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
       profile_picture_file_asset_id: fileAsset._id,
     }, { new: true })
     if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+  } catch (error) {
+    // Compensate only when the new asset was not committed to the profile.
+    await compensateFileAsset(fileAsset, error)
+    throw error
+  }
+
+  // Best-effort retirement of the previous asset; failure must not roll back the new profile picture.
+  try {
     await retireReplacedFileAsset({
       fileAssetId: previousAssetId,
       hospitalId,
@@ -997,8 +1010,10 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
       purpose: FileAssetPurpose.DOCTOR_PROFILE_PICTURE,
     })
   } catch (error) {
-    await compensateFileAsset(fileAsset, error)
-    throw error
+    logger.warn('Failed to retire replaced doctor profile picture asset', {
+      error: sanitizeLogText(error),
+      previousAssetId: previousAssetId ? String(previousAssetId) : undefined,
+    })
   }
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Profile Picture successfully changed"))
 })

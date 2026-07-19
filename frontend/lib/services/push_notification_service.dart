@@ -37,7 +37,6 @@ class PushNotificationService {
 
   Future<void> initialize() async {
     if (!_isAndroid || _initialized) return;
-    _initialized = true;
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -65,6 +64,7 @@ class PushNotificationService {
       onError: (Object error, StackTrace stackTrace) =>
           debugPrint('FCM token refresh failed: $error'),
     );
+    _initialized = true;
   }
 
   /// Call after login, once requests can be authenticated as the current user.

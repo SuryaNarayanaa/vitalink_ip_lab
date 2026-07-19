@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/app/routers.dart';
+import 'package:frontend/core/utils/phone_utils.dart';
 import 'package:frontend/core/widgets/index.dart';
 import 'package:intl/intl.dart';
 
@@ -621,11 +622,19 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
   DateTime _selectedTherapyDate = DateTime.now();
 
   Future<void> _selectDate(BuildContext context) async {
+    final now = DateTime.now();
+    final firstDate = DateTime(1900);
+    var initialDate = _selectedTherapyDate;
+    if (initialDate.isAfter(now)) {
+      initialDate = now;
+    } else if (initialDate.isBefore(firstDate)) {
+      initialDate = firstDate;
+    }
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedTherapyDate,
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: now,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -656,7 +665,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
       text: widget.profile['age']?.toString() ?? '',
     );
     _phoneController = TextEditingController(
-      text: widget.profile['phone'] ?? '',
+      text: PhoneUtils.toLocalDigits(widget.profile['phone']?.toString()),
     );
     _caregiverController = TextEditingController(
       text: widget.profile['caregiver'] ?? '',
@@ -665,7 +674,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
       text: widget.profile['kinName'] ?? '',
     );
     _kinPhoneController = TextEditingController(
-      text: widget.profile['kinPhone'] ?? '',
+      text: PhoneUtils.toLocalDigits(widget.profile['kinPhone']?.toString()),
     );
     _therapyStartController = TextEditingController(
       text: widget.profile['therapyStartDate'] ?? '',
@@ -714,16 +723,18 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
       if (_selectedGender != null) {
         demographics['gender'] = _selectedGender;
       }
-      if (_phoneController.text.trim().isNotEmpty) {
-        demographics['phone'] = _phoneController.text.trim();
+      final phoneNumber = PhoneUtils.formatForApi(_phoneController.text);
+      if (phoneNumber != null) {
+        demographics['phone'] = phoneNumber;
       }
 
       final nextOfKin = <String, dynamic>{};
       if (_kinNameController.text.trim().isNotEmpty) {
         nextOfKin['name'] = _kinNameController.text.trim();
       }
-      if (_kinPhoneController.text.trim().isNotEmpty) {
-        nextOfKin['phone'] = _kinPhoneController.text.trim();
+      final kinPhone = PhoneUtils.formatForApi(_kinPhoneController.text);
+      if (kinPhone != null) {
+        nextOfKin['phone'] = kinPhone;
       }
       if (_caregiverController.text.trim().isNotEmpty) {
         nextOfKin['relation'] = _caregiverController.text.trim();
@@ -752,7 +763,9 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
         widget.onSuccess();
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() => _error = e.toString());
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -892,6 +905,7 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       icon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
                       helperText: '+91 is added automatically',
+                      validator: (v) => PhoneUtils.validate(v, label: 'Phone'),
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Caregiver & Kin'),
@@ -913,6 +927,8 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       icon: Icons.contact_phone_outlined,
                       keyboardType: TextInputType.phone,
                       helperText: 'Use a 10-digit Indian number',
+                      validator: (v) =>
+                          PhoneUtils.validate(v, label: 'Kin Phone'),
                     ),
                     const SizedBox(height: 24),
                     _buildSectionTitle('Therapy Configuration'),

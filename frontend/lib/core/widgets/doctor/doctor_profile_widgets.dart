@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/app/routers.dart';
+import 'package:frontend/core/utils/phone_utils.dart';
 import 'package:frontend/features/doctor/data/doctor_repository.dart';
 import 'package:frontend/features/doctor/models/doctor_profile_model.dart';
 import 'package:frontend/core/widgets/index.dart';
@@ -408,7 +409,7 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
       text: widget.profile.department,
     );
     _contactController = TextEditingController(
-      text: widget.profile.contactNumber ?? '',
+      text: PhoneUtils.toLocalDigits(widget.profile.contactNumber),
     );
   }
 
@@ -437,9 +438,13 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
       if (_departmentController.text.trim() != widget.profile.department) {
         data['department'] = _departmentController.text.trim();
       }
-      if (_contactController.text.trim() !=
-          (widget.profile.contactNumber ?? '')) {
-        data['contact_number'] = _contactController.text.trim();
+      final existingLocal =
+          PhoneUtils.toLocalDigits(widget.profile.contactNumber);
+      if (_contactController.text.trim() != existingLocal) {
+        final contactNumber = PhoneUtils.formatForApi(_contactController.text);
+        if (contactNumber != null) {
+          data['contact_number'] = contactNumber;
+        }
       }
 
       if (data.isEmpty) {
@@ -608,16 +613,8 @@ class _DoctorEditProfileModalState extends State<DoctorEditProfileModal> {
                   icon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
                   helperText: '+91 is added automatically',
-                  validator: (value) {
-                    final digits = value?.replaceAll(RegExp(r'\D'), '') ?? '';
-                    if (value != null &&
-                        value.isNotEmpty &&
-                        digits.length != 10 &&
-                        !(digits.length == 12 && digits.startsWith('91'))) {
-                      return 'Enter a 10-digit Indian number';
-                    }
-                    return null;
-                  },
+                  validator: (value) =>
+                      PhoneUtils.validate(value, label: 'Contact'),
                 ),
                 const SizedBox(height: 24),
 

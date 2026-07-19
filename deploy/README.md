@@ -113,6 +113,15 @@ docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js -
 # After reviewing the summary, apply the hospital IDs:
 docker exec vitalink-blue node build/src/scripts/backfillPatientHospitalIds.js --execute
 docker exec vitalink-blue node build/src/scripts/migrateInrCriticalFlags.js
+
+# Required after every upgrade and on greenfield (first deploy of this code):
+# Auth schema defaults + challenge retention indexes. Formerly ran on every
+# boot; now intentional so multi-instance deploys do not race index repairs.
+# Run once per environment (idempotent, safe to re-run) BEFORE relying on
+# login/OTP/admin MFA — generation fields must exist for exact-match auth
+# predicates, and this script also creates the partial unique index
+# one_pending_admin_mfa_challenge_per_user (not created by schema auto-index).
+docker exec vitalink-blue node build/src/scripts/migrateAuthSchemaDefaults.js
 ```
 
 Replace `vitalink-blue` with `vitalink-green` if green is the active slot.

@@ -152,7 +152,7 @@ Note: the request said "text app"; this plan assumes that means a test/staging a
 
 1. Architecture diagram
    - `[x]` Checked-in current-state architecture and data-flow diagrams now exist at `backend/docs/architecture.md`.
-   - `[~]` The architecture document exists; update any remaining Firebase/FCM placeholder language to reflect the implemented direct-delivery foundation and the still-planned durable queue.
+   - `[x]` Architecture docs describe the implemented durable queue/worker, FCM delivery, clinical reminders, and server-side FileAsset uploads.
 
 2. Environment strategy
    - `[ ]` Some deployment files exist, but Dev/UAT/Prod environment matrix is not formalized.
@@ -652,7 +652,7 @@ Prices vary by region and vendor discounts. Use this as a planning estimate, not
 ### Should Do Before 500 Patients
 
 1. `[x]` FCM push foundation and globally owned device-token management.
-2. `[~]` Queue/worker for push retries and dead-letter handling is complete; daily dosage reminders are live, while INR/review reminders and missed-dose escalation remain.
+2. `[x]` Queue/worker for push retries and dead-letter handling is complete; dosage, INR, review, and missed-dose reminders are live end to end.
 3. Staging/test app with separate backend, DB, storage, and Firebase.
 4. Load test for patient login, report upload, doctor report review, and notification fanout.
 5. S3 lifecycle policies and storage cost reporting.

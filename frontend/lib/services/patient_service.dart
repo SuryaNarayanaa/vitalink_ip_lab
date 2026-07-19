@@ -4,7 +4,8 @@ import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/auth/session_expiry_handler.dart';
 
 class PatientService {
-  static const String baseUrl =
+  // apiBaseUrl is a runtime getter (env / platform), so this cannot be const.
+  static final String baseUrl =
       '${AppStrings.apiBaseUrl}${AppStrings.apiPathPrefix}/patient';
   static const storage = FlutterSecureStorage();
 
@@ -65,12 +66,19 @@ class PatientService {
     try {
       final response = await _dio.get(_endpoint('/profile'));
       if (response.statusCode == 200) {
-        final data = response.data['data']['patient'];
-        if (data == null || data['profile_id'] == null) {
+        final root = response.data;
+        final dataSection = root is Map ? root['data'] : null;
+        final data = dataSection is Map ? dataSection['patient'] : null;
+        if (data is! Map || data['profile_id'] == null) {
           throw Exception('Profile data is incomplete');
         }
 
-        final profile = data['profile_id'] as Map<String, dynamic>;
+        final profile = data['profile_id'] is Map
+            ? Map<String, dynamic>.from(data['profile_id'] as Map)
+            : <String, dynamic>{};
+        if (profile.isEmpty) {
+          throw Exception('Profile data is incomplete');
+        }
         final demographics =
             profile['demographics'] is Map ? profile['demographics'] : {};
         final medicalConfig =
@@ -95,8 +103,10 @@ class PatientService {
             ? demographics['next_of_kin']
             : {};
 
-        final doctorUpdates =
-            response.data['data']['doctor_updates'] as Map<String, dynamic>?;
+        final doctorUpdates = dataSection is Map &&
+                dataSection['doctor_updates'] is Map
+            ? Map<String, dynamic>.from(dataSection['doctor_updates'] as Map)
+            : null;
 
         return {
           'name': demographics['name'] ?? 'Patient',
@@ -126,6 +136,8 @@ class PatientService {
       throw Exception('Failed to load profile');
     } on DioException catch (e) {
       throw Exception('Error: ${e.message}');
+    } catch (e) {
+      throw Exception('Error: $e');
     }
   }
 
@@ -135,16 +147,24 @@ class PatientService {
     try {
       final response = await _dio.get(_endpoint('/missed-doses'));
       if (response.statusCode == 200) {
-        final recent = response.data['data']['recent_missed_doses'] as List;
-        final missed = response.data['data']['missed_doses'] as List;
+        final dataSection =
+            response.data is Map ? response.data['data'] : null;
+        final recent = dataSection is Map
+            ? (dataSection['recent_missed_doses'] as List?) ?? const []
+            : const [];
+        final missed = dataSection is Map
+            ? (dataSection['missed_doses'] as List?) ?? const []
+            : const [];
         return {
-          'recent_missed_doses': recent.cast<String>(),
-          'missed_doses': missed.cast<String>(),
+          'recent_missed_doses': recent.map((e) => e.toString()).toList(),
+          'missed_doses': missed.map((e) => e.toString()).toList(),
         };
       }
       return {'recent_missed_doses': [], 'missed_doses': []};
     } on DioException catch (e) {
       throw Exception('Error: ${e.message}');
+    } catch (e) {
+      throw Exception('Error: $e');
     }
   }
 
@@ -230,26 +250,35 @@ class PatientService {
           await _dio.get(_endpoint('/dosage-calendar'), queryParameters: queryParams);
 
       if (response.statusCode == 200) {
-        final data = response.data['data'];
+        final data = response.data is Map ? response.data['data'] : null;
+        if (data is! Map) {
+          throw Exception('Failed to fetch calendar data');
+        }
+        final calendarData = (data['calendar_data'] as List?) ?? const [];
+        final dateRange =
+            data['date_range'] is Map ? data['date_range'] as Map : const {};
         return {
-          'calendar_data': (data['calendar_data'] as List)
-              .map((item) => {
-                    'date': item['date'] as String,
-                    'status': item['status'] as String,
-                    'dosage': (item['dosage'] as num).toDouble(),
-                    'day_of_week': item['day_of_week'] as String,
-                  })
-              .toList(),
+          'calendar_data': calendarData.map((item) {
+            final row = item is Map ? item : const {};
+            return {
+              'date': row['date']?.toString() ?? '',
+              'status': row['status']?.toString() ?? '',
+              'dosage': (row['dosage'] as num?)?.toDouble() ?? 0.0,
+              'day_of_week': row['day_of_week']?.toString() ?? '',
+            };
+          }).toList(),
           'date_range': {
-            'start': data['date_range']['start'] as String,
-            'end': data['date_range']['end'] as String,
+            'start': dateRange['start']?.toString() ?? '',
+            'end': dateRange['end']?.toString() ?? '',
           },
-          'therapy_start': data['therapy_start'] as String,
+          'therapy_start': data['therapy_start']?.toString() ?? '',
         };
       }
       throw Exception('Failed to fetch calendar data');
     } on DioException catch (e) {
       throw Exception('Error fetching dosage calendar: ${e.message}');
+    } catch (e) {
+      throw Exception('Error fetching dosage calendar: $e');
     }
   }
 
@@ -258,27 +287,40 @@ class PatientService {
     try {
       final response = await _dio.get(_endpoint('/reports'));
       if (response.statusCode == 200) {
-        final inrHistory =
-            response.data['data']['report']['inr_history'] as List;
+        final dataSection =
+            response.data is Map ? response.data['data'] : null;
+        final report = dataSection is Map ? dataSection['report'] : null;
+        if (report is! Map) return [];
+        final medicalConfig =
+            report['medical_config'] is Map ? report['medical_config'] as Map : {};
+        final targetInr = medicalConfig['target_inr'] is Map
+            ? medicalConfig['target_inr'] as Map
+            : const {};
+        final targetMin = (targetInr['min'] as num?)?.toDouble() ?? 2.0;
+        final targetMax = (targetInr['max'] as num?)?.toDouble() ?? 3.0;
+        final inrHistory = (report['inr_history'] as List?) ?? const [];
         return inrHistory.map((item) {
-          final isCritical = item['is_critical'] == true;
+          final row = item is Map ? item : const {};
+          final isCritical = row['is_critical'] == true;
           return {
-            'id': item['_id'],
-            'date': formatDate(item['test_date']),
-            'inr': (item['inr_value'] as num).toDouble(),
-            'notes': item['notes'] ?? '',
+            'id': row['_id'],
+            'date': formatDate(row['test_date']),
+            'inr': _toDouble(row['inr_value']),
+            'notes': row['notes'] ?? '',
             'isCritical': isCritical,
-            'fileUrl': item['file_url'] ?? '',
-            'uploadedAt': formatDate(item['uploaded_at']),
+            'fileUrl': row['file_url'] ?? '',
+            'uploadedAt': formatDate(row['uploaded_at']),
             'status': isCritical
                 ? 'Critical'
-                : _getINRStatus(item['inr_value'], 2.0, 3.0),
+                : _getINRStatus(row['inr_value'], targetMin, targetMax),
           };
         }).toList();
       }
       return [];
     } on DioException catch (e) {
       throw Exception('Error: ${e.message}');
+    } catch (e) {
+      throw Exception('Error: $e');
     }
   }
 
@@ -319,8 +361,12 @@ class PatientService {
     try {
       final response = await _dio.get(_endpoint('/reports'));
       if (response.statusCode == 200) {
-        final inrHistory =
-            response.data['data']['report']['inr_history'] as List;
+        final dataSection =
+            response.data is Map ? response.data['data'] : null;
+        final report = dataSection is Map ? dataSection['report'] : null;
+        final inrHistory = report is Map
+            ? (report['inr_history'] as List?) ?? const []
+            : const [];
         if (inrHistory.isEmpty) {
           return {
             'value': 0.0,
@@ -368,6 +414,8 @@ class PatientService {
       };
     } on DioException catch (e) {
       throw Exception('Error: ${e.message}');
+    } catch (e) {
+      throw Exception('Error: $e');
     }
   }
 

@@ -65,7 +65,7 @@ class AuditLogModel {
       success: json['success'] as bool? ?? true,
       errorMessage: json['error_message'] as String?,
       metadata: json['metadata'] as Map<String, dynamic>?,
-      createdAt: json['createdAt'] != null
+      createdAt: json['createdAt'] is String
           ? DateTime.tryParse(json['createdAt'] as String)
           : null,
     );
