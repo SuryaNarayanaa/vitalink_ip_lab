@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/app/routers.dart';
+import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/storage/secure_storage.dart';
 
 class SessionExpiryHandler {
@@ -18,6 +19,11 @@ class SessionExpiryHandler {
       await _storage.clearAuthData();
     } catch (_) {
       // Session expiry must still reach login if secure storage is unavailable.
+    }
+    try {
+      AppDependencies.patientRepository.resetSessionState();
+    } catch (_) {
+      // In-flight report state is best-effort cleanup.
     }
     try {
       await QueryCache.instance.clear();

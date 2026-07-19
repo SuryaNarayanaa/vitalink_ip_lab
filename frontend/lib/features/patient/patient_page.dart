@@ -30,26 +30,29 @@ class _PatientPageState extends State<PatientPage> {
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.homeData(),
+        // Package default staleTime is already 5m; only cut focus-driven refetches.
+        refetchOnWindowFocus: false,
         queryFn: () async {
-          final profile = await AppDependencies.patientRepository.getProfile();
-          final history =
-              await AppDependencies.patientRepository.getINRHistory();
-          final prescriptions =
-              await AppDependencies.patientRepository.getPrescriptions();
+          final repo = AppDependencies.patientRepository;
+          // Profile + report bundle only — missed doses / prescriptions are not
+          // rendered on home (dosage tab + weekly grid cover those).
+          final results = await Future.wait([
+            repo.getProfile(),
+            repo.getReportBundle(),
+          ]);
+
+          final profile = results[0] as Map<String, dynamic>;
+          final reportBundle = results[1] as Map<String, dynamic>;
           final latestINRData =
-              await AppDependencies.patientRepository.getLatestINRData();
-          final missedDoses =
-              await AppDependencies.patientRepository.getMissedDoses();
+              reportBundle['latestINR'] as Map<String, dynamic>;
 
           return {
             'profile': profile,
-            'history': history,
-            'prescriptions': prescriptions,
+            'history': reportBundle['history'],
             'latestINR': latestINRData['value'],
             'latestINRDate': latestINRData['date'],
             'latestINRIsCritical': latestINRData['isCritical'],
             'latestINRHasData': latestINRData['hasData'],
-            'missedDoses': missedDoses,
           };
         },
       ),

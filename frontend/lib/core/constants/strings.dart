@@ -52,12 +52,16 @@ class AppStrings {
   static const String doctorGetDoctorsPath = '$apiPathPrefix/doctors/doctors';
   static const String doctorNotificationsPath =
       '$apiPathPrefix/doctors/notifications';
+  static const String doctorNotificationsUnreadPath =
+      '$apiPathPrefix/doctors/notifications/unread-count';
   static const String doctorNotificationStreamPath =
       '$apiPathPrefix/doctors/notifications/stream';
   static const String patientNotificationStreamPath =
       '$apiPathPrefix/patient/notifications/stream';
   static const String patientNotificationsPath =
       '$apiPathPrefix/patient/notifications';
+  static const String patientNotificationsUnreadPath =
+      '$apiPathPrefix/patient/notifications/unread-count';
 
   /// Admin endpoints.
   static const String adminBasePath = '$apiPathPrefix/admin';

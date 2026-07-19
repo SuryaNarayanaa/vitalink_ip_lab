@@ -2,6 +2,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/features/patient/patient_dashboard_shell_page.dart';
 
 void main() {
+  group('lazy patient shell tabs', () {
+    test('only initial tab is activated on open', () {
+      final activated = computeActivatedTabsAfterSelection(
+        activated: <int>{},
+        selectedIndex: 0,
+        tabCount: 5,
+      );
+      expect(activated, {0});
+    });
+
+    test('selecting another tab activates it without dropping prior tabs', () {
+      var activated = computeActivatedTabsAfterSelection(
+        activated: <int>{0},
+        selectedIndex: 0,
+        tabCount: 5,
+      );
+      activated = computeActivatedTabsAfterSelection(
+        activated: activated,
+        selectedIndex: 4,
+        tabCount: 5,
+      );
+      expect(activated, {0, 4});
+    });
+
+    test('clamps out-of-range tab indexes', () {
+      final activated = computeActivatedTabsAfterSelection(
+        activated: <int>{},
+        selectedIndex: 99,
+        tabCount: 5,
+      );
+      expect(activated, {4});
+    });
+  });
+
   group('shouldShowUnreadUpdatesPopup', () {
     test('returns true when first unread updates are observed', () {
       final result = shouldShowUnreadUpdatesPopup(

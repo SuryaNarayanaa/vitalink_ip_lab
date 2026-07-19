@@ -211,7 +211,10 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
     return UseQuery<List<dynamic>>(
       options: QueryOptions<List<dynamic>>(
         queryKey: DoctorQueryKeys.patientReports(_selectedPatientOp!),
-        queryFn: () => _repository.getPatientReports(_selectedPatientOp!),
+        queryFn: () => _repository.getPatientReports(
+              _selectedPatientOp!,
+              includeUrls: true,
+            ),
       ),
       builder: (context, query) {
         if (query.isLoading) {

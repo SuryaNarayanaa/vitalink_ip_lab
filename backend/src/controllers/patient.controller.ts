@@ -236,9 +236,11 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
 		throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
 	}
 
-	// Convert patient to plain object and generate presigned URLs for reports
+	// Presign only when explicitly requested (file preview). List/chart UIs
+	// should not pay N× FileAsset + S3 signing cost on every home load.
+	const includeUrls = String(req.query.include_urls ?? '').toLowerCase() === 'true'
 	const patientData = patient.toObject()
-	if (patientData.inr_history && Array.isArray(patientData.inr_history)) {
+	if (includeUrls && patientData.inr_history && Array.isArray(patientData.inr_history)) {
 		const reportsWithUrls = await Promise.all(
 			patientData.inr_history.map(async (report: any) => {
 				if (report.file_url) {
@@ -856,6 +858,20 @@ export const getNotifications = asyncHandler(async (
 		pagination,
 		unread_count: unreadCount,
 	}))
+})
+
+/** Lightweight badge endpoint: count only, no notification list. */
+export const getNotificationsUnreadCount = asyncHandler(async (req: Request, res: Response) => {
+	const patientUser = await getPatientUserOrThrow(req.user.user_id)
+	const unreadCount = await Notification.countDocuments({
+		user_id: patientUser._id,
+		is_read: false,
+	})
+	res.status(StatusCodes.OK).json(new ApiResponse(
+		StatusCodes.OK,
+		'Unread notification count fetched successfully',
+		{ unread_count: unreadCount },
+	))
 })
 
 export const markNotificationAsRead = asyncHandler(async (

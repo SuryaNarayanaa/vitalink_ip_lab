@@ -193,8 +193,7 @@ describe('Patient Routes', () => {
     });
 
     describe('GET /api/patient/reports', () => {
-        test('should get patient reports with presigned URLs for file_url', async () => {
-            // First add a report with file_url
+        test('should get patient reports without presigned URLs by default', async () => {
             const patient = await PatientProfile.findById(patientProfile._id);
             patient.inr_history.push({
                 test_date: new Date('2024-02-20'),
@@ -208,6 +207,36 @@ describe('Patient Routes', () => {
 
             const response = await api.get('/api/patient/reports', {
                 headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.data.report).toBeDefined();
+            const reportWithFile = response.data.data.report.inr_history.find(
+                (r: any) => r.notes === 'Test report for presigned URL'
+            );
+            expect(reportWithFile).toBeDefined();
+            expect(reportWithFile.file_url).toBe('uploads/test-patient-report/test123.pdf');
+            expect(response.data.data.report.health_logs).toBeDefined();
+            expect(response.data.data.report.weekly_dosage).toBeDefined();
+            expect(response.data.data.report.medical_config).toBeDefined();
+        });
+
+        test('should get patient reports with presigned URLs when include_urls=true', async () => {
+            // First add a report with file_url
+            const patient = await PatientProfile.findById(patientProfile._id);
+            patient.inr_history.push({
+                test_date: new Date('2024-02-20'),
+                inr_value: 3.0,
+                is_critical: false,
+                uploaded_at: new Date('2024-02-20T00:00:00.000Z'),
+                file_url: 'uploads/test-patient-report/test123.pdf',
+                notes: 'Test report for presigned URL'
+            });
+            await patient.save();
+
+            const response = await api.get('/api/patient/reports', {
+                headers: { Authorization: `Bearer ${patientToken}` },
+                params: { include_urls: 'true' },
             });
 
             expect(response.status).toBe(200);

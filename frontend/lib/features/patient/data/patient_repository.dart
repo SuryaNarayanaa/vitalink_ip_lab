@@ -12,6 +12,14 @@ class PatientRepository {
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
 
+  /// Coalesces concurrent `GET /reports` callers into a single in-flight request.
+  _InFlightReportLoad? _inFlightReport;
+
+  /// Bumped when report-derived data is known stale (e.g. after INR submit).
+  /// Shared waiters only accept a result if the in-flight load started at the
+  /// generation they require.
+  int _reportGeneration = 0;
+
   Future<void> updateProfile({
     required Map<String, dynamic> demographics,
     Map<String, dynamic>? medicalConfig,
@@ -121,6 +129,7 @@ class PatientRepository {
           'test_date': testDate,
         },
       );
+      _invalidateReportFetch();
       return;
     }
 
@@ -158,6 +167,7 @@ class PatientRepository {
           body['message']?.toString(),
         );
       }
+      _invalidateReportFetch();
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       final responseData = e.response?.data;
@@ -228,12 +238,123 @@ class PatientRepository {
     };
   }
 
-  Future<List<Map<String, dynamic>>> getINRHistory() async {
-    final response = await _apiClient.get('$_patientBasePath/reports');
-    final report = response['report'];
-    if (report is! Map<String, dynamic>) {
-      return [];
+  /// Single `GET /reports` that yields history, prescriptions, and latest INR.
+  /// Prefer this over calling [getINRHistory], [getPrescriptions], and
+  /// [getLatestINRData] separately (those each hit the same endpoint).
+  ///
+  /// [includeUrls] requests server-side S3 presigns for each report file. Keep
+  /// false for charts/home; set true only when the UI will open attachments.
+  Future<Map<String, dynamic>> getReportBundle({bool includeUrls = false}) async {
+    final report = await _fetchReport(includeUrls: includeUrls);
+    return {
+      'history': _parseINRHistory(report),
+      'prescriptions': _parsePrescriptions(report),
+      'latestINR': _parseLatestINRData(report),
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getINRHistory({
+    bool includeUrls = false,
+  }) async {
+    final report = await _fetchReport(includeUrls: includeUrls);
+    return _parseINRHistory(report);
+  }
+
+  Future<List<Map<String, dynamic>>> getPrescriptions() async {
+    final report = await _fetchReport();
+    return _parsePrescriptions(report);
+  }
+
+  Future<Map<String, dynamic>> getLatestINRData() async {
+    final report = await _fetchReport();
+    return _parseLatestINRData(report);
+  }
+
+  Future<double> getLatestINR() async {
+    final latest = await getLatestINRData();
+    final value = latest['value'];
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  /// Marks any in-flight or subsequent shared report fetch as stale so the next
+  /// reader starts a new network request instead of reusing pre-mutation data.
+  void _invalidateReportFetch() {
+    _reportGeneration++;
+  }
+
+  /// Clears shared in-flight report state (logout / session expiry).
+  /// Prevents a new session from joining a previous user's `/reports` Future.
+  void resetSessionState() {
+    _reportGeneration++;
+    _inFlightReport = null;
+  }
+
+  Future<Map<String, dynamic>?> _fetchReport({bool includeUrls = false}) async {
+    // Presigned payloads are not shared with non-presigned in-flight GETs.
+    if (includeUrls) {
+      return _loadReport(includeUrls: true);
     }
+
+    while (true) {
+      final requiredGeneration = _reportGeneration;
+      final existing = _inFlightReport;
+      // Join only a current-generation in-flight GET. Never await a stale one
+      // (that would block on / inherit errors from a pre-mutation request).
+      if (existing != null && existing.generation == requiredGeneration) {
+        try {
+          final report = await existing.future;
+          if (existing.generation == _reportGeneration) {
+            return report;
+          }
+          continue;
+        } catch (_) {
+          // Failed pre-invalidation GETs should not poison post-mutation reads.
+          if (existing.generation != _reportGeneration) {
+            continue;
+          }
+          rethrow;
+        }
+      }
+
+      final generationForThisLoad = _reportGeneration;
+      final future = _loadReport(includeUrls: false);
+      final load = _InFlightReportLoad(generationForThisLoad, future);
+      _inFlightReport = load;
+      try {
+        final report = await future;
+        // Mutation during this load → discard and fetch again.
+        if (generationForThisLoad != _reportGeneration) {
+          continue;
+        }
+        return report;
+      } catch (_) {
+        if (generationForThisLoad != _reportGeneration) {
+          continue;
+        }
+        rethrow;
+      } finally {
+        if (identical(_inFlightReport, load)) {
+          _inFlightReport = null;
+        }
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _loadReport({bool includeUrls = false}) async {
+    final response = await _apiClient.get(
+      '$_patientBasePath/reports',
+      queryParameters: includeUrls ? const {'include_urls': 'true'} : null,
+    );
+    final report = response['report'];
+    if (report is Map<String, dynamic>) return report;
+    if (report is Map) return Map<String, dynamic>.from(report);
+    return null;
+  }
+
+  List<Map<String, dynamic>> _parseINRHistory(Map<String, dynamic>? report) {
+    if (report == null) return [];
 
     final medicalConfig =
         report['medical_config'] is Map ? report['medical_config'] as Map : {};
@@ -244,9 +365,7 @@ class PatientRepository {
     final targetMax = (targetInr['max'] as num?)?.toDouble() ?? 3.0;
 
     final inrHistory = report['inr_history'];
-    if (inrHistory is! List) {
-      return [];
-    }
+    if (inrHistory is! List) return [];
 
     return inrHistory.map((item) {
       final entry = item as Map<String, dynamic>;
@@ -266,12 +385,8 @@ class PatientRepository {
     }).toList();
   }
 
-  Future<List<Map<String, dynamic>>> getPrescriptions() async {
-    final response = await _apiClient.get('$_patientBasePath/reports');
-    final report = response['report'];
-    if (report is! Map<String, dynamic>) {
-      return [];
-    }
+  List<Map<String, dynamic>> _parsePrescriptions(Map<String, dynamic>? report) {
+    if (report == null) return [];
 
     final prescriptions = <Map<String, dynamic>>[];
     final medicalConfig =
@@ -290,26 +405,16 @@ class PatientRepository {
       });
     }
 
-    prescriptions.add({
-      'drug': 'Aspirin',
-      'dosage': '75mg',
-      'frequency': 'Once daily',
-      'startDate': formatDate(medicalConfig['therapy_start_date']),
-      'instructions': 'Take in the morning with food',
-    });
-
     return prescriptions;
   }
 
-  Future<Map<String, dynamic>> getLatestINRData() async {
-    final response = await _apiClient.get('$_patientBasePath/reports');
-    final report = response['report'];
-    if (report is! Map<String, dynamic>) {
+  Map<String, dynamic> _parseLatestINRData(Map<String, dynamic>? report) {
+    if (report == null) {
       return {
         'value': 0.0,
         'date': 'N/A',
         'isCritical': false,
-        'hasData': false
+        'hasData': false,
       };
     }
 
@@ -319,7 +424,7 @@ class PatientRepository {
         'value': 0.0,
         'date': 'N/A',
         'isCritical': false,
-        'hasData': false
+        'hasData': false,
       };
     }
 
@@ -348,7 +453,7 @@ class PatientRepository {
         'value': 0.0,
         'date': 'N/A',
         'isCritical': false,
-        'hasData': false
+        'hasData': false,
       };
     }
 
@@ -358,14 +463,6 @@ class PatientRepository {
       'isCritical': latestEntry['is_critical'] == true,
       'hasData': true,
     };
-  }
-
-  Future<double> getLatestINR() async {
-    final latest = await getLatestINRData();
-    final value = latest['value'];
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
   }
 
   Future<List<Map<String, dynamic>>> getDoctorUpdates({
@@ -442,8 +539,9 @@ class PatientRepository {
   }
 
   Future<int> getNotificationsUnreadCount() async {
-    final data = await getNotifications(page: 1, limit: 1);
-    return (data['unreadCount'] as num?)?.toInt() ?? 0;
+    final data =
+        await _apiClient.get(AppStrings.patientNotificationsUnreadPath);
+    return (data['unread_count'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> markNotificationAsRead(String notificationId) async {
@@ -576,4 +674,13 @@ class PatientRepository {
         );
     }
   }
+}
+
+/// Tracks a shared `GET /reports` future together with the generation it was
+/// started for, so post-mutation waiters can refuse pre-mutation responses.
+class _InFlightReportLoad {
+  _InFlightReportLoad(this.generation, this.future);
+
+  final int generation;
+  final Future<Map<String, dynamic>?> future;
 }

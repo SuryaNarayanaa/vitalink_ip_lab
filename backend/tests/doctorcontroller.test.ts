@@ -841,8 +841,7 @@ describe('Doctor Routes', () => {
     });
 
     describe('GET /api/doctors/patients/:op_num/reports', () => {
-        test('should get patient INR reports with presigned URLs', async () => {
-            // First add a report with file_url
+        test('should get patient INR reports without presigned URLs by default', async () => {
             const patient = await PatientProfile.findById(patientProfile._id);
             patient.inr_history.push({
                 test_date: new Date('2024-01-15'),
@@ -856,6 +855,33 @@ describe('Doctor Routes', () => {
 
             const response = await api.get('/api/doctors/patients/PAT001/reports', {
                 headers: { Authorization: `Bearer ${doctorToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            const reportWithFile = response.data.data.inr_history.find(
+                (r: any) => r.notes === 'Test report' || r.file_url
+            );
+            expect(reportWithFile).toBeDefined();
+            // Default list payload keeps the storage key (no S3 signing).
+            expect(reportWithFile.file_url).toBe('uploads/test-report/12345.pdf');
+        });
+
+        test('should get patient INR reports with presigned URLs when include_urls=true', async () => {
+            // First add a report with file_url
+            const patient = await PatientProfile.findById(patientProfile._id);
+            patient.inr_history.push({
+                test_date: new Date('2024-01-15'),
+                inr_value: 2.5,
+                is_critical: false,
+                uploaded_at: new Date('2024-01-15T00:00:00.000Z'),
+                file_url: 'uploads/test-report/12345.pdf',
+                notes: 'Test report'
+            });
+            await patient.save();
+
+            const response = await api.get('/api/doctors/patients/PAT001/reports', {
+                headers: { Authorization: `Bearer ${doctorToken}` },
+                params: { include_urls: 'true' },
             });
 
             expect(response.status).toBe(200);

@@ -1207,7 +1207,10 @@ class _InrReportsCard extends StatelessWidget {
               child: UseQuery<List<dynamic>>(
                 options: QueryOptions<List<dynamic>>(
                   queryKey: DoctorQueryKeys.patientReports(opNumber),
-                  queryFn: () => repository.getPatientReports(opNumber),
+                  queryFn: () => repository.getPatientReports(
+                        opNumber,
+                        includeUrls: true,
+                      ),
                 ),
                 builder: (context, query) {
                   return InrReportsSection(

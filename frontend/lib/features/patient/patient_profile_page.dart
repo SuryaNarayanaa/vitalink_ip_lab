@@ -30,17 +30,16 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.profileFull(),
         queryFn: () async {
-          final profile = await AppDependencies.patientRepository.getProfile();
-          final history =
-              await AppDependencies.patientRepository.getINRHistory();
-          final latest = await AppDependencies.patientRepository.getLatestINR();
-          final doctorUpdates = await AppDependencies.patientRepository
-              .getDoctorUpdates(limit: 5);
+          // Profile UI only needs profile + recent doctor updates.
+          // History/latest INR were previously fetched but never rendered.
+          final repo = AppDependencies.patientRepository;
+          final results = await Future.wait([
+            repo.getProfile(),
+            repo.getDoctorUpdates(limit: 5),
+          ]);
           return {
-            'profile': profile,
-            'history': history,
-            'latest': latest,
-            'doctorUpdates': doctorUpdates,
+            'profile': results[0] as Map<String, dynamic>,
+            'doctorUpdates': results[1] as List<Map<String, dynamic>>,
           };
         },
       ),

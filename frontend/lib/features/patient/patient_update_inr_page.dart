@@ -326,7 +326,9 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
     return UseQuery<List<Map<String, dynamic>>>(
       options: QueryOptions(
         queryKey: PatientQueryKeys.inrHistory(),
-        queryFn: () => AppDependencies.patientRepository.getINRHistory(),
+        queryFn: () => AppDependencies.patientRepository.getINRHistory(
+              includeUrls: true,
+            ),
       ),
       builder: (context, query) {
         if (query.isLoading) {
