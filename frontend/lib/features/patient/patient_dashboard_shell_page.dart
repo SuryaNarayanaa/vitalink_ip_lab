@@ -52,8 +52,14 @@ class PatientDashboardShellPage extends StatefulWidget {
 
 class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
     with WidgetsBindingObserver {
+  static const int _tabCount = 5;
+
   late int _currentNavIndex;
-  late final List<Widget> _tabs;
+  /// Tabs that have been opened at least once. Unvisited tabs stay unmounted
+  /// so their UseQuery data loaders do not fire on shell open.
+  final Set<int> _activatedTabs = <int>{};
+  /// Keep built tab widgets so revisiting a tab preserves local UI state.
+  final List<Widget?> _tabCache = List<Widget?>.filled(_tabCount, null);
   int? _lastObservedUnreadCount;
   int? _lastPromptedUnreadCount;
   Timer? _unreadRefreshTimer;
@@ -67,14 +73,8 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _currentNavIndex = widget.initialTabIndex.clamp(0, 4);
-    _tabs = [
-      PatientPage(embedInShell: true, onTabChanged: _onNavChanged),
-      PatientUpdateINRPage(embedInShell: true, onTabChanged: _onNavChanged),
-      PatientTakeDosagePage(embedInShell: true, onTabChanged: _onNavChanged),
-      PatientHealthReportsPage(embedInShell: true, onTabChanged: _onNavChanged),
-      PatientProfilePage(embedInShell: true, onTabChanged: _onNavChanged),
-    ];
+    _currentNavIndex = widget.initialTabIndex.clamp(0, _tabCount - 1);
+    _activateTab(_currentNavIndex);
     _unreadRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _refreshUnreadUpdates(),
@@ -106,9 +106,60 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
   @override
   void didUpdateWidget(covariant PatientDashboardShellPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final newIndex = widget.initialTabIndex.clamp(0, 4);
+    final newIndex = widget.initialTabIndex.clamp(0, _tabCount - 1);
     if (newIndex != _currentNavIndex) {
-      setState(() => _currentNavIndex = newIndex);
+      setState(() {
+        _currentNavIndex = newIndex;
+        _activateTab(newIndex);
+      });
+    }
+  }
+
+  void _activateTab(int index) {
+    final clamped = index.clamp(0, _tabCount - 1);
+    _activatedTabs.add(clamped);
+  }
+
+  Widget _tabForIndex(int index) {
+    if (!_activatedTabs.contains(index)) {
+      // Placeholder keeps IndexedStack child count stable without mounting
+      // heavy tab trees (and their network queries).
+      return const SizedBox.shrink();
+    }
+    return _tabCache[index] ??= KeyedSubtree(
+      key: ValueKey<String>('patient-shell-tab-$index'),
+      child: _createTab(index),
+    );
+  }
+
+  Widget _createTab(int index) {
+    switch (index) {
+      case 1:
+        return PatientUpdateINRPage(
+          embedInShell: true,
+          onTabChanged: _onNavChanged,
+        );
+      case 2:
+        return PatientTakeDosagePage(
+          embedInShell: true,
+          onTabChanged: _onNavChanged,
+        );
+      case 3:
+        return PatientHealthReportsPage(
+          embedInShell: true,
+          onTabChanged: _onNavChanged,
+        );
+      case 4:
+        return PatientProfilePage(
+          embedInShell: true,
+          onTabChanged: _onNavChanged,
+        );
+      case 0:
+      default:
+        return PatientPage(
+          embedInShell: true,
+          onTabChanged: _onNavChanged,
+        );
     }
   }
 
@@ -157,7 +208,11 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
               bodyDecoration: _decorationForIndex(_currentNavIndex),
               body: IndexedStack(
                 index: _currentNavIndex,
-                children: _tabs,
+                children: List<Widget>.generate(
+                  _tabCount,
+                  _tabForIndex,
+                  growable: false,
+                ),
               ),
             );
           },
@@ -167,8 +222,14 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
   }
 
   void _onNavChanged(int index) {
-    if (index == _currentNavIndex) return;
-    setState(() => _currentNavIndex = index);
+    final clamped = index.clamp(0, _tabCount - 1);
+    if (clamped == _currentNavIndex && _activatedTabs.contains(clamped)) {
+      return;
+    }
+    setState(() {
+      _currentNavIndex = clamped;
+      _activateTab(clamped);
+    });
   }
 
   void _maybeShowUnreadPopup(int unreadCount) {

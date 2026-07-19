@@ -1,7 +1,48 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/features/patient/patient_dashboard_shell_page.dart';
 
+/// Pure helper mirroring shell tab activation (kept free of Flutter widgets).
+Set<int> activatedTabsAfterSelection({
+  required Set<int> activated,
+  required int selectedIndex,
+  int tabCount = 5,
+}) {
+  final next = Set<int>.from(activated);
+  next.add(selectedIndex.clamp(0, tabCount - 1));
+  return next;
+}
+
 void main() {
+  group('lazy patient shell tabs', () {
+    test('only initial tab is activated on open', () {
+      final activated = activatedTabsAfterSelection(
+        activated: <int>{},
+        selectedIndex: 0,
+      );
+      expect(activated, {0});
+    });
+
+    test('selecting another tab activates it without dropping prior tabs', () {
+      var activated = activatedTabsAfterSelection(
+        activated: <int>{0},
+        selectedIndex: 0,
+      );
+      activated = activatedTabsAfterSelection(
+        activated: activated,
+        selectedIndex: 4,
+      );
+      expect(activated, {0, 4});
+    });
+
+    test('clamps out-of-range tab indexes', () {
+      final activated = activatedTabsAfterSelection(
+        activated: <int>{},
+        selectedIndex: 99,
+      );
+      expect(activated, {4});
+    });
+  });
+
   group('shouldShowUnreadUpdatesPopup', () {
     test('returns true when first unread updates are observed', () {
       final result = shouldShowUnreadUpdatesPopup(
