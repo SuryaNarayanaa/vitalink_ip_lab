@@ -1232,7 +1232,6 @@ class _InrReportsCard extends StatelessWidget {
                       final key = DoctorQueryKeys.patientReports(opNumber);
                       queryClient.invalidateQueries(key);
                       await QueryCache.instance.remove(key.toString());
-                      await query.refetch();
                     },
                     enableReportViewAction: true,
                   );

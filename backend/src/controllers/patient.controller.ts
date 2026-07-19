@@ -517,10 +517,13 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 		await fileOperation?.release()
 	}
 
+	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
+
 	// Keep doctor portal caches in sync: push an in-app/SSE notification so the
 	// assigned doctor refetches patient + report lists without reinstall/login.
+	// Fire-and-forget: response is already sent; rely on internal error handling.
 	const patientAccount = await User.findById(patientUser._id).select('login_id').lean()
-	await notifyDoctorOfInrReport({
+	notifyDoctorOfInrReport({
 		assignedDoctorId: patient.assigned_doctor_id,
 		patientUserId: patientUser._id,
 		patientLoginId: patientAccount?.login_id != null
@@ -530,9 +533,9 @@ export const submitReport = asyncHandler(async (req: Request<{}, {}, ReportInput
 		inrValue: parsed_inr_value,
 		isCritical: submittedIsCritical,
 		testDate: parsedTestDate,
+	}).catch(err => {
+		logger.error('unhandled_notification_error', { error: err })
 	})
-
-	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Report submitted', { patient }))
 })
 
 export const missedDoses = asyncHandler(async (req: Request<{}, {}, {}>, res: Response) => {
