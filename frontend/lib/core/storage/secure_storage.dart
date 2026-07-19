@@ -28,6 +28,9 @@ class SecureStorage {
   static int _tokenCacheGeneration = 0;
   /// Bumped when user cache is written/cleared (independent of token).
   static int _userCacheGeneration = 0;
+  /// Serializes all auth mutations (saveToken, clearToken, saveUser, clearUser,
+  /// clearAuthData) so disk writes and deletes cannot overlap.
+  static Future<void>? _authMutationQueue;
 
   /// Clears process-local caches so tests can simulate an app restart.
   @visibleForTesting
@@ -39,6 +42,7 @@ class SecureStorage {
     _userHydrated = false;
     _tokenCacheGeneration++;
     _userCacheGeneration++;
+    _authMutationQueue = null;
   }
 
   Future<SharedPreferences> _prefs() async {
@@ -46,10 +50,18 @@ class SecureStorage {
   }
 
   Future<void> saveToken(String token) async {
-    _tokenCacheGeneration++;
-    _cachedToken = token;
-    _tokenHydrated = true;
-    await _storage.write(key: AppStrings.tokenKey, value: token);
+    _authMutationQueue = _authMutationQueue?.then((_) async {
+      _tokenCacheGeneration++;
+      _cachedToken = token;
+      _tokenHydrated = true;
+      await _storage.write(key: AppStrings.tokenKey, value: token);
+    }) ?? (() async {
+      _tokenCacheGeneration++;
+      _cachedToken = token;
+      _tokenHydrated = true;
+      await _storage.write(key: AppStrings.tokenKey, value: token);
+    })();
+    return _authMutationQueue!;
   }
 
   Future<String?> readToken() async {
@@ -66,10 +78,18 @@ class SecureStorage {
   }
 
   Future<void> clearToken() async {
-    _tokenCacheGeneration++;
-    _cachedToken = null;
-    _tokenHydrated = true;
-    await _storage.delete(key: AppStrings.tokenKey);
+    _authMutationQueue = _authMutationQueue?.then((_) async {
+      _tokenCacheGeneration++;
+      _cachedToken = null;
+      _tokenHydrated = true;
+      await _storage.delete(key: AppStrings.tokenKey);
+    }) ?? (() async {
+      _tokenCacheGeneration++;
+      _cachedToken = null;
+      _tokenHydrated = true;
+      await _storage.delete(key: AppStrings.tokenKey);
+    })();
+    return _authMutationQueue!;
   }
 
   Future<void> saveRefreshToken(String refreshToken) async {
@@ -116,10 +136,18 @@ class SecureStorage {
   }
 
   Future<void> saveUser(Map<String, dynamic> user) async {
-    _userCacheGeneration++;
-    _cachedUser = Map<String, dynamic>.from(user);
-    _userHydrated = true;
-    await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
+    _authMutationQueue = _authMutationQueue?.then((_) async {
+      _userCacheGeneration++;
+      _cachedUser = Map<String, dynamic>.from(user);
+      _userHydrated = true;
+      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
+    }) ?? (() async {
+      _userCacheGeneration++;
+      _cachedUser = Map<String, dynamic>.from(user);
+      _userHydrated = true;
+      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
+    })();
+    return _authMutationQueue!;
   }
 
   Future<Map<String, dynamic>?> readUser() async {
@@ -162,10 +190,18 @@ class SecureStorage {
   }
 
   Future<void> clearUser() async {
-    _userCacheGeneration++;
-    _cachedUser = null;
-    _userHydrated = true;
-    await _storage.delete(key: AppStrings.userKey);
+    _authMutationQueue = _authMutationQueue?.then((_) async {
+      _userCacheGeneration++;
+      _cachedUser = null;
+      _userHydrated = true;
+      await _storage.delete(key: AppStrings.userKey);
+    }) ?? (() async {
+      _userCacheGeneration++;
+      _cachedUser = null;
+      _userHydrated = true;
+      await _storage.delete(key: AppStrings.userKey);
+    })();
+    return _authMutationQueue!;
   }
 
   /// Onboarding completion flag ──────────────────────────────────────────────
@@ -228,24 +264,46 @@ class SecureStorage {
   }
 
   Future<void> clearAuthData({bool preserveOnboarding = true}) async {
-    _tokenCacheGeneration++;
-    _userCacheGeneration++;
-    _cachedToken = null;
-    _cachedUser = null;
-    _tokenHydrated = true;
-    _userHydrated = true;
-    await _storage.delete(key: AppStrings.tokenKey);
-    await _storage.delete(key: AppStrings.refreshTokenKey);
-    await _storage.delete(key: AppStrings.authSessionKey);
-    await _storage.delete(key: AppStrings.userKey);
-    if (!preserveOnboarding) {
-      _cachedOnboardingCompleted = false;
-      await _storage.delete(key: AppStrings.onboardingCompletedKey);
-      try {
-        final prefs = await _prefs();
-        await prefs.remove(AppStrings.onboardingCompletedKey);
-      } catch (_) {}
-    }
+    _authMutationQueue = _authMutationQueue?.then((_) async {
+      _tokenCacheGeneration++;
+      _userCacheGeneration++;
+      _cachedToken = null;
+      _cachedUser = null;
+      _tokenHydrated = true;
+      _userHydrated = true;
+      await _storage.delete(key: AppStrings.tokenKey);
+      await _storage.delete(key: AppStrings.refreshTokenKey);
+      await _storage.delete(key: AppStrings.authSessionKey);
+      await _storage.delete(key: AppStrings.userKey);
+      if (!preserveOnboarding) {
+        _cachedOnboardingCompleted = false;
+        await _storage.delete(key: AppStrings.onboardingCompletedKey);
+        try {
+          final prefs = await _prefs();
+          await prefs.remove(AppStrings.onboardingCompletedKey);
+        } catch (_) {}
+      }
+    }) ?? (() async {
+      _tokenCacheGeneration++;
+      _userCacheGeneration++;
+      _cachedToken = null;
+      _cachedUser = null;
+      _tokenHydrated = true;
+      _userHydrated = true;
+      await _storage.delete(key: AppStrings.tokenKey);
+      await _storage.delete(key: AppStrings.refreshTokenKey);
+      await _storage.delete(key: AppStrings.authSessionKey);
+      await _storage.delete(key: AppStrings.userKey);
+      if (!preserveOnboarding) {
+        _cachedOnboardingCompleted = false;
+        await _storage.delete(key: AppStrings.onboardingCompletedKey);
+        try {
+          final prefs = await _prefs();
+          await prefs.remove(AppStrings.onboardingCompletedKey);
+        } catch (_) {}
+      }
+    })();
+    return _authMutationQueue!;
   }
 
   Future<void> clearAll() async {

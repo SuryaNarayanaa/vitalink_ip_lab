@@ -158,11 +158,14 @@ class AuthRepository {
       }
     }
 
-    await _secureStorage.clearAuthData();
     try {
-      _onLocalSessionCleared?.call();
-    } catch (_) {
-      // Feature cache cleanup must not block logout.
+      await _secureStorage.clearAuthData();
+    } finally {
+      try {
+        _onLocalSessionCleared?.call();
+      } catch (_) {
+        // Feature cache cleanup must not block logout.
+      }
     }
   }
 

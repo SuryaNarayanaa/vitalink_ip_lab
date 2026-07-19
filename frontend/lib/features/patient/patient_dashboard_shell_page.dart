@@ -13,6 +13,19 @@ import 'package:frontend/features/patient/patient_take_dosage_page.dart';
 import 'package:frontend/features/patient/patient_update_inr_page.dart';
 import 'package:frontend/services/realtime/doctor_update_realtime_service.dart';
 
+/// Pure function that computes the next activated-tabs set after selecting a
+/// tab at [selectedIndex]. Used by [_PatientDashboardShellPageState] and
+/// tested directly in patient_dashboard_shell_page_test.dart.
+Set<int> computeActivatedTabsAfterSelection({
+  required Set<int> activated,
+  required int selectedIndex,
+  required int tabCount,
+}) {
+  final next = Set<int>.from(activated);
+  next.add(selectedIndex.clamp(0, tabCount - 1));
+  return next;
+}
+
 bool shouldShowUnreadUpdatesPopup({
   required int unreadCount,
   required int? previousUnreadCount,
@@ -116,8 +129,13 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
   }
 
   void _activateTab(int index) {
-    final clamped = index.clamp(0, _tabCount - 1);
-    _activatedTabs.add(clamped);
+    final updated = computeActivatedTabsAfterSelection(
+      activated: _activatedTabs,
+      selectedIndex: index,
+      tabCount: _tabCount,
+    );
+    _activatedTabs.clear();
+    _activatedTabs.addAll(updated);
   }
 
   Widget _tabForIndex(int index) {

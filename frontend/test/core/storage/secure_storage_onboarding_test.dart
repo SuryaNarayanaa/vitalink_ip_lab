@@ -143,5 +143,28 @@ void main() {
       expect(await pending, isNull);
       expect(await reader.readToken(), isNull);
     });
+
+    test('racing clearAuthData with saveToken and saveUser executes serially',
+        () async {
+      // Queue mutations concurrently to verify they serialize correctly.
+      final futures = [
+        storage.saveToken('token-1'),
+        storage.saveUser({'login_id': 'user-1'}),
+        storage.clearAuthData(),
+        storage.saveToken('token-2'),
+        storage.saveUser({'login_id': 'user-2'}),
+      ];
+      await Future.wait(futures);
+
+      // Final persisted session should match the last mutation pair.
+      expect(await storage.readToken(), 'token-2');
+      expect((await storage.readUser())?['login_id'], 'user-2');
+
+      // Verify disk persistence by clearing cache and re-reading.
+      SecureStorage.debugResetCaches();
+      final other = SecureStorage();
+      expect(await other.readToken(), 'token-2');
+      expect((await other.readUser())?['login_id'], 'user-2');
+    });
   });
 }
