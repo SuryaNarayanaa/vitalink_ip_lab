@@ -27,6 +27,7 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
           final repo = AppDependencies.patientRepository;
           final results = await Future.wait([
             repo.getProfile(),
+            // Records list does not open attachments; skip S3 presigns.
             repo.getINRHistory(),
           ]);
           return {

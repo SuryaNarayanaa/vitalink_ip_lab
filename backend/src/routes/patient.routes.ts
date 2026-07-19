@@ -14,6 +14,7 @@ import {
 	getDoctorUpdates,
 	getDoctorUpdatesSummary,
 	getNotifications,
+	getNotificationsUnreadCount,
 	markAllNotificationsAsRead,
 	markNotificationAsRead,
 	markDoctorUpdateAsRead,
@@ -108,6 +109,7 @@ router.post('/dosage', authenticate, AllowPatient, validate(takeDosageSchema), t
 router.post('/health-logs', authenticate, AllowPatient, validate(updateHealthLogSchema), updateHealthLogs)
 router.get('/notifications/stream', streamNotifications)
 router.post('/notifications/stream-ticket', authenticate, AllowPatient, createPatientNotificationStreamTicket)
+router.get('/notifications/unread-count', authenticate, AllowPatient, getNotificationsUnreadCount)
 router.get('/notifications', authenticate, AllowPatient, validate(notificationsQuerySchema), getNotifications)
 router.patch('/notifications/read-all', authenticate, AllowPatient, markAllNotificationsAsRead)
 router.patch('/notifications/:notification_id/read', authenticate, AllowPatient, validate(markNotificationReadSchema), markNotificationAsRead)

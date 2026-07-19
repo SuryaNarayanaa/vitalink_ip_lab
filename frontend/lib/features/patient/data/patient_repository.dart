@@ -241,8 +241,11 @@ class PatientRepository {
   /// Single `GET /reports` that yields history, prescriptions, and latest INR.
   /// Prefer this over calling [getINRHistory], [getPrescriptions], and
   /// [getLatestINRData] separately (those each hit the same endpoint).
-  Future<Map<String, dynamic>> getReportBundle() async {
-    final report = await _fetchReport();
+  ///
+  /// [includeUrls] requests server-side S3 presigns for each report file. Keep
+  /// false for charts/home; set true only when the UI will open attachments.
+  Future<Map<String, dynamic>> getReportBundle({bool includeUrls = false}) async {
+    final report = await _fetchReport(includeUrls: includeUrls);
     return {
       'history': _parseINRHistory(report),
       'prescriptions': _parsePrescriptions(report),
@@ -250,8 +253,10 @@ class PatientRepository {
     };
   }
 
-  Future<List<Map<String, dynamic>>> getINRHistory() async {
-    final report = await _fetchReport();
+  Future<List<Map<String, dynamic>>> getINRHistory({
+    bool includeUrls = false,
+  }) async {
+    final report = await _fetchReport(includeUrls: includeUrls);
     return _parseINRHistory(report);
   }
 
@@ -286,7 +291,12 @@ class PatientRepository {
     _inFlightReport = null;
   }
 
-  Future<Map<String, dynamic>?> _fetchReport() async {
+  Future<Map<String, dynamic>?> _fetchReport({bool includeUrls = false}) async {
+    // Presigned payloads are not shared with non-presigned in-flight GETs.
+    if (includeUrls) {
+      return _loadReport(includeUrls: true);
+    }
+
     while (true) {
       final requiredGeneration = _reportGeneration;
       final existing = _inFlightReport;
@@ -309,7 +319,7 @@ class PatientRepository {
       }
 
       final generationForThisLoad = _reportGeneration;
-      final future = _loadReport();
+      final future = _loadReport(includeUrls: false);
       final load = _InFlightReportLoad(generationForThisLoad, future);
       _inFlightReport = load;
       try {
@@ -332,8 +342,11 @@ class PatientRepository {
     }
   }
 
-  Future<Map<String, dynamic>?> _loadReport() async {
-    final response = await _apiClient.get('$_patientBasePath/reports');
+  Future<Map<String, dynamic>?> _loadReport({bool includeUrls = false}) async {
+    final response = await _apiClient.get(
+      '$_patientBasePath/reports',
+      queryParameters: includeUrls ? const {'include_urls': 'true'} : null,
+    );
     final report = response['report'];
     if (report is Map<String, dynamic>) return report;
     if (report is Map) return Map<String, dynamic>.from(report);
@@ -526,8 +539,9 @@ class PatientRepository {
   }
 
   Future<int> getNotificationsUnreadCount() async {
-    final data = await getNotifications(page: 1, limit: 1);
-    return (data['unreadCount'] as num?)?.toInt() ?? 0;
+    final data =
+        await _apiClient.get(AppStrings.patientNotificationsUnreadPath);
+    return (data['unread_count'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> markNotificationAsRead(String notificationId) async {

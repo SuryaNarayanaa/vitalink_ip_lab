@@ -249,13 +249,17 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   const hospitalId = await getRequiredDoctorHospitalId(doctor)
   const patientQuery: Record<string, unknown> = { assigned_doctor_id: { $in: doctorOwnershipIds } }
   if (hospitalId) patientQuery.hospital_id = hospitalId
+  // List payload only needs identity + INR criticality flags — skip heavy embeds
+  // and never presign profile pictures (O(n) FileAsset + S3 work).
   const patientProfiles = await PatientProfile.find(patientQuery)
+    .select('demographics inr_history.test_date inr_history.is_critical hospital_id assigned_doctor_id createdAt')
+    .lean()
 
   // Get login_ids for each patient profile
   const patientUsers = await User.find({
     profile_id: { $in: patientProfiles.map(p => p._id) },
     user_type: UserType.PATIENT
-  })
+  }).select('profile_id login_id').lean()
 
   // Create a map of profile_id to login_id
   const profileToUser = new Map<string, typeof patientUsers[number]>()
@@ -263,24 +267,14 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
     profileToUser.set(u.profile_id?.toString() ?? '', u)
   })
 
-  // Add login_id to each patient profile
-  const patients = await Promise.all(patientProfiles.map(async (p) => {
-    const patientData = p.toObject() as any
-    const patientUser = profileToUser.get(p._id.toString())
-    if (patientData.profile_picture_url && patientUser) {
-      patientData.profile_picture_url = await resolveAssetDownloadUrl({
-        fileAssetId: patientData.profile_picture_file_asset_id,
-        legacyObjectKey: patientData.profile_picture_url,
-        hospitalId: p.hospital_id,
-        requesterHospitalId: hospitalId,
-        ownerUserId: patientUser._id,
-        patientProfileId: p._id,
-        purpose: FileAssetPurpose.PATIENT_PROFILE_PICTURE,
-        legacyEligible: isLegacyFileReferenceEligible(patientData.createdAt),
-      })
+  const patients = patientProfiles.map((p) => {
+    const patientUser = profileToUser.get(String(p._id))
+    return {
+      ...p,
+      profile_picture_url: null,
+      login_id: patientUser?.login_id ?? null,
     }
-    return { ...patientData, login_id: patientUser?.login_id ?? null }
-  }))
+  })
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, "Patients fetched successfully", { patients }))
 })
@@ -656,27 +650,35 @@ export const getReports = asyncHandler(async (req: Request, res: Response) => {
   await ensureSameHospital(doctor, patient)
   const requesterHospitalId = await getRequiredDoctorHospitalId(doctor)
 
-  // Convert S3 keys to presigned URLs for each report
-  const reportsWithUrls = await Promise.all(
-    (patient?.inr_history || []).map(async (report) => {
-      const reportObj = report.toObject()
-      if (reportObj.file_url) {
-        reportObj.file_url = await resolveAssetDownloadUrl({
-          fileAssetId: reportObj.file_asset_id,
-          legacyObjectKey: reportObj.file_url,
-          hospitalId: patient.hospital_id,
-          requesterHospitalId,
-          ownerUserId: patientUser._id,
-          patientProfileId: patient._id,
-          purpose: FileAssetPurpose.INR_REPORT,
-          legacyEligible: isLegacyFileReferenceEligible(reportObj.uploaded_at),
-        })
-      }
-      return reportObj
-    })
-  )
+  const includeUrls = String(req.query.include_urls ?? '').toLowerCase() === 'true'
+  const history = (patient?.inr_history || []).map((report) => {
+    const reportObj = typeof (report as any).toObject === 'function'
+      ? (report as any).toObject()
+      : { ...(report as any) }
+    return reportObj
+  })
 
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'INR reports fetched successfully', { inr_history: reportsWithUrls }))
+  const inrHistory = includeUrls
+    ? await Promise.all(
+      history.map(async (reportObj: any) => {
+        if (reportObj.file_url) {
+          reportObj.file_url = await resolveAssetDownloadUrl({
+            fileAssetId: reportObj.file_asset_id,
+            legacyObjectKey: reportObj.file_url,
+            hospitalId: patient.hospital_id,
+            requesterHospitalId,
+            ownerUserId: patientUser._id,
+            patientProfileId: patient._id,
+            purpose: FileAssetPurpose.INR_REPORT,
+            legacyEligible: isLegacyFileReferenceEligible(reportObj.uploaded_at),
+          })
+        }
+        return reportObj
+      }),
+    )
+    : history
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'INR reports fetched successfully', { inr_history: inrHistory }))
 })
 
 export const updateReport = asyncHandler(async (req: Request<UpdateReportInput['params'], {}, UpdateReportInput['body']>, res: Response) => {
@@ -1047,6 +1049,20 @@ export const getDoctorNotifications = asyncHandler(async (
     pagination,
     unread_count: unreadCount,
   }))
+})
+
+/** Lightweight badge endpoint: count only, no notification list. */
+export const getDoctorNotificationsUnreadCount = asyncHandler(async (req: Request, res: Response) => {
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const unreadCount = await Notification.countDocuments({
+    user_id: doctorUser._id,
+    is_read: false,
+  })
+  res.status(StatusCodes.OK).json(new ApiResponse(
+    StatusCodes.OK,
+    'Unread notification count fetched successfully',
+    { unread_count: unreadCount },
+  ))
 })
 
 export const markDoctorNotificationAsRead = asyncHandler(async (

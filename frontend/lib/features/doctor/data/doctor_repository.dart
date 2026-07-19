@@ -54,9 +54,14 @@ class DoctorRepository {
         data: {'instructions': instructions});
   }
 
-  Future<List<dynamic>> getPatientReports(String opNumber) async {
-    final response = await _apiClient
-        .get('${AppStrings.doctorPatientsPath}/$opNumber/reports');
+  Future<List<dynamic>> getPatientReports(
+    String opNumber, {
+    bool includeUrls = false,
+  }) async {
+    final response = await _apiClient.get(
+      '${AppStrings.doctorPatientsPath}/$opNumber/reports',
+      queryParameters: includeUrls ? const {'include_urls': 'true'} : null,
+    );
     final inrHistory = response['inr_history'];
     return inrHistory is List ? inrHistory : [];
   }
@@ -150,8 +155,9 @@ class DoctorRepository {
   }
 
   Future<int> getNotificationsUnreadCount() async {
-    final data = await getNotifications(page: 1, limit: 1);
-    return (data['unreadCount'] as num?)?.toInt() ?? 0;
+    final data =
+        await _apiClient.get(AppStrings.doctorNotificationsUnreadPath);
+    return (data['unread_count'] as num?)?.toInt() ?? 0;
   }
 
   Future<void> markNotificationAsRead(String notificationId) async {
