@@ -15,7 +15,7 @@ import {
   type UploadedFileMetadata,
 } from '@alias/utils/fileUpload'
 import logger from '@alias/utils/logger'
-import type { Types } from 'mongoose'
+import mongoose, { type Types } from 'mongoose'
 
 export type AssetOwnership = {
   hospitalId: Types.ObjectId | string
@@ -210,9 +210,14 @@ export async function resolveAssetDownloadUrls(
     }
   }
 
+  // Only valid ObjectIds enter $in — malformed ids would CastError the whole batch.
+  // Invalid entries are omitted here and surface as NOT_FOUND in the per-item path.
   const assetIds = items
     .map((item) => item.fileAssetId)
-    .filter((id): id is string | Types.ObjectId => id != null && String(id).length > 0)
+    .filter((id): id is string | Types.ObjectId => {
+      if (id == null || String(id).length === 0) return false
+      return mongoose.Types.ObjectId.isValid(String(id))
+    })
 
   const assetsById = new Map<string, { object_key: string; bucket?: string; hospital_id: unknown; owner_user_id: unknown; purpose: string; patient_profile_id?: unknown }>()
   if (assetIds.length > 0) {
