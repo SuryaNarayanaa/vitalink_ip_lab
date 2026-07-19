@@ -27,6 +27,7 @@ import { config } from '@alias/config'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
 import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 type DoctorUpdateEvent = {
 	_id: string
@@ -51,19 +52,13 @@ type AppNotificationItem = {
 	data?: unknown
 }
 
-type AuthUserLike = {
-	_id: import('mongoose').Types.ObjectId | string
-	user_type?: string
-	profile_id?: import('mongoose').Types.ObjectId | string
-	is_active?: boolean
-}
-
 const getPatientUserOrThrow = async (
 	userId: string,
 	notFoundMessage = 'Patient not found',
-	authUser?: AuthUserLike | null,
-): Promise<AuthUserLike> => {
+	authUser?: AuthUserSnapshot | null,
+): Promise<Pick<AuthUserSnapshot, '_id' | 'user_type' | 'profile_id' | 'is_active'>> => {
 	// Prefer the authenticated lean snapshot when it is the same principal.
+	// is_active is authenticate-time; intentional for request-scoped reuse.
 	if (
 		authUser &&
 		String(authUser._id) === String(userId) &&
@@ -78,7 +73,12 @@ const getPatientUserOrThrow = async (
 	if (!patientUser || patientUser.user_type !== UserType.PATIENT) {
 		throw new ApiError(StatusCodes.NOT_FOUND, notFoundMessage)
 	}
-	return patientUser
+	return {
+		_id: patientUser._id,
+		user_type: String(patientUser.user_type),
+		profile_id: patientUser.profile_id,
+		is_active: Boolean(patientUser.is_active),
+	}
 }
 
 const getPatientProfileOrThrow = async (profileId: unknown, notFoundMessage = 'Patient profile not found') => {

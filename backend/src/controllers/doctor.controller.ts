@@ -33,6 +33,7 @@ import {
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
 import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 const normalizeLoginId = (value: string) => value.trim()
 
@@ -123,18 +124,12 @@ const ensureReassignmentHospitalAccess = async (
   }
 }
 
-type AuthUserLike = {
-  _id: import('mongoose').Types.ObjectId | string
-  user_type?: string
-  profile_id?: import('mongoose').Types.ObjectId | string
-  is_active?: boolean
-}
-
 const getDoctorUserOrThrow = async (
   userId: string,
-  authUser?: AuthUserLike | null,
-): Promise<AuthUserLike> => {
+  authUser?: AuthUserSnapshot | null,
+): Promise<Pick<AuthUserSnapshot, '_id' | 'user_type' | 'profile_id' | 'is_active'>> => {
   // Prefer the authenticated lean snapshot when it is the same principal.
+  // is_active is authenticate-time; intentional for request-scoped reuse.
   if (
     authUser &&
     String(authUser._id) === String(userId) &&
@@ -149,7 +144,12 @@ const getDoctorUserOrThrow = async (
   if (!doctor || doctor.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
   }
-  return doctor
+  return {
+    _id: doctor._id,
+    user_type: String(doctor.user_type),
+    profile_id: doctor.profile_id,
+    is_active: Boolean(doctor.is_active),
+  }
 }
 
 async function createPatientProfileAndUser(

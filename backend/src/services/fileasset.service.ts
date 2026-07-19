@@ -216,14 +216,10 @@ export async function resolveAssetDownloadUrls(
 
   const assetsById = new Map<string, { object_key: string; bucket?: string; hospital_id: unknown; owner_user_id: unknown; purpose: string; patient_profile_id?: unknown }>()
   if (assetIds.length > 0) {
-    // Narrow by shared constraints that apply to all items in a typical list
-    // (same hospital/owner/purpose). Per-item checks still run below.
-    const first = items.find((i) => i.fileAssetId)!
+    // Fetch by id set only. Per-item checks below enforce hospital/owner/purpose/
+    // patient_profile so heterogeneous batches remain correct.
     const assets = await FileAsset.find({
       _id: { $in: assetIds as Types.ObjectId[] },
-      hospital_id: first.hospitalId,
-      owner_user_id: first.ownerUserId,
-      purpose: first.purpose,
       status: FileAssetStatus.ACTIVE,
       deleted_at: { $exists: false },
     }).lean()

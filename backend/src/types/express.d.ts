@@ -1,20 +1,7 @@
 import { JWTPayload } from '@alias/validators'
+import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
-/**
- * Lean user snapshot loaded during authenticate. Controllers can reuse this
- * instead of a second User.findById for the same principal.
- */
-export type AuthUserSnapshot = {
-  _id: import('mongoose').Types.ObjectId | string
-  user_type: string
-  profile_id?: import('mongoose').Types.ObjectId | string
-  is_active: boolean
-  security_version?: number
-  must_change_password?: boolean
-  password_changed_at?: Date | string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-}
+export type { AuthUserSnapshot }
 
 /**
  * Extend Express Request type to include user authentication data
