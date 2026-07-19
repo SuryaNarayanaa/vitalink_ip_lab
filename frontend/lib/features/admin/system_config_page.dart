@@ -153,7 +153,12 @@ class _SystemConfigPageState extends State<SystemConfigPage> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _healthUnavailable = true);
+      if (mounted) {
+        setState(() {
+          _healthUnavailable = true;
+          _health = null;
+        });
+      }
     }
   }
 

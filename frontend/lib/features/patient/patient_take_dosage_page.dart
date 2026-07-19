@@ -56,8 +56,10 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
         }
 
         final data = query.data!;
-        final recentDoses = data['recent_missed_doses'] as List<dynamic>;
-        final remainingDoses = data['missed_doses'] as List<dynamic>;
+        final recentDoses =
+            (data['recent_missed_doses'] as List<dynamic>?) ?? const [];
+        final remainingDoses =
+            (data['missed_doses'] as List<dynamic>?) ?? const [];
 
         return UseMutation<void, Map<String, dynamic>>(
           options: MutationOptions<void, Map<String, dynamic>>(

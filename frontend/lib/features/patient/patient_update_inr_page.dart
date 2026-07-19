@@ -501,7 +501,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
           ),
           const SizedBox(height: 14),
           Text(
-            report['date'] as String,
+            (report['date'] as String?) ?? '',
             style: const TextStyle(
               fontSize: 13,
               color: Color(0xFF6B7280),
@@ -555,10 +555,18 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
+                  final dateLabel = (report['date'] as String?) ?? 'report';
+                  final uriPath = Uri.tryParse(fileUrl)?.path ?? fileUrl;
+                  final ext = uriPath.contains('.')
+                      ? uriPath.split('.').last.toLowerCase()
+                      : 'pdf';
+                  final safeExt = ['pdf', 'jpg', 'jpeg', 'png'].contains(ext)
+                      ? ext
+                      : 'pdf';
                   FilePreviewModal.show(
                     context,
                     fileUrl: fileUrl,
-                    fileName: 'INR_Report_${report['date']}.pdf',
+                    fileName: 'INR_Report_$dateLabel.$safeExt',
                   );
                 },
                 icon: const Icon(Icons.description_outlined, size: 18),

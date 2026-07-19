@@ -265,7 +265,11 @@ class _DosageRow extends StatelessWidget {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 textAlign: TextAlign.right,
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  TextInputFormatter.withFunction((oldValue, newValue) =>
+                      RegExp(r'^\d*\.?\d*$').hasMatch(newValue.text)
+                          ? newValue
+                          : oldValue),
                 ],
                 onChanged: (_) => onChanged?.call(),
                 style: const TextStyle(

@@ -210,19 +210,21 @@ class PatientRepository {
 
     return {
       'calendar_data': (data['calendar_data'] as List? ?? const []).map((item) {
-        final row = item as Map<String, dynamic>;
+        final row = item is Map
+            ? Map<String, dynamic>.from(item)
+            : <String, dynamic>{};
         return {
-          'date': row['date'] as String,
-          'status': row['status'] as String,
-          'dosage': (row['dosage'] as num).toDouble(),
-          'day_of_week': row['day_of_week'] as String,
+          'date': row['date']?.toString() ?? '',
+          'status': row['status']?.toString() ?? '',
+          'dosage': (row['dosage'] as num?)?.toDouble() ?? 0.0,
+          'day_of_week': row['day_of_week']?.toString() ?? '',
         };
       }).toList(),
       'date_range': {
-        'start': data['date_range']?['start'] as String,
-        'end': data['date_range']?['end'] as String,
+        'start': data['date_range']?['start']?.toString() ?? '',
+        'end': data['date_range']?['end']?.toString() ?? '',
       },
-      'therapy_start': data['therapy_start'] as String,
+      'therapy_start': data['therapy_start']?.toString() ?? '',
     };
   }
 

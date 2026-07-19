@@ -621,11 +621,19 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
   DateTime _selectedTherapyDate = DateTime.now();
 
   Future<void> _selectDate(BuildContext context) async {
+    final now = DateTime.now();
+    final firstDate = DateTime(1900);
+    var initialDate = _selectedTherapyDate;
+    if (initialDate.isAfter(now)) {
+      initialDate = now;
+    } else if (initialDate.isBefore(firstDate)) {
+      initialDate = firstDate;
+    }
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedTherapyDate,
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: now,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -752,7 +760,9 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
         widget.onSuccess();
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() => _error = e.toString());
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

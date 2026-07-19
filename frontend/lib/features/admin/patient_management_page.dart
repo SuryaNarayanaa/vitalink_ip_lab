@@ -384,6 +384,11 @@ class _PatientListTile extends StatelessWidget {
         patient['user_id'] as String? ??
         '';
     final opNum = patient['login_id'] as String? ?? '';
+    final assignedDoctorRef =
+        profile['assigned_doctor_id'] ?? patient['assigned_doctor_id'];
+    final currentDoctorId = assignedDoctorRef is Map
+        ? (assignedDoctorRef['_id'] ?? assignedDoctorRef['id'])?.toString() ?? ''
+        : assignedDoctorRef?.toString() ?? '';
     final details = [
       if (age != null) 'Age: $age',
       if (gender.isNotEmpty) gender,
@@ -431,6 +436,7 @@ class _PatientListTile extends StatelessWidget {
                           opNum,
                           demographics,
                           isActive,
+                          currentDoctorId,
                         ),
                         itemBuilder: (_) => [
                           const PopupMenuItem(
@@ -556,6 +562,7 @@ class _PatientListTile extends StatelessWidget {
     String opNum,
     Map<String, dynamic> demographics,
     bool isActive,
+    String currentDoctorId,
   ) {
     switch (action) {
       case 'edit':
@@ -578,7 +585,7 @@ class _PatientListTile extends StatelessWidget {
         showReassignPatientDialog(
           context,
           patientOpNum: opNum,
-          currentDoctorId: '',
+          currentDoctorId: currentDoctorId,
           onSuccess: onRefresh,
         );
         break;

@@ -81,7 +81,6 @@ class _UpdateReportInstructionsWidgetState
         }
 
         final reportData = snapshot.data!;
-        debugPrint('Report data: $reportData');
         final report = ReportModel.fromJson(reportData);
 
         if (!_isFormInitialized) {

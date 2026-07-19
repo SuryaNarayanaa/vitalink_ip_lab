@@ -9,11 +9,11 @@ flutter build apk --release --dart-define=API_BASE_URL=https://vitalink-uimf.onr
 
 # frontend
 
-A new Flutter project.
+Vitalink Flutter client for INR monitoring at PSG Medical Institute.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+This project is a Flutter application for patients, doctors, and admins.
 
 A few resources to get you started if this is your first Flutter project:
 
@@ -34,26 +34,31 @@ frontend/
 │
 ├── android/                  # Android project files
 ├── ios/                      # iOS project files
-├── linux/                    # Linux runner
-├── macos/                    # macOS runner
 ├── web/                      # Web assets (index.html, manifest, icons)
-├── windows/                  # Windows runner
+├── assets/                   # Images, icons, onboarding art
 ├── test/                     # Flutter widget/unit tests
 │
 └── lib/                      # Application source
     ├── main.dart             # App entry point
     │
-    ├── app/                  # App-level setup (routing, theme, etc.)
+    ├── app/                  # App shell and routing
     │
     ├── core/
-    │   ├── constants/        # Static values (colors, strings, assets)
-    │   ├── utils/            # Helpers and utilities
-    │   └── widgets/          # Reusable UI components
+    │   ├── auth/             # Session bootstrap, route guards, expiry
+    │   ├── constants/        # Static values (colors, strings)
+    │   ├── di/               # Dependencies and theme
+    │   ├── network/          # API client
+    │   ├── query/            # Query keys (admin/doctor/patient)
+    │   ├── storage/          # Secure storage
+    │   └── widgets/          # Shared UI (admin/doctor/patient/common)
     │
-    ├── features/             # Feature modules
-    │   ├── home/
-    │   └── login/
+    ├── features/             # Role-based feature modules
+    │   ├── admin/            # Console, analytics, config, management
+    │   ├── doctor/           # Dashboard, patients, reports
+    │   ├── login/            # Auth flows
+    │   ├── notifications/    # Notification center
+    │   ├── onboarding/       # First-run onboarding
+    │   └── patient/          # Dashboard, dosage, INR, profile
     │
-    ├── models/               # Data models
-    └── services/             # API clients and service layer
+    └── services/             # Patient service, push, realtime
 ```

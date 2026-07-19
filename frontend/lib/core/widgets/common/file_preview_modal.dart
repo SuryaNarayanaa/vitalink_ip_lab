@@ -118,7 +118,7 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
         );
       }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

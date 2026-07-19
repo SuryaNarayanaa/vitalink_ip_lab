@@ -86,7 +86,7 @@ class PremiumReportCard extends StatelessWidget {
         : double.tryParse(report['inr_value']?.toString() ?? '');
     
     final bool isCritical = report['is_critical'] == true;
-    final String? notes = report['notes'];
+    final notes = report['notes']?.toString();
     
     Color statusColor = isCritical 
         ? const Color(0xFFEF4444) 

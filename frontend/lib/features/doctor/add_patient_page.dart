@@ -19,6 +19,8 @@ class AddPatientForm extends StatefulWidget {
 }
 
 class _AddPatientFormState extends State<AddPatientForm> {
+  static final _indianPhoneRegex = RegExp(r'^[6-9]\d{9}$');
+
   final _formKey = GlobalKey<FormState>();
   final DoctorRepository _repo = AppDependencies.doctorRepository;
 
@@ -127,7 +129,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
           ? null
           : int.tryParse(_ageCtrl.text.trim()),
       'gender': _gender,
-      'contact_no': _contactCtrl.text.trim(),
+      'contact_no': '+91${_contactCtrl.text.trim()}',
       'target_inr_min': numFromCtrl(_targetMinCtrl),
       'target_inr_max': numFromCtrl(_targetMaxCtrl),
       'therapy': _therapy,
@@ -138,7 +140,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
       'medical_history': medicalHistory() == null ? null : [medicalHistory()],
       'kin_name':
           _kinNameCtrl.text.trim().isEmpty ? null : _kinNameCtrl.text.trim(),
-      'kin_contact_number': _kinContactCtrl.text.trim(),
+      'kin_contact_number': '+91${_kinContactCtrl.text.trim()}',
     };
 
     payload.removeWhere((key, value) => value == null);
@@ -181,6 +183,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
       options: MutationOptions<Map<String, dynamic>, Map<String, dynamic>>(
         mutationFn: _repo.addPatient,
         onSuccess: (data, variables) async {
+          if (!context.mounted) return;
           QueryClientProvider.of(context).invalidateQueries(
             DoctorQueryKeys.patients(),
           );
@@ -213,9 +216,11 @@ class _AddPatientFormState extends State<AddPatientForm> {
               ),
             );
           }
+          if (!context.mounted) return;
           widget.onSuccess?.call();
         },
         onError: (error, variables) {
+          if (!context.mounted) return;
           final message =
               error is ApiException ? error.message : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -328,13 +333,17 @@ class _AddPatientFormState extends State<AddPatientForm> {
                             _buildTextField(_contactCtrl, 'Contact',
                                 hint: '10-digit Indian number (+91 automatic)',
                                 isRequired: true,
-                                keyboard: TextInputType.phone),
+                                keyboard: TextInputType.phone,
+                                validator: (value) =>
+                                    _phoneValidator('Contact', value)),
                             _buildTextField(_kinNameCtrl, 'Kin Name',
                                 hint: 'Enter Kin name', isRequired: true),
                             _buildTextField(_kinContactCtrl, 'Kin Contact',
                                 hint: '10-digit Indian number',
                                 isRequired: true,
-                                keyboard: TextInputType.phone),
+                                keyboard: TextInputType.phone,
+                                validator: (value) =>
+                                    _phoneValidator('Kin Contact', value)),
                             const SizedBox(height: 10),
                             SizedBox(
                               width: double.infinity,
@@ -438,7 +447,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: () {},
+              onPressed: null, // TODO: support adding multiple medical history entries
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 side: const BorderSide(color: Colors.black87, width: 1),
@@ -453,6 +462,15 @@ class _AddPatientFormState extends State<AddPatientForm> {
         ],
       ),
     );
+  }
+
+  String? _phoneValidator(String label, String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return '$label is required';
+    if (!_indianPhoneRegex.hasMatch(text)) {
+      return '$label must be a valid 10-digit number';
+    }
+    return null;
   }
 
   Widget _buildTextField(
@@ -470,6 +488,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
     TextEditingController? greaterThan,
     VoidCallback? onTap,
     Widget? suffix,
+    String? Function(String?)? validator,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,6 +505,7 @@ class _AddPatientFormState extends State<AddPatientForm> {
           readOnly: readOnly,
           onTap: onTap,
           validator: (value) {
+            if (validator != null) return validator(value);
             if (isRequired && (value == null || value.trim().isEmpty)) {
               return '$label is required';
             }
