@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/core/motion/app_motion.dart';
 
@@ -25,7 +26,10 @@ class AppTheme {
 	static final PageTransitionsTheme _pageTransitions = PageTransitionsTheme(
 		builders: {
 			for (final platform in TargetPlatform.values)
-				platform: const _FadeSlidePageTransitionsBuilder(),
+				platform: platform == TargetPlatform.iOS ||
+						platform == TargetPlatform.macOS
+					? const CupertinoPageTransitionsBuilder()
+					: const _FadeSlidePageTransitionsBuilder(),
 		},
 	);
 
@@ -116,23 +120,10 @@ class _FadeSlidePageTransitionsBuilder extends PageTransitionsBuilder {
 		Animation<double> secondaryAnimation,
 		Widget child,
 	) {
-		if (MediaQuery.disableAnimationsOf(context)) {
-			return child;
-		}
-		final curved = CurvedAnimation(
-			parent: animation,
-			curve: AppMotion.easeOutQuint,
-			reverseCurve: AppMotion.easeInSoft,
-		);
-		return FadeTransition(
-			opacity: curved,
-			child: SlideTransition(
-				position: Tween<Offset>(
-					begin: const Offset(0.03, 0),
-					end: Offset.zero,
-				).animate(curved),
-				child: child,
-			),
+		return AppMotion.buildFadeSlidePageTransition(
+			context: context,
+			animation: animation,
+			child: child,
 		);
 	}
 }

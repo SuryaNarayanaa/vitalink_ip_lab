@@ -49,8 +49,14 @@ class AppMotion {
   }
 
   static Duration exitOf(Duration enter) {
-    final ms = (enter.inMilliseconds * 0.75).round();
-    return Duration(milliseconds: ms.clamp(80, enter.inMilliseconds));
+    final enterMs = enter.inMilliseconds;
+    if (enterMs <= 0) return Duration.zero;
+    // clamp() requires lower ≤ upper; short enters skip the 80ms floor.
+    if (enterMs < 80) {
+      return Duration(milliseconds: (enterMs * 0.75).round());
+    }
+    final ms = (enterMs * 0.75).round();
+    return Duration(milliseconds: ms.clamp(80, enterMs));
   }
 
   static Duration staggerDelay(int index) {
@@ -69,6 +75,35 @@ class AppMotion {
       opacity: curved,
       child: SlideTransition(
         position: Tween<Offset>(begin: begin, end: Offset.zero).animate(curved),
+        child: child,
+      ),
+    );
+  }
+
+  /// Shared fade + lateral slide for [PageRoute] / [PageTransitionsBuilder].
+  ///
+  /// Honors reduced-motion (disableAnimations) by returning [child] unchanged.
+  static Widget buildFadeSlidePageTransition({
+    required BuildContext context,
+    required Animation<double> animation,
+    required Widget child,
+    Offset begin = const Offset(0.03, 0),
+  }) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return child;
+    }
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: easeOutQuint,
+      reverseCurve: easeInSoft,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: begin,
+          end: Offset.zero,
+        ).animate(curved),
         child: child,
       ),
     );

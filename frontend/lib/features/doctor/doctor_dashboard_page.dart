@@ -13,6 +13,8 @@ import 'package:frontend/features/doctor/add_patient_page.dart';
 import 'package:frontend/features/doctor/doctor_profile_page.dart';
 import 'package:frontend/features/doctor/doctor_reports_page.dart';
 import 'package:frontend/features/doctor/view_patient_page.dart';
+import 'package:frontend/features/patient/patient_dashboard_shell_page.dart'
+    show computeActivatedTabsAfterSelection;
 import 'package:frontend/services/realtime/doctor_update_realtime_service.dart';
 
 class DoctorDashboardPage extends StatefulWidget {
@@ -163,7 +165,14 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
     }
     setState(() {
       _currentNavIndex = clamped;
-      _activatedTabs.add(clamped);
+      final updated = computeActivatedTabsAfterSelection(
+        activated: _activatedTabs,
+        selectedIndex: clamped,
+        tabCount: _tabCount,
+      );
+      _activatedTabs
+        ..clear()
+        ..addAll(updated);
     });
   }
 

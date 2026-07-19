@@ -56,18 +56,19 @@ class _PatientPageState extends State<PatientPage> {
       ),
       builder: (context, query) {
         final Widget body;
-        if (query.isLoading) {
-          body = const KeyedSubtree(
-            key: ValueKey('patient-home-loading'),
-            child: PageSkeleton(cardCount: 4),
-          );
-        } else if (query.isError) {
+        // Error first so a failed fetch without data is not masked as loading.
+        if (query.isError && !query.hasData) {
           body = KeyedSubtree(
             key: const ValueKey('patient-home-error'),
             child: ApiErrorState(
               error: query.error,
               onRetry: () => query.refetch(),
             ),
+          );
+        } else if (query.isLoading || !query.hasData) {
+          body = const KeyedSubtree(
+            key: ValueKey('patient-home-loading'),
+            child: PageSkeleton(cardCount: 4),
           );
         } else {
           final data = query.data!;

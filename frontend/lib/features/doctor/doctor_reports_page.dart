@@ -262,7 +262,9 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
             );
           } else {
             child = KeyedSubtree(
-              key: ValueKey('doctor-reports-${reports.length}'),
+              key: ValueKey(
+                'doctor-reports-$_selectedPatientOp-${reports.length}',
+              ),
               child: RefreshIndicator(
                 onRefresh: () async => query.refetch(),
                 child: ListView.builder(

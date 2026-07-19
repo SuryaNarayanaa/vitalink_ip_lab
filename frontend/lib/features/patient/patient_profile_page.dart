@@ -95,6 +95,13 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
         }
 
         return _buildPageContainer(
+          bodyDecoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFC0C9FA), Color(0xFFFDC5DF)],
+            ),
+          ),
           body: body,
         );
       },

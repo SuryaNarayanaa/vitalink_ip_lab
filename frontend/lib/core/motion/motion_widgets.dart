@@ -184,23 +184,10 @@ class FadeSlidePageRoute<T> extends PageRouteBuilder<T> {
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            if (MediaQuery.disableAnimationsOf(context)) {
-              return child;
-            }
-            final curved = CurvedAnimation(
-              parent: animation,
-              curve: AppMotion.easeOutQuint,
-              reverseCurve: AppMotion.easeInSoft,
-            );
-            return FadeTransition(
-              opacity: curved,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.03, 0),
-                  end: Offset.zero,
-                ).animate(curved),
-                child: child,
-              ),
+            return AppMotion.buildFadeSlidePageTransition(
+              context: context,
+              animation: animation,
+              child: child,
             );
           },
         );
