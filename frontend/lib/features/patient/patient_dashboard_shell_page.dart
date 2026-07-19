@@ -168,6 +168,7 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
     return UseQuery<int>(
       options: QueryOptions<int>(
         queryKey: PatientQueryKeys.doctorUpdatesUnread(),
+        refetchOnWindowFocus: false,
         queryFn: () async {
           final summary =
               await AppDependencies.patientRepository.getDoctorUpdatesSummary();
@@ -184,6 +185,7 @@ class _PatientDashboardShellPageState extends State<PatientDashboardShellPage>
         return UseQuery<int>(
           options: QueryOptions<int>(
             queryKey: PatientQueryKeys.notificationsUnread(),
+            refetchOnWindowFocus: false,
             queryFn: () async {
               return AppDependencies.patientRepository
                   .getNotificationsUnreadCount();

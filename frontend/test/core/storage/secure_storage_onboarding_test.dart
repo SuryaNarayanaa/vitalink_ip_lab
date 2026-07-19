@@ -98,4 +98,50 @@ void main() {
       );
     });
   });
+
+  group('SecureStorage token/user memory cache', () {
+    test('readToken returns memory value without re-reading after hydrate',
+        () async {
+      await storage.saveToken('token-a');
+      expect(await storage.readToken(), 'token-a');
+
+      // Overwrite the mock backend out-of-band; cached read must stay stable.
+      await secure.write(key: AppStrings.tokenKey, value: 'token-b');
+      expect(await storage.readToken(), 'token-a');
+    });
+
+    test('clearAuthData hydrates null so subsequent reads skip disk', () async {
+      await storage.saveToken('token-a');
+      await storage.saveUser({'login_id': 'P1'});
+      await storage.clearAuthData();
+
+      await secure.write(key: AppStrings.tokenKey, value: 'stale');
+      await secure.write(
+        key: AppStrings.userKey,
+        value: '{"login_id":"STALE"}',
+      );
+
+      expect(await storage.readToken(), isNull);
+      expect(await storage.readUser(), isNull);
+    });
+
+    test('debugResetCaches forces a fresh disk read', () async {
+      await storage.saveToken('token-a');
+      await secure.write(key: AppStrings.tokenKey, value: 'token-b');
+      SecureStorage.debugResetCaches();
+      final other = SecureStorage();
+      expect(await other.readToken(), 'token-b');
+    });
+
+    test('clearAuthData wins over an in-flight readToken', () async {
+      await storage.saveToken('token-a');
+      SecureStorage.debugResetCaches();
+      final reader = SecureStorage();
+      // Start a disk hydrate, then clear before it settles into cache.
+      final pending = reader.readToken();
+      await reader.clearAuthData();
+      expect(await pending, isNull);
+      expect(await reader.readToken(), isNull);
+    });
+  });
 }

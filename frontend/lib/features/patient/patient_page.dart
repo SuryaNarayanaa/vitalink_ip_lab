@@ -30,6 +30,8 @@ class _PatientPageState extends State<PatientPage> {
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.homeData(),
+        // Package default staleTime is already 5m; only cut focus-driven refetches.
+        refetchOnWindowFocus: false,
         queryFn: () async {
           final repo = AppDependencies.patientRepository;
           // Profile + report bundle only — missed doses / prescriptions are not

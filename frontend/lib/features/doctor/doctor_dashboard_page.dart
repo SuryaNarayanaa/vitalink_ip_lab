@@ -110,6 +110,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
     return UseQuery<int>(
       options: QueryOptions<int>(
         queryKey: DoctorQueryKeys.notificationsUnread(),
+        refetchOnWindowFocus: false,
         queryFn: () async {
           return AppDependencies.doctorRepository.getNotificationsUnreadCount();
         },
@@ -227,6 +228,7 @@ class _PatientsView extends StatelessWidget {
     return UseQuery<List<PatientModel>>(
       options: QueryOptions<List<PatientModel>>(
         queryKey: DoctorQueryKeys.patients(),
+        refetchOnWindowFocus: false,
         queryFn: repository.getPatients,
       ),
       builder: (context, query) {

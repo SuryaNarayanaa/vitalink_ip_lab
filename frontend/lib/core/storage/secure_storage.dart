@@ -19,6 +19,15 @@ class SecureStorage {
   static String? _cachedToken;
   static Map<String, dynamic>? _cachedUser;
   static bool? _cachedOnboardingCompleted;
+  /// Whether [_cachedToken] reflects a completed secure-storage read/write.
+  static bool _tokenHydrated = false;
+  /// Whether [_cachedUser] reflects a completed secure-storage read/write.
+  static bool _userHydrated = false;
+  /// Bumped when token cache is written/cleared so in-flight token disk reads
+  /// cannot rehydrate a cleared or replaced token.
+  static int _tokenCacheGeneration = 0;
+  /// Bumped when user cache is written/cleared (independent of token).
+  static int _userCacheGeneration = 0;
 
   /// Clears process-local caches so tests can simulate an app restart.
   @visibleForTesting
@@ -26,6 +35,10 @@ class SecureStorage {
     _cachedToken = null;
     _cachedUser = null;
     _cachedOnboardingCompleted = null;
+    _tokenHydrated = false;
+    _userHydrated = false;
+    _tokenCacheGeneration++;
+    _userCacheGeneration++;
   }
 
   Future<SharedPreferences> _prefs() async {
@@ -33,18 +46,29 @@ class SecureStorage {
   }
 
   Future<void> saveToken(String token) async {
+    _tokenCacheGeneration++;
     _cachedToken = token;
+    _tokenHydrated = true;
     await _storage.write(key: AppStrings.tokenKey, value: token);
   }
 
   Future<String?> readToken() async {
+    if (_tokenHydrated) return _cachedToken;
+    final generation = _tokenCacheGeneration;
     final token = await _storage.read(key: AppStrings.tokenKey);
+    if (generation != _tokenCacheGeneration) {
+      // Token was cleared/written while we awaited disk — use current cache.
+      return _tokenHydrated ? _cachedToken : null;
+    }
     _cachedToken = token;
+    _tokenHydrated = true;
     return token;
   }
 
   Future<void> clearToken() async {
+    _tokenCacheGeneration++;
     _cachedToken = null;
+    _tokenHydrated = true;
     await _storage.delete(key: AppStrings.tokenKey);
   }
 
@@ -92,26 +116,42 @@ class SecureStorage {
   }
 
   Future<void> saveUser(Map<String, dynamic> user) async {
+    _userCacheGeneration++;
     _cachedUser = Map<String, dynamic>.from(user);
+    _userHydrated = true;
     await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
   }
 
   Future<Map<String, dynamic>?> readUser() async {
+    if (_userHydrated) {
+      final cached = _cachedUser;
+      if (cached == null) return null;
+      return Map<String, dynamic>.from(cached);
+    }
+    final generation = _userCacheGeneration;
     final raw = await _storage.read(key: AppStrings.userKey);
+    if (generation != _userCacheGeneration) {
+      final cached = _cachedUser;
+      if (!_userHydrated || cached == null) return null;
+      return Map<String, dynamic>.from(cached);
+    }
     if (raw == null || raw.isEmpty) {
       _cachedUser = null;
+      _userHydrated = true;
       return null;
     }
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) {
         _cachedUser = Map<String, dynamic>.from(decoded);
-        return decoded;
+        _userHydrated = true;
+        return Map<String, dynamic>.from(decoded);
       }
       if (decoded is Map) {
         final map = Map<String, dynamic>.from(decoded);
         _cachedUser = map;
-        return map;
+        _userHydrated = true;
+        return Map<String, dynamic>.from(map);
       }
       await clearUser();
       return null;
@@ -122,7 +162,9 @@ class SecureStorage {
   }
 
   Future<void> clearUser() async {
+    _userCacheGeneration++;
     _cachedUser = null;
+    _userHydrated = true;
     await _storage.delete(key: AppStrings.userKey);
   }
 
@@ -186,8 +228,12 @@ class SecureStorage {
   }
 
   Future<void> clearAuthData({bool preserveOnboarding = true}) async {
+    _tokenCacheGeneration++;
+    _userCacheGeneration++;
     _cachedToken = null;
     _cachedUser = null;
+    _tokenHydrated = true;
+    _userHydrated = true;
     await _storage.delete(key: AppStrings.tokenKey);
     await _storage.delete(key: AppStrings.refreshTokenKey);
     await _storage.delete(key: AppStrings.authSessionKey);
