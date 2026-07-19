@@ -24,12 +24,14 @@ class _PatientRecordsPageState extends State<PatientRecordsPage> {
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.recordsFull(),
         queryFn: () async {
-          final profile = await AppDependencies.patientRepository.getProfile();
-          final history =
-              await AppDependencies.patientRepository.getINRHistory();
+          final repo = AppDependencies.patientRepository;
+          final results = await Future.wait([
+            repo.getProfile(),
+            repo.getINRHistory(),
+          ]);
           return {
-            'profile': profile,
-            'history': history,
+            'profile': results[0] as Map<String, dynamic>,
+            'history': results[1] as List<Map<String, dynamic>>,
           };
         },
       ),

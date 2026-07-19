@@ -11,13 +11,16 @@ class AuthRepository {
     required ApiClient apiClient,
     required SecureStorage secureStorage,
     PushNotificationService? pushNotifications,
+    void Function()? onLocalSessionCleared,
   })  : _apiClient = apiClient,
         _secureStorage = secureStorage,
-        _pushNotifications = pushNotifications;
+        _pushNotifications = pushNotifications,
+        _onLocalSessionCleared = onLocalSessionCleared;
 
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
   final PushNotificationService? _pushNotifications;
+  final void Function()? _onLocalSessionCleared;
 
   String? _firstNonEmptyString(List<dynamic> values) {
     for (final value in values) {
@@ -156,6 +159,11 @@ class AuthRepository {
     }
 
     await _secureStorage.clearAuthData();
+    try {
+      _onLocalSessionCleared?.call();
+    } catch (_) {
+      // Feature cache cleanup must not block logout.
+    }
   }
 
   Future<LoginResponse> _saveSessionFromBody(Map<String, dynamic> body) async {
