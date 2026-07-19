@@ -2,23 +2,13 @@ import { Request, Response, NextFunction } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import mongoose from 'mongoose'
 import { verifyToken, extractTokenFromHeader } from '@alias/utils/jwt.utils'
-import { JWTPayload, UserType } from '@alias/validators'
+import { UserType } from '@alias/validators'
 import { User } from '@alias/models'
 import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
 import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import { ApiError } from '@alias/utils'
 import { getPasswordPolicyState } from '@alias/services/password.service'
-
-/**
- * Extend Express Request to include user data
- */
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JWTPayload
-    }
-  }
-}
+import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 export const validateAuthToken = async (
   token: string,
@@ -94,8 +84,23 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const path = req.originalUrl.split('?')[0]
     const allowPasswordChangeRequired = /\/auth\/(?:me|logout|change-password|admin\/mfa\/totp\/(?:setup|status|activate))\/*$/.test(path)
-    const { payload } = await validateAuthToken(token, undefined, { allowPasswordChangeRequired })
+    const { payload, user } = await validateAuthToken(token, undefined, { allowPasswordChangeRequired })
     req.user = payload
+    // Request-scoped lean snapshot: avoids a second User.findById in controllers.
+    // is_active is fixed at authenticate-time (intentional tradeoff). Mid-request
+    // deactivation during long handlers is rare; session/JWT still bound the request.
+    const authUser: AuthUserSnapshot = {
+      _id: user._id as AuthUserSnapshot['_id'],
+      user_type: String(user.user_type),
+      profile_id: user.profile_id as AuthUserSnapshot['profile_id'],
+      is_active: Boolean(user.is_active),
+      security_version: Number(user.security_version || 0),
+      must_change_password: Boolean((user as { must_change_password?: boolean }).must_change_password),
+      password_changed_at: (user as { password_changed_at?: Date | string | null }).password_changed_at,
+      createdAt: (user as { createdAt?: Date | string }).createdAt,
+      updatedAt: (user as { updatedAt?: Date | string }).updatedAt,
+    }
+    req.authUser = authUser
     next()
   } catch (error) {
     if (error instanceof ApiError) {

@@ -59,7 +59,7 @@ class _PatientPageState extends State<PatientPage> {
       builder: (context, query) {
         if (query.isLoading) {
           return _buildPageContainer(
-            body: const Center(child: CircularProgressIndicator()),
+            body: const PageSkeleton(cardCount: 4),
           );
         }
 

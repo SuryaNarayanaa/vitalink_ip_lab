@@ -2,6 +2,7 @@
 export 'common/app_navbar.dart';
 export 'common/app_scaffold.dart';
 export 'common/api_error_state.dart';
+export 'common/page_skeleton.dart';
 export 'common/dosage_editor.dart';
 export 'common/info_card.dart';
 export 'common/inr_reports_section.dart';

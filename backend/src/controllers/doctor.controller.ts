@@ -19,7 +19,7 @@ import mongoose from 'mongoose'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { FileValidationError, isLegacyFileReferenceEligible } from '@alias/utils/fileUpload'
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
-import { compensateFileAsset, resolveAssetDownloadUrl, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
+import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
@@ -33,6 +33,7 @@ import {
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
 import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 const normalizeLoginId = (value: string) => value.trim()
 
@@ -123,12 +124,32 @@ const ensureReassignmentHospitalAccess = async (
   }
 }
 
-const getDoctorUserOrThrow = async (userId: string) => {
-  const doctor = await User.findById(userId)
+const getDoctorUserOrThrow = async (
+  userId: string,
+  authUser?: AuthUserSnapshot | null,
+): Promise<Pick<AuthUserSnapshot, '_id' | 'user_type' | 'profile_id' | 'is_active'>> => {
+  // Prefer the authenticated lean snapshot when it is the same principal.
+  // is_active is authenticate-time; intentional for request-scoped reuse.
+  if (
+    authUser &&
+    String(authUser._id) === String(userId) &&
+    authUser.user_type === UserType.DOCTOR
+  ) {
+    if (authUser.is_active === false) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive. Please contact support.')
+    }
+    return authUser
+  }
+  const doctor = await User.findById(userId).select('_id user_type profile_id is_active')
   if (!doctor || doctor.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
   }
-  return doctor
+  return {
+    _id: doctor._id,
+    user_type: String(doctor.user_type),
+    profile_id: doctor.profile_id,
+    is_active: Boolean(doctor.is_active),
+  }
 }
 
 async function createPatientProfileAndUser(
@@ -244,7 +265,7 @@ export const createDoctorNotificationStreamTicket = asyncHandler(async (req: Req
 
 export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   const { user_id } = req.user
-  const doctor = await getDoctorUserOrThrow(user_id)
+  const doctor = await getDoctorUserOrThrow(user_id, req.authUser)
   const doctorOwnershipIds = getDoctorOwnershipIds(doctor)
   const hospitalId = await getRequiredDoctorHospitalId(doctor)
   const patientQuery: Record<string, unknown> = { assigned_doctor_id: { $in: doctorOwnershipIds } }
@@ -282,7 +303,7 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
 export const viewPatient = asyncHandler(async (req: Request, res: Response) => {
   const { op_num } = req.params
   const { user_id } = req.user
-  const doctor = await getDoctorUserOrThrow(user_id)
+  const doctor = await getDoctorUserOrThrow(user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patient = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(patient, doctor)) {
@@ -313,7 +334,7 @@ export const addPatient = asyncHandler(async (req: Request<{}, {}, CreatePatient
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
   }
 
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const hospitalId = await getRequiredDoctorHospitalId(doctorUser)
 
   const { name, op_num, age, gender, contact_no, target_inr_min, target_inr_max, therapy, therapy_start_date,
@@ -421,7 +442,7 @@ export const reassignPatient = asyncHandler(async (
   const { op_num } = req.params
   const { new_doctor_id } = req.body
 
-  const currentDoctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const currentDoctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const existingPatientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(existingPatientProfile, currentDoctorUser)) {
@@ -606,7 +627,7 @@ export const editPatientDosage = asyncHandler(async (
   const { op_num } = req.params
   const { prescription } = req.body
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(patientProfile, doctor)) {
@@ -638,7 +659,7 @@ export const editPatientDosage = asyncHandler(async (
 export const getReports = asyncHandler(async (req: Request, res: Response) => {
   const { op_num } = req.params
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patient = await PatientProfile.findById(patientUser.profile_id).select('assigned_doctor_id hospital_id inr_history')
   if (!patient) {
@@ -658,25 +679,34 @@ export const getReports = asyncHandler(async (req: Request, res: Response) => {
     return reportObj
   })
 
-  const inrHistory = includeUrls
-    ? await Promise.all(
-      history.map(async (reportObj: any) => {
-        if (reportObj.file_url) {
-          reportObj.file_url = await resolveAssetDownloadUrl({
-            fileAssetId: reportObj.file_asset_id,
-            legacyObjectKey: reportObj.file_url,
-            hospitalId: patient.hospital_id,
-            requesterHospitalId,
-            ownerUserId: patientUser._id,
-            patientProfileId: patient._id,
-            purpose: FileAssetPurpose.INR_REPORT,
-            legacyEligible: isLegacyFileReferenceEligible(reportObj.uploaded_at),
-          })
-        }
-        return reportObj
-      }),
-    )
-    : history
+  let inrHistory = history
+  if (includeUrls) {
+    // Only resolve rows with a file reference so dangling asset ids cannot 404 the list.
+    const resolveIndexes: number[] = []
+    const resolveInputs = history.flatMap((reportObj: any, index: number) => {
+      if (!reportObj.file_url) return []
+      resolveIndexes.push(index)
+      return [{
+        fileAssetId: reportObj.file_asset_id,
+        legacyObjectKey: reportObj.file_url,
+        hospitalId: patient.hospital_id,
+        requesterHospitalId,
+        ownerUserId: patientUser._id,
+        patientProfileId: patient._id,
+        purpose: FileAssetPurpose.INR_REPORT,
+        legacyEligible: isLegacyFileReferenceEligible(reportObj.uploaded_at),
+      }]
+    })
+    const urls = await resolveAssetDownloadUrls(resolveInputs)
+    const urlByHistoryIndex = new Map<number, string | null>()
+    resolveIndexes.forEach((historyIndex, i) => {
+      urlByHistoryIndex.set(historyIndex, urls[i] ?? null)
+    })
+    inrHistory = history.map((reportObj: any, index: number) => ({
+      ...reportObj,
+      file_url: urlByHistoryIndex.has(index) ? urlByHistoryIndex.get(index) : reportObj.file_url,
+    }))
+  }
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'INR reports fetched successfully', { inr_history: inrHistory }))
 })
@@ -685,7 +715,7 @@ export const updateReport = asyncHandler(async (req: Request<UpdateReportInput['
   const { op_num, report_id } = req.params
   const { notes, is_critical } = req.body
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(patientProfile, doctor)) {
@@ -742,7 +772,7 @@ export const updateNextReview = asyncHandler(async (
   const parsedDate = typeof date === 'string' ? parseStrictDateOnly(date) : undefined
   if (!parsedDate) throw new ApiError(StatusCodes.BAD_REQUEST, 'Date must be a valid calendar date in DD-MM-YYYY format')
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(patientProfile, doctor)) {
@@ -797,7 +827,7 @@ export const UpdateInstructions = asyncHandler(async (
   const { instructions } = req.body
   const { op_num } = req.params
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
   if (!isDoctorOwnerOfPatient(patientProfile, doctor)) {
@@ -878,9 +908,9 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileInput["body"]>, res: Response) => {
   const { name, contact_number, department } = req.body
   const { user_id } = req.user
-  const doctorUser = await getDoctorUserOrThrow(user_id)
-  await doctorUser.populate('profile_id')
-  const currentProfile = doctorUser.profile_id as any
+  const doctorUser = await getDoctorUserOrThrow(user_id, req.authUser)
+  // Load profile by id (auth snapshot is lean and has no populate()).
+  const currentProfile = await DoctorProfile.findById(doctorUser.profile_id)
   if (!currentProfile) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
   }
@@ -905,7 +935,7 @@ export const UpdateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProf
 })
 
 export const getDoctors = asyncHandler(async (req: Request, res: Response) => {
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const hospitalId = await getDoctorHospitalId(doctorUser)
   let doctorsQuery = User.find({ user_type: UserType.DOCTOR, is_active: true })
     .populate('profile_id')
@@ -925,7 +955,7 @@ export const getReport = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid report_id or op_num')
   }
 
-  const doctor = await getDoctorUserOrThrow(req.user.user_id)
+  const doctor = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const patientUser = await getPatientUserOrThrow(op_num)
   const patientProfile = await getPatientProfileOrThrow(patientUser.profile_id)
 
@@ -962,7 +992,7 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid file type. Only PNG, JPEG, JPG, and WEBP images are allowed')
   }
   const { user_id } = req.user
-  const user = await getDoctorUserOrThrow(user_id)
+  const user = await getDoctorUserOrThrow(user_id, req.authUser)
   const hospitalId = await getDoctorHospitalId(user)
   if (!hospitalId) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to a hospital before uploading files')
@@ -1024,7 +1054,7 @@ export const getDoctorNotifications = asyncHandler(async (
   req: Request<{}, {}, {}, NotificationsQueryInput['query']>,
   res: Response
 ) => {
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
 
   const query = (req.validatedQuery ?? req.query) as NotificationsQueryInput['query']
   const parsedPage = query.page ? parseInt(query.page, 10) : 1
@@ -1053,7 +1083,7 @@ export const getDoctorNotifications = asyncHandler(async (
 
 /** Lightweight badge endpoint: count only, no notification list. */
 export const getDoctorNotificationsUnreadCount = asyncHandler(async (req: Request, res: Response) => {
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const unreadCount = await Notification.countDocuments({
     user_id: doctorUser._id,
     is_read: false,
@@ -1069,7 +1099,7 @@ export const markDoctorNotificationAsRead = asyncHandler(async (
   req: Request<MarkNotificationReadInput['params']>,
   res: Response
 ) => {
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const { notification_id } = req.params
 
   const notification = await notificationService.markNotificationRead(
@@ -1087,7 +1117,7 @@ export const markAllDoctorNotificationsAsRead = asyncHandler(async (
   req: Request,
   res: Response
 ) => {
-  const doctorUser = await getDoctorUserOrThrow(req.user.user_id)
+  const doctorUser = await getDoctorUserOrThrow(req.user.user_id, req.authUser)
   const markedCount = await notificationService.markAllNotificationsRead(String(doctorUser._id))
 
   res.status(StatusCodes.OK).json(new ApiResponse(

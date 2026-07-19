@@ -5,6 +5,7 @@ import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/core/widgets/common/page_skeleton.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 import 'package:frontend/features/admin/doctor_management_page.dart';
@@ -69,7 +70,7 @@ class _DashboardTab extends StatelessWidget {
             await query.refetch();
           },
           child: query.isLoading
-              ? const _ScrollableCentered(child: CircularProgressIndicator())
+              ? const PageSkeleton(cardCount: 4)
               : query.isError
                   ? ApiErrorState(
                       error: query.error,
@@ -90,28 +91,6 @@ class _DashboardTab extends StatelessWidget {
         }
 
         return refreshableBody;
-      },
-    );
-  }
-}
-
-class _ScrollableCentered extends StatelessWidget {
-  final Widget child;
-
-  const _ScrollableCentered({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final height = constraints.hasBoundedHeight
-            ? constraints.maxHeight
-            : MediaQuery.sizeOf(context).height;
-
-        return ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [SizedBox(height: height, child: Center(child: child))],
-        );
       },
     );
   }
