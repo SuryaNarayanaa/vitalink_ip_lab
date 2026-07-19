@@ -15,7 +15,7 @@ import {
   type UploadedFileMetadata,
 } from '@alias/utils/fileUpload'
 import logger from '@alias/utils/logger'
-import type { Types } from 'mongoose'
+import mongoose, { type Types } from 'mongoose'
 
 export type AssetOwnership = {
   hospitalId: Types.ObjectId | string
@@ -191,4 +191,86 @@ export async function resolveAssetDownloadUrl(input: ResolveAssetInput) {
   const asset = await FileAsset.findOne(query).lean()
   if (!asset) throw new ApiError(StatusCodes.NOT_FOUND, 'File asset not found')
   return getDownloadUrl(asset.object_key, asset.bucket)
+}
+
+/**
+ * Resolve many download URLs with a single FileAsset query + parallel signing.
+ * Items without fileAssetId use the same legacy key rules as resolveAssetDownloadUrl.
+ * Missing assets throw NOT_FOUND (same fail-closed behavior as the single path).
+ */
+export async function resolveAssetDownloadUrls(
+  items: ResolveAssetInput[],
+  options?: { concurrency?: number },
+): Promise<(string | null)[]> {
+  if (items.length === 0) return []
+
+  for (const input of items) {
+    if (!input.hospitalId || !input.requesterHospitalId || String(input.hospitalId) !== String(input.requesterHospitalId)) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Cross-tenant file access is not allowed')
+    }
+  }
+
+  // Only valid ObjectIds enter $in — malformed ids would CastError the whole batch.
+  // Invalid entries are omitted here and surface as NOT_FOUND in the per-item path.
+  const assetIds = items
+    .map((item) => item.fileAssetId)
+    .filter((id): id is string | Types.ObjectId => {
+      if (id == null || String(id).length === 0) return false
+      return mongoose.Types.ObjectId.isValid(String(id))
+    })
+
+  const assetsById = new Map<string, { object_key: string; bucket?: string; hospital_id: unknown; owner_user_id: unknown; purpose: string; patient_profile_id?: unknown }>()
+  if (assetIds.length > 0) {
+    // Fetch by id set only. Per-item checks below enforce hospital/owner/purpose/
+    // patient_profile so heterogeneous batches remain correct.
+    const assets = await FileAsset.find({
+      _id: { $in: assetIds as Types.ObjectId[] },
+      status: FileAssetStatus.ACTIVE,
+      deleted_at: { $exists: false },
+    }).lean()
+    for (const asset of assets) {
+      assetsById.set(String(asset._id), asset as any)
+    }
+  }
+
+  const requestedConcurrency = options?.concurrency ?? 8
+  const concurrency = Number.isFinite(requestedConcurrency)
+    ? Math.max(1, Math.min(Math.floor(requestedConcurrency), 32))
+    : 8
+  const results: (string | null)[] = new Array(items.length).fill(null)
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      const input = items[index]
+      if (!input.fileAssetId) {
+        if (!input.legacyObjectKey) {
+          results[index] = null
+          continue
+        }
+        if (!input.legacyEligible) {
+          throw new ApiError(StatusCodes.NOT_FOUND, 'File asset metadata is required')
+        }
+        results[index] = await getDownloadUrl(input.legacyObjectKey)
+        continue
+      }
+
+      const asset = assetsById.get(String(input.fileAssetId))
+      if (
+        !asset ||
+        String(asset.hospital_id) !== String(input.hospitalId) ||
+        String(asset.owner_user_id) !== String(input.ownerUserId) ||
+        asset.purpose !== input.purpose ||
+        (input.patientProfileId && String(asset.patient_profile_id || '') !== String(input.patientProfileId))
+      ) {
+        throw new ApiError(StatusCodes.NOT_FOUND, 'File asset not found')
+      }
+      results[index] = await getDownloadUrl(asset.object_key, asset.bucket)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+  return results
 }

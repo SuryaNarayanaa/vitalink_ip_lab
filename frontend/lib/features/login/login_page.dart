@@ -4,7 +4,6 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/network/api_client.dart';
-import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
 import 'package:frontend/features/login/models/login_models.dart';
@@ -61,9 +60,9 @@ class _LoginPageState extends State<LoginPage> {
         context,
       ).pushNamedAndRemoveUntil(AppRoutes.adminDashboard, (previous) => false);
     } else if (response.user.isDoctor || response.user.isPatient) {
-      // Skip onboarding for returning users who already completed it.
-      final storage = SecureStorage();
-      final alreadyOnboarded = await storage.isOnboardingCompleted();
+      // First-run only: show onboarding once after install + first login.
+      final alreadyOnboarded =
+          await AppDependencies.secureStorage.isOnboardingCompleted();
       if (!mounted) return;
 
       if (alreadyOnboarded) {

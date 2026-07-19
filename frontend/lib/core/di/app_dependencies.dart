@@ -16,20 +16,21 @@ class AppDependencies {
   static final ApiClient apiClient = ApiClient(secureStorage: secureStorage);
   static final PushNotificationService pushNotifications =
       PushNotificationService(apiClient: apiClient);
+  static final PatientRepository patientRepository = PatientRepository(
+    apiClient: apiClient,
+    secureStorage: secureStorage,
+  );
   static final AuthRepository authRepository = AuthRepository(
     apiClient: apiClient,
     secureStorage: secureStorage,
     pushNotifications: pushNotifications,
+    onLocalSessionCleared: patientRepository.resetSessionState,
   );
   static final DoctorRepository doctorRepository = DoctorRepository(
     apiClient: apiClient,
   );
   static final AdminRepository adminRepository = AdminRepository(
     apiClient: apiClient,
-  );
-  static final PatientRepository patientRepository = PatientRepository(
-    apiClient: apiClient,
-    secureStorage: secureStorage,
   );
 
   static QueryClient createQueryClient({

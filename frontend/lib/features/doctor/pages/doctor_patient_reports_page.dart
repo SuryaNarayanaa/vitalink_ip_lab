@@ -69,7 +69,10 @@ class _DoctorPatientReportsPageState extends State<DoctorPatientReportsPage> {
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
               future: AppDependencies.doctorRepository
-                  .getPatientReports(widget.patientOpNumber)
+                  .getPatientReports(
+                    widget.patientOpNumber,
+                    includeUrls: true,
+                  )
                   .then((reports) {
                 return List<Map<String, dynamic>>.from(
                   reports.map((r) {
@@ -164,8 +167,10 @@ class _DoctorPatientReportsPageAltState
   }
 
   Future<List<Map<String, dynamic>>> _loadReports() async {
-    final reports = await AppDependencies.doctorRepository
-        .getPatientReports(widget.patientOpNumber);
+    final reports = await AppDependencies.doctorRepository.getPatientReports(
+      widget.patientOpNumber,
+      includeUrls: true,
+    );
     return List<Map<String, dynamic>>.from(
       reports.map((r) {
         if (r is Map<String, dynamic>) return r;

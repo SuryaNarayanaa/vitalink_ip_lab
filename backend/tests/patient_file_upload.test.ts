@@ -355,10 +355,29 @@ describe('Patient File Upload Routes', () => {
             expect(response.data.success).toBe(false);
         });
 
-        test('should retrieve reports with presigned URLs', async () => {
-            // Retrieve the patient reports
+        test('should retrieve reports without presigned URLs by default', async () => {
             const response = await api.get('/api/patient/reports', {
                 headers: { Authorization: `Bearer ${patientToken}` }
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data.success).toBe(true);
+            expect(response.data.data.report.inr_history).toBeDefined();
+
+            const reportsWithFiles = response.data.data.report.inr_history.filter((r: any) => r.file_url);
+            expect(reportsWithFiles.length).toBeGreaterThan(0);
+
+            // Default list payload keeps storage keys (no S3 signing cost).
+            for (const report of reportsWithFiles) {
+                expect(report.file_url).not.toContain('https://');
+                expect(report.file_url).not.toContain('X-Amz-Algorithm');
+            }
+        });
+
+        test('should retrieve reports with presigned URLs when include_urls=true', async () => {
+            const response = await api.get('/api/patient/reports', {
+                headers: { Authorization: `Bearer ${patientToken}` },
+                params: { include_urls: 'true' },
             });
 
             expect(response.status).toBe(200);
@@ -409,8 +428,10 @@ describe('Patient File Upload Routes', () => {
             await updatedPatient.save();
             const downloadMock = getDownloadUrl as jest.Mock;
 
+            // Tenant checks run only when resolving download URLs.
             const response = await api.get('/api/patient/reports', {
-                headers: { Authorization: `Bearer ${patientToken}` }
+                headers: { Authorization: `Bearer ${patientToken}` },
+                params: { include_urls: 'true' },
             });
 
             report.file_asset_id = originalAssetId;

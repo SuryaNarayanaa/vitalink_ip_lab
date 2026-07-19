@@ -16,6 +16,7 @@ import {
     getReport,
     UpdateInstructions,
     getDoctorNotifications,
+    getDoctorNotificationsUnreadCount,
     markAllDoctorNotificationsAsRead,
     markDoctorNotificationAsRead,
     streamDoctorNotifications,
@@ -73,6 +74,7 @@ const router = Router()
 
 router.get('/notifications/stream', streamDoctorNotifications)
 router.post('/notifications/stream-ticket', authenticate, AllowDoctor, createDoctorNotificationStreamTicket)
+router.get('/notifications/unread-count', authenticate, AllowDoctor, getDoctorNotificationsUnreadCount)
 router.get('/notifications', authenticate, AllowDoctor, validate(notificationsQuerySchema), getDoctorNotifications)
 router.patch('/notifications/read-all', authenticate, AllowDoctor, markAllDoctorNotificationsAsRead)
 router.patch('/notifications/:notification_id/read', authenticate, AllowDoctor, validate(markNotificationReadSchema), markDoctorNotificationAsRead)

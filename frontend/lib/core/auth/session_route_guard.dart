@@ -32,8 +32,12 @@ class _SessionRouteGuardState extends State<SessionRouteGuard> {
 
   Future<bool> _isAllowed() async {
     try {
-      final token = await _storage.readToken();
-      final userJson = await _storage.readUser();
+      final results = await Future.wait([
+        _storage.readToken(),
+        _storage.readUser(),
+      ]);
+      final token = results[0] as String?;
+      final userJson = results[1] as Map<String, dynamic>?;
       if (token == null || token.isEmpty || userJson == null) return false;
 
       final user = UserModel.fromJson(userJson);

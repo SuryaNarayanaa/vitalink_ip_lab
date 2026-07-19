@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
+import 'package:frontend/core/widgets/common/page_skeleton.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
@@ -62,7 +63,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
       ),
       builder: (context, aggregateQuery) {
         if (aggregateQuery.isLoading) {
-          return const Center(child: CircularProgressIndicator());
+          return const PageSkeleton(cardCount: 4);
         }
 
         final aggregate = aggregateQuery.data;

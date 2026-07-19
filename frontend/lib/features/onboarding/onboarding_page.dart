@@ -93,15 +93,25 @@ class _OnboardingPageState extends State<OnboardingPage> {
     return null;
   }
 
-  void _finishOnboarding() async {
+  Future<void> _finishOnboarding() async {
     final args = ModalRoute.of(context)?.settings.arguments;
     final routeFromArgs = _routeFromArguments(args);
-    final routeFromSession =
-        routeFromArgs == null ? await _routeFromPersistedSession() : null;
-    final route = routeFromArgs ?? routeFromSession ?? AppRoutes.patient;
 
-    // Persist that the user has completed onboarding so they skip it next login.
-    await _storage.markOnboardingCompleted();
+    String route = routeFromArgs ?? AppRoutes.patient;
+    if (routeFromArgs == null) {
+      try {
+        route = await _routeFromPersistedSession() ?? AppRoutes.patient;
+      } catch (_) {
+        route = AppRoutes.patient;
+      }
+    }
+
+    // Persist first so a later crash/navigation still skips onboarding next time.
+    try {
+      await _storage.markOnboardingCompleted();
+    } catch (_) {
+      // Navigation must continue even if persistence fails once.
+    }
 
     if (!mounted) return;
     Navigator.of(context).pushReplacementNamed(route);
