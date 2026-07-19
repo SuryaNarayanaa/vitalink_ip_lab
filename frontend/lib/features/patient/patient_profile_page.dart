@@ -46,7 +46,7 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
       builder: (context, query) {
         if (query.isLoading) {
           return _buildPageContainer(
-            body: const Center(child: CircularProgressIndicator()),
+            body: const PageSkeleton(cardCount: 3),
           );
         }
 
@@ -61,7 +61,7 @@ class _PatientProfilePageState extends State<PatientProfilePage> {
 
         if (!query.hasData) {
           return _buildPageContainer(
-            body: const Center(child: CircularProgressIndicator()),
+            body: const PageSkeleton(cardCount: 3),
           );
         }
 

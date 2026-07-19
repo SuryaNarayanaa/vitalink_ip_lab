@@ -252,7 +252,10 @@ class _PatientsView extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               if (query.isLoading)
-                const Center(child: CircularProgressIndicator()),
+                const ListSkeleton(
+                  itemCount: 4,
+                  shrinkWrap: true,
+                ),
               if (query.isError)
                 ApiErrorState(
                   error: query.error,
