@@ -709,19 +709,90 @@ export async function generateInvoices(data: any = {}, actorUserId?: string) {
   }
 }
 
+type CheckoutSessionRecord = {
+  amount: number
+  currency: string
+  status: 'RESERVED' | 'OPEN' | 'SETTLED'
+  checkout_url?: string
+  created_at: string
+}
+
+const PAYMENT_WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000
+
+/** Provider callback HMAC covers the full settlement payload, not a checkout-time token. */
+function buildPaymentWebhookSignature(
+  secret: string,
+  parts: {
+    sessionId: string
+    invoiceNumber: string
+    amount: number | string
+    currency: string
+    providerEventId: string
+    timestamp: string | number
+  },
+) {
+  const material = [
+    parts.sessionId,
+    parts.invoiceNumber,
+    String(parts.amount),
+    parts.currency,
+    parts.providerEventId,
+    String(parts.timestamp),
+  ].join('.')
+  return crypto.createHmac('sha256', secret).update(material).digest('hex')
+}
+
+function parseProviderCheckoutUrl(raw: unknown): string {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider returned an invalid JSON response')
+  }
+  const checkoutUrl = (raw as { checkout_url?: unknown }).checkout_url
+  if (typeof checkoutUrl !== 'string' || !checkoutUrl.trim()) {
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
+  }
+  return checkoutUrl.trim()
+}
+
+function readCheckoutSession(
+  meta: Record<string, unknown>,
+  sessionId: string,
+): CheckoutSessionRecord | null {
+  const sessions = meta.checkout_sessions
+  if (sessions && typeof sessions === 'object' && !Array.isArray(sessions)) {
+    const entry = (sessions as Record<string, unknown>)[sessionId]
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const rec = entry as Partial<CheckoutSessionRecord>
+      if (typeof rec.amount === 'number' && typeof rec.currency === 'string' && typeof rec.status === 'string') {
+        return rec as CheckoutSessionRecord
+      }
+    }
+  }
+  // Legacy single-session shape from earlier checkout implementation.
+  if (meta.checkout_session_id === sessionId && meta.checkout_amount !== undefined) {
+    return {
+      amount: Number(meta.checkout_amount),
+      currency: String(meta.checkout_currency || 'INR').toUpperCase(),
+      status: 'OPEN',
+      checkout_url: typeof meta.checkout_url === 'string' ? meta.checkout_url : undefined,
+      created_at: String(meta.checkout_created_at || ''),
+    }
+  }
+  return null
+}
+
 /**
  * Creates a provider checkout session using server-side invoice data only.
  *
  * Requires:
  * - PAYMENT_PROVIDER_API_URL + PAYMENT_PROVIDER_API_KEY: create a remote session
  *   via POST { invoice_number, amount, currency, success_url, cancel_url, metadata }
- *   expecting { checkout_url } JSON. Settlement HMAC material is sent only to the
- *   provider (never embedded in a client-facing URL).
- * - PAYMENT_WEBHOOK_SECRET: shared secret used to sign settlement callbacks.
+ *   expecting { checkout_url } JSON.
+ * - PAYMENT_WEBHOOK_SECRET: shared secret the provider uses to sign settlement
+ *   callbacks over session/invoice/amount/currency/event_id/timestamp.
  *
- * Self-validating "signed hosted checkout" URLs that place HMAC params in the
- * browser query string are intentionally unsupported: those values can be
- * replayed against the unauthenticated webhook.
+ * Sessions are reserved atomically before the provider call so concurrent admin
+ * checkouts cannot clobber each other's settlement keys. Prior OPEN sessions
+ * remain in payment_metadata.checkout_sessions for reconciliation.
  */
 export async function createCheckout(invoiceId: string, actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
@@ -760,9 +831,40 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
   }
   const currency = 'INR'
   const sessionId = crypto.randomUUID()
-  // Settlement proof is shared only with the payment provider, never with admins/clients.
-  const signedPayload = [sessionId, invoice.invoice_number, String(amount), currency].join('.')
-  const signature = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')
+  const reservedAt = new Date().toISOString()
+  const sessionRecord: CheckoutSessionRecord = {
+    amount,
+    currency,
+    status: 'RESERVED',
+    created_at: reservedAt,
+  }
+
+  // Atomically reserve this session on the invoice before calling the provider.
+  const reserved = await Invoice.findOneAndUpdate(
+    {
+      _id: invoice._id,
+      status: { $in: [InvoiceStatus.PENDING, InvoiceStatus.OVERDUE] },
+    },
+    {
+      $set: {
+        [`payment_metadata.checkout_sessions.${sessionId}`]: sessionRecord,
+        'payment_metadata.active_checkout_session_id': sessionId,
+        'payment_metadata.checkout_session_id': sessionId,
+        'payment_metadata.checkout_amount': amount,
+        'payment_metadata.checkout_currency': currency,
+        'payment_metadata.checkout_provider': 'provider_api',
+        'payment_metadata.checkout_reserved_at': reservedAt,
+      },
+      $unset: {
+        // Checkout-time signatures must not authenticate webhooks; provider signs callbacks.
+        'payment_metadata.checkout_signature': 1,
+      },
+    },
+    { new: true },
+  )
+  if (!reserved) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Invoice could not reserve a checkout session')
+  }
 
   let response: Response
   try {
@@ -782,12 +884,18 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
           invoice_id: String(invoice._id),
           hospital_id: String(invoice.hospital_id),
           session_id: sessionId,
-          signature,
+          // Provider must HMAC callbacks with PAYMENT_WEBHOOK_SECRET over
+          // session_id.invoice_number.amount.currency.provider_event_id.timestamp
         },
       }),
       signal: AbortSignal.timeout(15_000),
     })
   } catch (error) {
+    logger.error('checkout.provider_call_failed', {
+      invoice_id: invoice.invoice_number,
+      session_id: sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    })
     const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
     throw new ApiError(
       StatusCodes.BAD_GATEWAY,
@@ -797,41 +905,65 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
     )
   }
   if (!response.ok) {
+    logger.error('checkout.provider_rejected', {
+      invoice_id: invoice.invoice_number,
+      session_id: sessionId,
+      status: response.status,
+    })
     throw new ApiError(StatusCodes.BAD_GATEWAY, `Payment provider rejected checkout session (HTTP ${response.status})`)
   }
-  let body: { checkout_url?: string }
+
+  let rawBody: unknown
   try {
-    body = await response.json() as { checkout_url?: string }
+    rawBody = await response.json()
   } catch {
     throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider returned an invalid JSON response')
   }
-  if (!body.checkout_url) {
-    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
+  const checkoutUrl = parseProviderCheckoutUrl(rawBody)
+
+  // Activate only if our reservation still owns this session key.
+  const activated = await Invoice.findOneAndUpdate(
+    {
+      _id: invoice._id,
+      status: { $in: [InvoiceStatus.PENDING, InvoiceStatus.OVERDUE] },
+      [`payment_metadata.checkout_sessions.${sessionId}.status`]: 'RESERVED',
+    },
+    {
+      $set: {
+        [`payment_metadata.checkout_sessions.${sessionId}.status`]: 'OPEN',
+        [`payment_metadata.checkout_sessions.${sessionId}.checkout_url`]: checkoutUrl,
+        'payment_metadata.checkout_url': checkoutUrl,
+        'payment_metadata.checkout_created_at': new Date().toISOString(),
+        'payment_metadata.active_checkout_session_id': sessionId,
+        'payment_metadata.checkout_session_id': sessionId,
+      },
+    },
+    { new: true },
+  )
+  if (!activated) {
+    // Provider session exists but invoice reservation was superseded — leave prior
+    // OPEN sessions reconcilable; log the orphaned provider session for ops.
+    logger.error('checkout.orphaned_provider_session', {
+      invoice_id: invoice.invoice_number,
+      session_id: sessionId,
+    })
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      'Checkout session was superseded by a concurrent request; retry checkout',
+    )
   }
 
-  invoice.payment_metadata = {
-    ...(invoice.payment_metadata && typeof invoice.payment_metadata === 'object' ? invoice.payment_metadata : {}),
-    checkout_session_id: sessionId,
-    checkout_signature: signature,
-    checkout_amount: amount,
-    checkout_currency: currency,
-    checkout_created_at: new Date().toISOString(),
-    checkout_provider: 'provider_api',
-  }
-  await invoice.save()
-
-  // Do not return signature material — only the provider-hosted checkout URL.
   return {
     invoice_id: invoice.invoice_number,
-    checkout_url: body.checkout_url,
+    checkout_url: checkoutUrl,
     provider: 'provider_api',
   }
 }
 
 /**
  * Idempotent settlement webhook from a trusted payment provider.
- * Requires HMAC over session/invoice/amount plus a non-empty provider_event_id
- * so a browser-visible payload alone cannot mark an invoice paid.
+ * Verifies HMAC over session/invoice/amount/currency/provider_event_id/timestamp
+ * and transitions the invoice to Paid at most once (session settles once).
  */
 export async function settleInvoiceFromWebhook(input: {
   session_id: string
@@ -840,6 +972,7 @@ export async function settleInvoiceFromWebhook(input: {
   currency?: string
   signature: string
   provider_event_id?: string
+  timestamp?: string | number
 }) {
   const webhookSecret = (process.env.PAYMENT_WEBHOOK_SECRET || '').trim()
   if (!webhookSecret) {
@@ -848,19 +981,34 @@ export async function settleInvoiceFromWebhook(input: {
 
   const amount = Number(input.amount)
   const providerEventId = String(input.provider_event_id || '').trim()
+  const timestampRaw = input.timestamp
+  const timestampMs = typeof timestampRaw === 'number'
+    ? timestampRaw
+    : Number(String(timestampRaw || '').trim())
   if (
     !input.session_id ||
     !input.invoice_number ||
     !Number.isFinite(amount) ||
+    amount <= 0 ||
     !input.signature ||
-    !providerEventId
+    !providerEventId ||
+    !Number.isFinite(timestampMs)
   ) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid payment webhook payload')
   }
+  if (Math.abs(Date.now() - timestampMs) > PAYMENT_WEBHOOK_MAX_SKEW_MS) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Payment webhook timestamp is outside the allowed window')
+  }
 
   const currency = (input.currency || 'INR').toUpperCase()
-  const signedPayload = [input.session_id, input.invoice_number, String(amount), currency].join('.')
-  const expected = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')
+  const expected = buildPaymentWebhookSignature(webhookSecret, {
+    sessionId: input.session_id,
+    invoiceNumber: input.invoice_number,
+    amount,
+    currency,
+    providerEventId,
+    timestamp: timestampMs,
+  })
   const provided = Buffer.from(input.signature)
   const expectedBuf = Buffer.from(expected)
   if (provided.length !== expectedBuf.length || !crypto.timingSafeEqual(provided, expectedBuf)) {
@@ -871,28 +1019,25 @@ export async function settleInvoiceFromWebhook(input: {
   if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
 
   const meta = (invoice.payment_metadata && typeof invoice.payment_metadata === 'object')
-    ? invoice.payment_metadata as Record<string, unknown>
+    ? { ...(invoice.payment_metadata as Record<string, unknown>) }
     : {}
 
-  if (!meta.checkout_session_id || meta.checkout_session_id !== input.session_id) {
-    throw new ApiError(StatusCodes.CONFLICT, 'Webhook session does not match the open checkout session')
+  const sessionRec = readCheckoutSession(meta, input.session_id)
+  if (!sessionRec) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Webhook session does not match a reserved checkout session')
   }
-  if (meta.checkout_amount === undefined || Number(meta.checkout_amount) !== amount) {
+  if (Number(sessionRec.amount) !== amount || String(sessionRec.currency).toUpperCase() !== currency) {
     throw new ApiError(StatusCodes.CONFLICT, 'Webhook amount does not match the checkout session')
   }
-  if (meta.checkout_signature && meta.checkout_signature !== input.signature) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid payment webhook signature')
-  }
-
-  if (invoice.status === InvoiceStatus.PAID) {
+  if (sessionRec.status === 'SETTLED' || invoice.status === InvoiceStatus.PAID) {
     return {
       invoice_id: invoice.invoice_number,
-      status: invoice.status,
+      status: InvoiceStatus.PAID,
       already_paid: true,
     }
   }
 
-  // Idempotent CAS: only transition Pending/Overdue → Paid once.
+  // Idempotent CAS: each invoice settles at most once regardless of event id.
   const updated = await Invoice.findOneAndUpdate(
     {
       _id: invoice._id,
@@ -901,14 +1046,13 @@ export async function settleInvoiceFromWebhook(input: {
     {
       $set: {
         status: InvoiceStatus.PAID,
-        payment_metadata: {
-          ...meta,
-          paid_at: new Date().toISOString(),
-          provider_event_id: providerEventId,
-          settled_session_id: input.session_id,
-          settled_amount: amount,
-          settled_currency: currency,
-        },
+        [`payment_metadata.checkout_sessions.${input.session_id}.status`]: 'SETTLED',
+        'payment_metadata.paid_at': new Date().toISOString(),
+        'payment_metadata.provider_event_id': providerEventId,
+        'payment_metadata.settled_session_id': input.session_id,
+        'payment_metadata.settled_amount': amount,
+        'payment_metadata.settled_currency': currency,
+        'payment_metadata.settled_timestamp': timestampMs,
       },
     },
     { new: true },

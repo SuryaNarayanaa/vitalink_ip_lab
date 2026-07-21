@@ -1940,17 +1940,17 @@ paths:
       summary: Payment provider settlement webhook
       security: []
       description: |
-        Trusted payment-provider callback. Verifies an HMAC over session_id,
-        invoice_number, amount, and currency (material shared only with the
-        provider at checkout creation), requires a non-empty provider_event_id,
-        and idempotently marks the invoice Paid.
+        Trusted payment-provider callback. Provider signs the full payload with
+        PAYMENT_WEBHOOK_SECRET as HMAC-SHA256 over
+        `session_id.invoice_number.amount.currency.provider_event_id.timestamp`
+        (unix ms). Each invoice settles at most once.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [session_id, invoice_number, amount, signature, provider_event_id]
+              required: [session_id, invoice_number, amount, signature, provider_event_id, timestamp]
               properties:
                 session_id: { type: string }
                 invoice_number: { type: string }
@@ -1958,6 +1958,9 @@ paths:
                 currency: { type: string, default: INR }
                 signature: { type: string }
                 provider_event_id: { type: string }
+                timestamp:
+                  type: number
+                  description: Unix epoch milliseconds used in the HMAC material
       responses:
         "200":
           description: Invoice settled (or already paid)

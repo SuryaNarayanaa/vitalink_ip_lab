@@ -83,8 +83,9 @@ async function run() {
       continue
     }
 
-    const events = Array.isArray((profile as any).doctor_change_events)
-      ? ((profile as any).doctor_change_events as LegacyEvent[])
+    const eventsSnapshot = (profile as any).doctor_change_events
+    const events = Array.isArray(eventsSnapshot)
+      ? (eventsSnapshot as LegacyEvent[])
       : []
     if (events.length === 0) continue
 
@@ -138,12 +139,16 @@ async function run() {
             if (error?.code !== 11000) throw error
           }
         }
-        await PatientProfile.collection.updateOne(
-          { _id: profile._id },
+        // CAS cleanup: only clear when the legacy array is still exactly the
+        // snapshot we migrated, so concurrent writers cannot be silently dropped.
+        const cleanup = await PatientProfile.collection.updateOne(
+          { _id: profile._id, doctor_change_events: eventsSnapshot },
           { $unset: { doctor_change_events: '' } },
           { session },
         )
-        clearedCount += 1
+        if (cleanup.matchedCount === 1) {
+          clearedCount += 1
+        }
       })
     } finally {
       await session.endSession()
