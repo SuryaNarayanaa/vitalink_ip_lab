@@ -86,6 +86,16 @@ export function getRedisSubscriber(): Redis | null {
     subscriberClient.on('error', (err) => {
       logger.error('redis.subscriber_error', { error: err.message })
     })
+    // After reconnect exhaustion the connection ends permanently. Drop the
+    // sticky handle so the next getRedisSubscriber() can open a fresh socket.
+    // Do not removeAllListeners here — other modules attach recovery handlers
+    // that must still run for the same 'end'/'close' emission.
+    const thisClient = subscriberClient
+    const dropHandle = () => {
+      if (subscriberClient === thisClient) subscriberClient = null
+    }
+    subscriberClient.on('end', dropHandle)
+    subscriberClient.on('close', dropHandle)
     return subscriberClient
   } catch (error) {
     logger.error('redis.subscriber_init_failed', {
@@ -93,6 +103,19 @@ export function getRedisSubscriber(): Redis | null {
     })
     return null
   }
+}
+
+/** Test/helper: force the next getRedisSubscriber() to create a new client. */
+export function resetRedisSubscriberForTests() {
+  if (subscriberClient) {
+    try {
+      subscriberClient.removeAllListeners()
+      void subscriberClient.quit().catch(() => undefined)
+    } catch {
+      // best-effort
+    }
+  }
+  subscriberClient = null
 }
 
 export async function ensureRedisConnected(client: Redis | null): Promise<boolean> {

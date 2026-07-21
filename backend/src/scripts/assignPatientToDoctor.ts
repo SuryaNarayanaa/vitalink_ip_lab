@@ -6,6 +6,7 @@ import logger from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
 import {
   acquireDoctorAssignmentGuard,
+  acquireHospitalMembershipGuard,
   stampDoctorProfileFence,
   terminalizePatientAssignment,
 } from '@alias/services/doctor-assignment.service'
@@ -108,6 +109,7 @@ async function main() {
 
   let releasePreviousDoctorGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
   let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
+  let membershipGuard: Awaited<ReturnType<typeof acquireHospitalMembershipGuard>> | undefined
   let updated
 
   try {
@@ -152,6 +154,13 @@ async function main() {
     await releaseAssignmentGuard.assertOwned()
     if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
 
+    // Fence hospital lifecycle immediately before the patient CAS, matching
+    // terminalizePatientAssignment sequencing so suspension/move cannot race commit.
+    membershipGuard = await acquireHospitalMembershipGuard(patientProfile.hospital_id)
+    await membershipGuard.assertOwned()
+    await releaseAssignmentGuard.assertOwned()
+    if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
+
     updated = await PatientProfile.findOneAndUpdate(
       {
         _id: patientProfile._id,
@@ -170,6 +179,7 @@ async function main() {
 
     if (updated) {
       try {
+        await membershipGuard.assertOwned()
         await releaseAssignmentGuard.assertOwned()
         if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
       } catch {
@@ -196,6 +206,7 @@ async function main() {
       }
     }
   } finally {
+    if (membershipGuard) await membershipGuard.release()
     if (releaseAssignmentGuard) await releaseAssignmentGuard()
     if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard()
   }

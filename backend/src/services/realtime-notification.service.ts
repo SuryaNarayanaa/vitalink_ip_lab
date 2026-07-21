@@ -104,6 +104,13 @@ const deliverLocally = (userId: string, event: string, data: unknown) => {
   }
 }
 
+/** Clears subscription bookkeeping so a later ensurePubSub() can resubscribe. */
+function markPubSubDisconnected(reason: string) {
+  pubSubInitialized = false
+  pubSubInitPromise = null
+  logger.warn('realtime.pubsub_disconnected', { reason })
+}
+
 async function ensurePubSub(): Promise<void> {
   if (pubSubInitialized || !isRedisConfigured()) return
   if (pubSubInitPromise) return pubSubInitPromise
@@ -128,14 +135,26 @@ async function ensurePubSub(): Promise<void> {
       }
     }
 
+    const onTerminalDisconnect = () => {
+      sub.off('pmessage', onMessage)
+      sub.off('end', onTerminalDisconnect)
+      sub.off('close', onTerminalDisconnect)
+      markPubSubDisconnected('subscriber_end')
+    }
+
     try {
       // Register the handler before psubscribe so early messages are not dropped.
       sub.on('pmessage', onMessage)
+      // After reconnect exhaustion the socket ends; allow a later resubscribe.
+      sub.on('end', onTerminalDisconnect)
+      sub.on('close', onTerminalDisconnect)
       await sub.psubscribe(`${CHANNEL_PREFIX}*`)
       pubSubInitialized = true
       logger.info('realtime.pubsub_subscribed')
     } catch (error) {
       sub.off('pmessage', onMessage)
+      sub.off('end', onTerminalDisconnect)
+      sub.off('close', onTerminalDisconnect)
       logger.warn('realtime.pubsub_subscribe_failed', {
         error: error instanceof Error ? error.message : String(error),
       })
@@ -146,6 +165,21 @@ async function ensurePubSub(): Promise<void> {
   })
 
   return pubSubInitPromise
+}
+
+/** Awaitable entrypoint used by stream registration and recovery tests. */
+export async function ensureRealtimePubSub(): Promise<void> {
+  return ensurePubSub()
+}
+
+/** Test-only: simulate subscriber death after a successful subscribe. */
+export function __resetPubSubStateForTests() {
+  markPubSubDisconnected('test_reset')
+}
+
+/** Test-only: whether fan-out subscription is currently considered live. */
+export function __isPubSubInitializedForTests() {
+  return pubSubInitialized
 }
 
 export type RegisterStreamResult =
@@ -180,7 +214,7 @@ export function registerUserNotificationStream(
   userStreams.set(userId, streams)
   ipConnectionCounts.set(ip, ipCount + 1)
 
-  void ensurePubSub()
+  void ensureRealtimePubSub()
 
   void writeSseEvent(res, {
     event: 'connected',

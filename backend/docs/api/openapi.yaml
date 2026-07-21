@@ -212,7 +212,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageOnlyResponse"
+                $ref: "#/components/schemas/AdminTotpStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1940,15 +1940,17 @@ paths:
       summary: Payment provider settlement webhook
       security: []
       description: |
-        Verifies an HMAC signature over session_id, invoice_number, amount, and
-        currency, then idempotently marks the invoice Paid.
+        Trusted payment-provider callback. Verifies an HMAC over session_id,
+        invoice_number, amount, and currency (material shared only with the
+        provider at checkout creation), requires a non-empty provider_event_id,
+        and idempotently marks the invoice Paid.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [session_id, invoice_number, amount, signature]
+              required: [session_id, invoice_number, amount, signature, provider_event_id]
               properties:
                 session_id: { type: string }
                 invoice_number: { type: string }
@@ -2727,6 +2729,33 @@ components:
                   type: string
                 account_name:
                   type: string
+
+    AdminTotpStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [factor_type, status, enabled]
+              properties:
+                factor_type:
+                  type: string
+                  enum: [AUTHENTICATOR_APP]
+                status:
+                  type: string
+                  enum: [ENABLED, PENDING, DISABLED]
+                enabled:
+                  type: boolean
+                enrolled_at:
+                  type: [string, "null"]
+                  format: date-time
+                activated_at:
+                  type: [string, "null"]
+                  format: date-time
+                last_verified_at:
+                  type: [string, "null"]
+                  format: date-time
 
     MeResponse:
       allOf:

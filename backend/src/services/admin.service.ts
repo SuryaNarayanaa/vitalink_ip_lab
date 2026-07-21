@@ -712,13 +712,16 @@ export async function generateInvoices(data: any = {}, actorUserId?: string) {
 /**
  * Creates a provider checkout session using server-side invoice data only.
  *
- * Configuration:
+ * Requires:
  * - PAYMENT_PROVIDER_API_URL + PAYMENT_PROVIDER_API_KEY: create a remote session
  *   via POST { invoice_number, amount, currency, success_url, cancel_url, metadata }
- *   expecting { checkout_url, session_id } JSON.
- * - PAYMENT_CHECKOUT_BASE_URL + PAYMENT_WEBHOOK_SECRET: signed hosted-checkout
- *   fallback when no remote session API is configured.
- * - PAYMENT_WEBHOOK_SECRET: required to settle invoices via the webhook.
+ *   expecting { checkout_url } JSON. Settlement HMAC material is sent only to the
+ *   provider (never embedded in a client-facing URL).
+ * - PAYMENT_WEBHOOK_SECRET: shared secret used to sign settlement callbacks.
+ *
+ * Self-validating "signed hosted checkout" URLs that place HMAC params in the
+ * browser query string are intentionally unsupported: those values can be
+ * replayed against the unauthenticated webhook.
  */
 export async function createCheckout(invoiceId: string, actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
@@ -733,109 +736,74 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
   const webhookSecret = (process.env.PAYMENT_WEBHOOK_SECRET || '').trim()
   const providerApiUrl = (process.env.PAYMENT_PROVIDER_API_URL || '').trim()
   const providerApiKey = (process.env.PAYMENT_PROVIDER_API_KEY || '').trim()
-  const checkoutBaseUrl = (process.env.PAYMENT_CHECKOUT_BASE_URL || '').trim()
   const successUrl = (process.env.PAYMENT_SUCCESS_URL || '').trim()
   const cancelUrl = (process.env.PAYMENT_CANCEL_URL || '').trim()
 
-  if (!webhookSecret) {
+  if (!webhookSecret || !providerApiUrl || !providerApiKey) {
     throw new ApiError(
       StatusCodes.SERVICE_UNAVAILABLE,
-      'Checkout is not configured. Set PAYMENT_WEBHOOK_SECRET (and provider API or PAYMENT_CHECKOUT_BASE_URL).',
+      'Checkout is not configured. Set PAYMENT_WEBHOOK_SECRET, PAYMENT_PROVIDER_API_URL, and PAYMENT_PROVIDER_API_KEY.',
     )
+  }
+
+  let apiBase: URL
+  try {
+    apiBase = new URL(providerApiUrl)
+    if (apiBase.protocol !== 'https:') throw new Error('HTTPS required')
+  } catch {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_PROVIDER_API_URL must be an HTTPS URL')
   }
 
   const sessionId = crypto.randomUUID()
   const amount = Number(invoice.amount)
   const currency = 'INR'
-  const signedPayload = [
-    sessionId,
-    invoice.invoice_number,
-    String(amount),
-    currency,
-  ].join('.')
+  // Settlement proof is shared only with the payment provider, never with admins/clients.
+  const signedPayload = [sessionId, invoice.invoice_number, String(amount), currency].join('.')
   const signature = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')
 
-  let checkoutUrl: string
-  let provider = 'signed_hosted_checkout'
-
-  if (providerApiUrl && providerApiKey) {
-    let apiBase: URL
-    try {
-      apiBase = new URL(providerApiUrl)
-      if (apiBase.protocol !== 'https:') throw new Error('HTTPS required')
-    } catch {
-      throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_PROVIDER_API_URL must be an HTTPS URL')
-    }
-
-    let response: Response
-    try {
-      response = await fetch(apiBase.toString(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${providerApiKey}`,
+  let response: Response
+  try {
+    response = await fetch(apiBase.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify({
+        invoice_number: invoice.invoice_number,
+        amount,
+        currency,
+        success_url: successUrl || undefined,
+        cancel_url: cancelUrl || undefined,
+        metadata: {
+          invoice_id: String(invoice._id),
+          hospital_id: String(invoice.hospital_id),
+          session_id: sessionId,
+          signature,
         },
-        body: JSON.stringify({
-          invoice_number: invoice.invoice_number,
-          amount,
-          currency,
-          success_url: successUrl || undefined,
-          cancel_url: cancelUrl || undefined,
-          metadata: {
-            invoice_id: String(invoice._id),
-            hospital_id: String(invoice.hospital_id),
-            // Webhook settlement expects this local session id + signature.
-            session_id: sessionId,
-            signature,
-          },
-        }),
-        signal: AbortSignal.timeout(15_000),
-      })
-    } catch (error) {
-      const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
-      throw new ApiError(
-        StatusCodes.BAD_GATEWAY,
-        aborted
-          ? 'Payment provider checkout timed out'
-          : `Payment provider checkout failed: ${error instanceof Error ? error.message : 'network error'}`,
-      )
-    }
-    if (!response.ok) {
-      throw new ApiError(StatusCodes.BAD_GATEWAY, `Payment provider rejected checkout session (HTTP ${response.status})`)
-    }
-    let body: { checkout_url?: string; session_id?: string }
-    try {
-      body = await response.json() as { checkout_url?: string; session_id?: string }
-    } catch {
-      throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider returned an invalid JSON response')
-    }
-    if (!body.checkout_url) {
-      throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
-    }
-    // Always reconcile webhooks against our locally signed sessionId (not a
-    // provider-native id) so settlement stays HMAC-bound to invoice/amount.
-    checkoutUrl = body.checkout_url
-    provider = 'provider_api'
-  } else if (checkoutBaseUrl) {
-    let url: URL
-    try {
-      url = new URL(checkoutBaseUrl)
-      if (url.protocol !== 'https:') throw new Error('HTTPS is required')
-    } catch {
-      throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout configuration must be an HTTPS provider URL')
-    }
-    // Amount and invoice identity are bound by HMAC; clients cannot alter them.
-    url.searchParams.set('session_id', sessionId)
-    url.searchParams.set('invoice', invoice.invoice_number)
-    url.searchParams.set('amount', String(amount))
-    url.searchParams.set('currency', currency)
-    url.searchParams.set('sig', signature)
-    checkoutUrl = url.toString()
-  } else {
+      }),
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch (error) {
+    const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
     throw new ApiError(
-      StatusCodes.SERVICE_UNAVAILABLE,
-      'Checkout is not configured. Set PAYMENT_PROVIDER_API_URL+PAYMENT_PROVIDER_API_KEY or PAYMENT_CHECKOUT_BASE_URL.',
+      StatusCodes.BAD_GATEWAY,
+      aborted
+        ? 'Payment provider checkout timed out'
+        : `Payment provider checkout failed: ${error instanceof Error ? error.message : 'network error'}`,
     )
+  }
+  if (!response.ok) {
+    throw new ApiError(StatusCodes.BAD_GATEWAY, `Payment provider rejected checkout session (HTTP ${response.status})`)
+  }
+  let body: { checkout_url?: string }
+  try {
+    body = await response.json() as { checkout_url?: string }
+  } catch {
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider returned an invalid JSON response')
+  }
+  if (!body.checkout_url) {
+    throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
   }
 
   invoice.payment_metadata = {
@@ -845,21 +813,22 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
     checkout_amount: amount,
     checkout_currency: currency,
     checkout_created_at: new Date().toISOString(),
-    checkout_provider: provider,
+    checkout_provider: 'provider_api',
   }
   await invoice.save()
 
+  // Do not return signature material — only the provider-hosted checkout URL.
   return {
     invoice_id: invoice.invoice_number,
-    checkout_url: checkoutUrl,
-    session_id: sessionId,
-    provider,
+    checkout_url: body.checkout_url,
+    provider: 'provider_api',
   }
 }
 
 /**
- * Idempotent settlement webhook. Verifies HMAC over session/invoice/amount and
- * transitions the invoice to Paid at most once.
+ * Idempotent settlement webhook from a trusted payment provider.
+ * Requires HMAC over session/invoice/amount plus a non-empty provider_event_id
+ * so a browser-visible payload alone cannot mark an invoice paid.
  */
 export async function settleInvoiceFromWebhook(input: {
   session_id: string
@@ -875,7 +844,14 @@ export async function settleInvoiceFromWebhook(input: {
   }
 
   const amount = Number(input.amount)
-  if (!input.session_id || !input.invoice_number || !Number.isFinite(amount) || !input.signature) {
+  const providerEventId = String(input.provider_event_id || '').trim()
+  if (
+    !input.session_id ||
+    !input.invoice_number ||
+    !Number.isFinite(amount) ||
+    !input.signature ||
+    !providerEventId
+  ) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid payment webhook payload')
   }
 
@@ -895,11 +871,14 @@ export async function settleInvoiceFromWebhook(input: {
     ? invoice.payment_metadata as Record<string, unknown>
     : {}
 
-  if (meta.checkout_session_id && meta.checkout_session_id !== input.session_id) {
+  if (!meta.checkout_session_id || meta.checkout_session_id !== input.session_id) {
     throw new ApiError(StatusCodes.CONFLICT, 'Webhook session does not match the open checkout session')
   }
-  if (meta.checkout_amount !== undefined && Number(meta.checkout_amount) !== amount) {
+  if (meta.checkout_amount === undefined || Number(meta.checkout_amount) !== amount) {
     throw new ApiError(StatusCodes.CONFLICT, 'Webhook amount does not match the checkout session')
+  }
+  if (meta.checkout_signature && meta.checkout_signature !== input.signature) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid payment webhook signature')
   }
 
   if (invoice.status === InvoiceStatus.PAID) {
@@ -922,7 +901,7 @@ export async function settleInvoiceFromWebhook(input: {
         payment_metadata: {
           ...meta,
           paid_at: new Date().toISOString(),
-          provider_event_id: input.provider_event_id,
+          provider_event_id: providerEventId,
           settled_session_id: input.session_id,
           settled_amount: amount,
           settled_currency: currency,
