@@ -1,14 +1,16 @@
 import mongoose from 'mongoose'
 import { GenericContainer, StartedTestContainer } from 'testcontainers'
-import { AdminMfaChallenge, AdminProfile, User } from '@alias/models'
+import { AdminMfaChallenge, AdminProfile, AuditLog, User } from '@alias/models'
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model'
 import {
   createAdminMfaLoginChallenge,
+  createAdminTotpBootstrapEnrollment,
   createAdminTotpEnrollment,
   generateTotpCode,
   replaceAdminTotpForRecovery,
   verifyAdminMfaLoginChallenge,
 } from '@alias/services/admin-totp.service'
+import { bootstrapAdminUser } from '@alias/scripts/createAdminUser'
 
 describe('admin TOTP supervised recovery concurrency', () => {
   let mongoContainer: StartedTestContainer
@@ -147,5 +149,97 @@ describe('admin TOTP supervised recovery concurrency', () => {
     } finally {
       cleanup.mockRestore()
     }
+  })
+
+  test('bootstraps a new App Admin only after a live code and stores no plaintext setup material', async () => {
+    let deliveredUri = ''
+    let deliveredSecret = ''
+    let verificationCode = ''
+
+    const result = await bootstrapAdminUser({
+      loginId: 'first-bootstrap-admin',
+      password: 'Bootstrap@123',
+      deliverEnrollment: (otpauthUrl) => {
+        deliveredUri = otpauthUrl
+        deliveredSecret = new URL(otpauthUrl).searchParams.get('secret') || ''
+        verificationCode = generateTotpCode(deliveredSecret)
+      },
+      readVerificationCode: async () => verificationCode,
+    })
+
+    expect(result).toMatchObject({ status: 'ENABLED', created: true })
+    expect(deliveredUri).toMatch(/^otpauth:\/\/totp\/VitaLink:/)
+    expect(deliveredSecret).toMatch(/^[A-Z2-7]+$/)
+    const stored: any = await User.findOne({ login_id: 'first-bootstrap-admin' }).lean()
+    expect(stored.admin_mfa.totp.status).toBe('ENABLED')
+    expect(stored.admin_mfa.totp.secret_ciphertext).toBeDefined()
+    expect(stored.admin_mfa.totp.pending_secret_ciphertext).toBeUndefined()
+
+    const audits = await AuditLog.find({ user_id: stored._id }).lean()
+    expect(audits.map(audit => audit.action)).toEqual(expect.arrayContaining(['MFA_SETUP', 'MFA_ACTIVATE']))
+    const persisted = JSON.stringify({ stored, audits })
+    expect(persisted).not.toContain(deliveredSecret)
+    expect(persisted).not.toContain(deliveredUri)
+    expect(persisted).not.toContain(verificationCode)
+
+    const challenge = await createAdminMfaLoginChallenge(stored)
+    const nextStep = Math.floor(Date.now() / 1000 / 30) + 1
+    const authenticated = await verifyAdminMfaLoginChallenge(
+      String(challenge._id),
+      generateTotpCode(deliveredSecret, nextStep),
+    )
+    expect(String(authenticated._id)).toBe(String(stored._id))
+  })
+
+  test('restarts an abandoned pending bootstrap but never rotates an enabled factor', async () => {
+    const admin = await createAdmin('restart-bootstrap-admin')
+    const abandoned = await createAdminTotpBootstrapEnrollment(admin)
+    let replacementSecret = ''
+
+    const completed = await bootstrapAdminUser({
+      loginId: admin.login_id,
+      deliverEnrollment: (otpauthUrl) => {
+        replacementSecret = new URL(otpauthUrl).searchParams.get('secret') || ''
+      },
+      readVerificationCode: async () => generateTotpCode(replacementSecret),
+    })
+    expect(completed).toMatchObject({ status: 'ENABLED', created: false })
+    expect(replacementSecret).not.toBe(abandoned.secret)
+
+    const beforeRerun: any = await User.findById(admin._id).lean()
+    const rerun = await bootstrapAdminUser({
+      loginId: admin.login_id,
+      deliverEnrollment: () => { throw new Error('enabled factor must not be delivered or rotated') },
+      readVerificationCode: async () => { throw new Error('enabled factor must not prompt') },
+    })
+    const afterRerun: any = await User.findById(admin._id).lean()
+    expect(rerun).toMatchObject({ status: 'ALREADY_ENABLED', created: false })
+    expect(afterRerun.admin_mfa.totp.secret_ciphertext).toBe(beforeRerun.admin_mfa.totp.secret_ciphertext)
+    expect(afterRerun.admin_mfa.totp.factor_generation).toBe(beforeRerun.admin_mfa.totp.factor_generation)
+    expect(afterRerun.security_version).toBe(beforeRerun.security_version)
+  })
+
+  test('leaves a failed bootstrap verification pending and safely restartable', async () => {
+    const admin = await createAdmin('failed-bootstrap-admin')
+
+    await expect(bootstrapAdminUser({
+      loginId: admin.login_id,
+      deliverEnrollment: () => undefined,
+      readVerificationCode: async () => 'not-six-digits',
+    })).rejects.toMatchObject({ statusCode: 401 })
+
+    const failed: any = await User.findById(admin._id).lean()
+    expect(failed.admin_mfa.totp.status).toBe('PENDING')
+    expect(failed.admin_mfa.totp.secret_ciphertext).toBeUndefined()
+    expect(failed.admin_mfa.totp.pending_secret_ciphertext).toBeDefined()
+
+    let restartedSecret = ''
+    await expect(bootstrapAdminUser({
+      loginId: admin.login_id,
+      deliverEnrollment: (otpauthUrl) => {
+        restartedSecret = new URL(otpauthUrl).searchParams.get('secret') || ''
+      },
+      readVerificationCode: async () => generateTotpCode(restartedSecret),
+    })).resolves.toMatchObject({ status: 'ENABLED' })
   })
 })
