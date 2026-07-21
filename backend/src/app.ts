@@ -36,6 +36,7 @@ morgan.token('safe-url', (req: Request) => {
   const params = new URLSearchParams(queryString || '')
   const sensitiveQueryParams = new Set([
     'token',
+    'ticket',
     'access_token',
     'refresh_token',
     'authorization',

@@ -82,6 +82,8 @@ export async function runDosageReminderPass(
         const drugName = patient.medical_config?.therapy_drug ?? 'your medication'
         const userId = String(user._id)
         const reminderKey = `dosage:${userId}:${dueWindow}`
+        // In-app notification may include therapy details; push delivery is
+        // sanitized separately in notification-delivery.service.
         const title = 'Time for your medication'
         const message = `Take your ${drugName} dose - ${dose}mg today.`
         const data = {

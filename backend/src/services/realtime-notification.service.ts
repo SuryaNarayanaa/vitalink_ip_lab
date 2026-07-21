@@ -2,13 +2,28 @@ import type { Response } from 'express'
 import User from '@alias/models/user.model'
 import { hasActiveClinicalHospitalAccess, hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import { isFeatureEnabled } from '@alias/services/config.service'
+import { ensureRedisConnected, getRedisClient, getRedisSubscriber, isRedisConfigured } from '@alias/config/redis'
+import logger from '@alias/utils/logger'
 
 type StreamEnvelope = {
   event: string
   data: unknown
 }
 
-const userStreams = new Map<string, Set<Response>>()
+type StreamMeta = {
+  res: Response
+  ip: string
+}
+
+const userStreams = new Map<string, Set<StreamMeta>>()
+const ipConnectionCounts = new Map<string, number>()
+
+export const MAX_STREAMS_PER_USER = 3
+export const MAX_STREAMS_PER_IP = 10
+
+const CHANNEL_PREFIX = 'vitalink:notifications:'
+
+let pubSubInitialized = false
 
 const toJson = (value: unknown) => JSON.stringify(value)
 
@@ -51,74 +66,152 @@ const writeSseComment = async (res: Response, comment: string): Promise<boolean>
   return waitForDrain(res)
 }
 
-const removeClient = (userId: string, res: Response) => {
+const removeClient = (userId: string, meta: StreamMeta) => {
   const streams = userStreams.get(userId)
-  if (!streams) return
-  streams.delete(res)
-  if (streams.size === 0) {
-    userStreams.delete(userId)
+  if (streams) {
+    streams.delete(meta)
+    if (streams.size === 0) {
+      userStreams.delete(userId)
+    }
+  }
+  const current = ipConnectionCounts.get(meta.ip) ?? 0
+  if (current <= 1) ipConnectionCounts.delete(meta.ip)
+  else ipConnectionCounts.set(meta.ip, current - 1)
+}
+
+const deliverLocally = (userId: string, event: string, data: unknown) => {
+  const streams = userStreams.get(userId)
+  if (!streams || streams.size === 0) return
+
+  for (const meta of streams) {
+    if (meta.res.writableEnded || meta.res.destroyed) {
+      removeClient(userId, meta)
+      continue
+    }
+
+    void writeSseEvent(meta.res, { event, data }).then((ok) => {
+      if (!ok) removeClient(userId, meta)
+    }).catch(() => {
+      removeClient(userId, meta)
+    })
   }
 }
 
-export function registerUserNotificationStream(userId: string, res: Response) {
+async function ensurePubSub(): Promise<void> {
+  if (pubSubInitialized || !isRedisConfigured()) return
+  const sub = getRedisSubscriber()
+  if (!sub || !(await ensureRedisConnected(sub))) return
+
+  try {
+    // Pattern subscribe for all user notification channels.
+    await sub.psubscribe(`${CHANNEL_PREFIX}*`)
+    sub.on('pmessage', (_pattern, channel, message) => {
+      if (!channel.startsWith(CHANNEL_PREFIX)) return
+      const userId = channel.slice(CHANNEL_PREFIX.length)
+      if (!userId) return
+      try {
+        const parsed = JSON.parse(message) as StreamEnvelope
+        if (!parsed?.event) return
+        deliverLocally(userId, parsed.event, parsed.data)
+      } catch {
+        // Ignore malformed broker payloads
+      }
+    })
+    pubSubInitialized = true
+    logger.info('realtime.pubsub_subscribed')
+  } catch (error) {
+    logger.warn('realtime.pubsub_subscribe_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+export type RegisterStreamResult =
+  | { ok: true; cleanup: () => void }
+  | { ok: false; reason: 'user_limit' | 'ip_limit' }
+
+export function registerUserNotificationStream(
+  userId: string,
+  res: Response,
+  options: { ip?: string } = {},
+): RegisterStreamResult {
+  const ip = options.ip || 'unknown'
+
+  const existingForUser = userStreams.get(userId)
+  if (existingForUser && existingForUser.size >= MAX_STREAMS_PER_USER) {
+    return { ok: false, reason: 'user_limit' }
+  }
+  const ipCount = ipConnectionCounts.get(ip) ?? 0
+  if (ipCount >= MAX_STREAMS_PER_IP) {
+    return { ok: false, reason: 'ip_limit' }
+  }
+
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache, no-transform')
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
   res.flushHeaders()
 
-  const streams = userStreams.get(userId) ?? new Set<Response>()
-  streams.add(res)
+  const meta: StreamMeta = { res, ip }
+  const streams = existingForUser ?? new Set<StreamMeta>()
+  streams.add(meta)
   userStreams.set(userId, streams)
+  ipConnectionCounts.set(ip, ipCount + 1)
+
+  void ensurePubSub()
 
   void writeSseEvent(res, {
     event: 'connected',
-    data: { connected: true, timestamp: new Date().toISOString() }
+    data: { connected: true, timestamp: new Date().toISOString() },
   }).then((ok) => {
-    if (!ok) removeClient(userId, res)
+    if (!ok) removeClient(userId, meta)
   })
 
   const heartbeat = setInterval(() => {
     if (res.writableEnded || res.destroyed) {
       clearInterval(heartbeat)
-      removeClient(userId, res)
+      removeClient(userId, meta)
       return
     }
     void writeSseComment(res, 'ping').then((ok) => {
       if (!ok) {
         clearInterval(heartbeat)
-        removeClient(userId, res)
+        removeClient(userId, meta)
       }
     })
   }, 25000)
 
   const cleanup = () => {
     clearInterval(heartbeat)
-    removeClient(userId, res)
+    removeClient(userId, meta)
   }
 
   res.on('close', cleanup)
   res.on('error', cleanup)
 
-  return cleanup
+  return { ok: true, cleanup }
 }
 
 export function publishNotificationToUser(userId: string, event: string, data: unknown) {
-  const streams = userStreams.get(userId)
-  if (!streams || streams.size === 0) return
+  // Always deliver to local process connections immediately.
+  deliverLocally(userId, event, data)
 
-  for (const res of streams) {
-    if (res.writableEnded || res.destroyed) {
-      removeClient(userId, res)
-      continue
+  // Fan-out to other replicas via Redis when configured.
+  if (!isRedisConfigured()) return
+  void (async () => {
+    const client = getRedisClient()
+    if (!client || !(await ensureRedisConnected(client))) return
+    try {
+      await client.publish(
+        `${CHANNEL_PREFIX}${userId}`,
+        JSON.stringify({ event, data } satisfies StreamEnvelope),
+      )
+    } catch (error) {
+      logger.warn('realtime.publish_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
-
-    void writeSseEvent(res, { event, data }).then((ok) => {
-      if (!ok) removeClient(userId, res)
-    }).catch(() => {
-      removeClient(userId, res)
-    })
-  }
+  })()
 }
 
 /** Final kill-switch gate for nonclinical/general realtime notifications. */

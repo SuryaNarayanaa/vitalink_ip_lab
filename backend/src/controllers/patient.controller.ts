@@ -30,7 +30,13 @@ import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls,
 import { config } from '@alias/config'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
-import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import {
+	consumeStreamTicketJti,
+	createNotificationStreamTicket,
+	verifyNotificationStreamTicket,
+} from '@alias/services/notification-stream-ticket.service'
+import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
+import { getPasswordPolicyState } from '@alias/services/password.service'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 type DoctorUpdateEvent = {
@@ -266,15 +272,51 @@ const resolvePatientStreamUserOrThrow = async (req: Request) => {
 	if (!payload) {
 		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
 	}
+	const consumed = await consumeStreamTicketJti(payload.jti)
+	if (!consumed) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+	}
 	const user = await User.findById(payload.user_id)
+		.select('is_active user_type profile_id must_change_password password_changed_at createdAt security_version')
+		.lean()
 	if (!user?.is_active || user.user_type !== UserType.PATIENT) {
 		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+	}
+	if (Number(user.security_version || 0) !== Number(payload.security_version || 0)) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+	}
+	const session = await findActiveSessionForAccessToken({
+		sessionId: payload.session_id,
+		tokenId: payload.token_id,
+		userId: payload.user_id,
+		userType: UserType.PATIENT,
+		securityVersion: Number(user.security_version || 0),
+	})
+	if (!session) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+	}
+	if (!await hasActiveClinicalHospitalAccess(user)) {
+		throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
+	}
+	const passwordState = getPasswordPolicyState(user)
+	if (passwordState.must_change_password) {
+		throw new ApiError(StatusCodes.FORBIDDEN, 'Password change is required before continuing.')
 	}
 	return user
 }
 
 export const createPatientNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
-	const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.PATIENT)
+	if (!req.user?.session_id || !req.user?.token_id) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
+	}
+	const securityVersion = Number(req.authUser?.security_version || 0)
+	const ticket = await createNotificationStreamTicket({
+		userId: String(req.user.user_id),
+		userType: UserType.PATIENT,
+		sessionId: req.user.session_id,
+		tokenId: req.user.token_id,
+		securityVersion,
+	})
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
 })
 
@@ -1085,7 +1127,17 @@ export const markAllNotificationsAsRead = asyncHandler(async (
 
 export const streamNotifications = asyncHandler(async (req: Request, res: Response) => {
 	const patientUser = await resolvePatientStreamUserOrThrow(req)
-	registerUserNotificationStream(String(patientUser._id), res)
+	const result = registerUserNotificationStream(String(patientUser._id), res, {
+		ip: req.ip || req.socket.remoteAddress || 'unknown',
+	})
+	if (result.ok === false) {
+		throw new ApiError(
+			StatusCodes.TOO_MANY_REQUESTS,
+			result.reason === 'user_limit'
+				? 'Too many active notification streams for this user'
+				: 'Too many active notification streams from this network',
+		)
+	}
 })
 
 function parseDDMMYYYY(date: string | Date): Date {

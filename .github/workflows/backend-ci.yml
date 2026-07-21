@@ -22,6 +22,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Reject tracked upload artifacts
+        working-directory: ${{ github.workspace }}
+        run: |
+          tracked="$(git ls-files 'backend/uploads/**' 'backend/uploads/*' 2>/dev/null || true)"
+          # Allow empty placeholder only if policy changes; any content under uploads is forbidden.
+          if [ -n "$tracked" ]; then
+            echo "Tracked files under backend/uploads/ are not allowed:"
+            echo "$tracked"
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -34,6 +45,9 @@ jobs:
 
       - name: Validate OpenAPI spec
         run: npm run lint:openapi
+
+      - name: Dependency audit (high+)
+        run: npm audit --audit-level=high
 
       - name: Build
         run: npm run build

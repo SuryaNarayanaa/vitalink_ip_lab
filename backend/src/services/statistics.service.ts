@@ -127,7 +127,12 @@ export async function getInrComplianceStats(actorUserId?: string) {
 
 export async function getDoctorWorkloadStats(actorUserId?: string) {
   const scope = await getTenantScope(actorUserId)
-  const match: any = { account_status: { $ne: 'Discharged' } }
+  // Only Active patients count toward clinical workload. Deceased, discharged,
+  // and assignment-conflict rows must not inflate doctor caseloads.
+  const match: any = {
+    account_status: 'Active',
+    assigned_doctor_id: { $exists: true, $ne: null },
+  }
   if (scope.hospitalId) match.hospital_id = new mongoose.Types.ObjectId(scope.hospitalId)
   const workload = await PatientProfile.aggregate([
     { $match: match },
@@ -145,7 +150,8 @@ export async function getDoctorWorkloadStats(actorUserId?: string) {
         as: 'doctor_user',
       },
     },
-    { $unwind: { path: '$doctor_user', preserveNullAndEmptyArrays: true } },
+    // Drop unresolved / legacy assignment IDs that do not map to a doctor user.
+    { $unwind: { path: '$doctor_user', preserveNullAndEmptyArrays: false } },
     {
       $lookup: {
         from: 'doctorprofiles',
@@ -154,7 +160,7 @@ export async function getDoctorWorkloadStats(actorUserId?: string) {
         as: 'doctor_profile',
       },
     },
-    { $unwind: { path: '$doctor_profile', preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: '$doctor_profile', preserveNullAndEmptyArrays: false } },
     {
       $project: {
         doctor_id: '$_id',

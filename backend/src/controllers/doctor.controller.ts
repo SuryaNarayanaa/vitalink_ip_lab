@@ -32,7 +32,14 @@ import {
 } from '@alias/services/doctor-update-notification.service'
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
-import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import {
+  consumeStreamTicketJti,
+  createNotificationStreamTicket,
+  verifyNotificationStreamTicket,
+} from '@alias/services/notification-stream-ticket.service'
+import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
+import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
+import { getPasswordPolicyState } from '@alias/services/password.service'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 const normalizeLoginId = (value: string) => value.trim()
@@ -251,15 +258,51 @@ const resolveDoctorStreamUserOrThrow = async (req: Request) => {
   if (!payload) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
   }
+  const consumed = await consumeStreamTicketJti(payload.jti)
+  if (!consumed) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+  }
   const user = await User.findById(payload.user_id)
+    .select('is_active user_type profile_id must_change_password password_changed_at createdAt security_version')
+    .lean()
   if (!user?.is_active || user.user_type !== UserType.DOCTOR) {
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+  }
+  if (Number(user.security_version || 0) !== Number(payload.security_version || 0)) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+  }
+  const session = await findActiveSessionForAccessToken({
+    sessionId: payload.session_id,
+    tokenId: payload.token_id,
+    userId: payload.user_id,
+    userType: UserType.DOCTOR,
+    securityVersion: Number(user.security_version || 0),
+  })
+  if (!session) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
+  }
+  if (!await hasActiveHospitalAccess(user)) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
+  }
+  const passwordState = getPasswordPolicyState(user)
+  if (passwordState.must_change_password) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Password change is required before continuing.')
   }
   return user
 }
 
 export const createDoctorNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
-  const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.DOCTOR)
+  if (!req.user?.session_id || !req.user?.token_id) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
+  }
+  const securityVersion = Number(req.authUser?.security_version || 0)
+  const ticket = await createNotificationStreamTicket({
+    userId: String(req.user.user_id),
+    userType: UserType.DOCTOR,
+    sessionId: req.user.session_id,
+    tokenId: req.user.token_id,
+    securityVersion,
+  })
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
 })
 
@@ -993,6 +1036,9 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
   }
   const { user_id } = req.user
   const user = await getDoctorUserOrThrow(user_id, req.authUser)
+  if (!user.is_active) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive')
+  }
   const hospitalId = await getDoctorHospitalId(user)
   if (!hospitalId) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to a hospital before uploading files')
@@ -1002,6 +1048,9 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
   let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset']
   const doctorProfile = await DoctorProfile.findById(user.profile_id)
   if (!doctorProfile) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
+  if (!doctorProfile.hospital_id || String(doctorProfile.hospital_id) !== hospitalId) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Doctor hospital membership changed; retry the upload')
+  }
   try {
     const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalId}/profiles/${user._id}`, req.file, {
       hospitalId,
@@ -1019,16 +1068,36 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 
   const previousAssetId = doctorProfile.profile_picture_file_asset_id
   try {
+    // Re-check active membership after the upload so a concurrent hospital move
+    // or suspension cannot attach a Hospital A asset to a Hospital B profile.
+    const stillActive = await User.findById(user._id).select('is_active').lean()
+    if (!stillActive?.is_active) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive')
+    }
     const referenceFilter = previousAssetId
       ? { profile_picture_file_asset_id: previousAssetId }
       : { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
-    const updated = await DoctorProfile.findOneAndUpdate({ _id: user.profile_id, ...referenceFilter }, {
-      profile_picture_url: uploadedFile.key,
-      profile_picture_file_asset_id: fileAsset._id,
-    }, { new: true })
-    if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+    const updated = await DoctorProfile.findOneAndUpdate(
+      {
+        _id: user.profile_id,
+        hospital_id: hospitalId,
+        ...referenceFilter,
+      },
+      {
+        profile_picture_url: uploadedFile.key,
+        profile_picture_file_asset_id: fileAsset._id,
+      },
+      { new: true },
+    )
+    if (!updated) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'Profile picture or hospital membership changed while the upload was being applied',
+      )
+    }
   } catch (error) {
-    // Compensate only when the new asset was not committed to the profile.
+    // Compensate only when the new asset was not committed to the profile
+    // (includes hospital-move races caught by the hospital_id CAS).
     await compensateFileAsset(fileAsset, error)
     throw error
   }
@@ -1129,5 +1198,15 @@ export const markAllDoctorNotificationsAsRead = asyncHandler(async (
 
 export const streamDoctorNotifications = asyncHandler(async (req: Request, res: Response) => {
   const doctorUser = await resolveDoctorStreamUserOrThrow(req)
-  registerUserNotificationStream(String(doctorUser._id), res)
+  const result = registerUserNotificationStream(String(doctorUser._id), res, {
+    ip: req.ip || req.socket.remoteAddress || 'unknown',
+  })
+  if (result.ok === false) {
+    throw new ApiError(
+      StatusCodes.TOO_MANY_REQUESTS,
+      result.reason === 'user_limit'
+        ? 'Too many active notification streams for this user'
+        : 'Too many active notification streams from this network',
+    )
+  }
 })

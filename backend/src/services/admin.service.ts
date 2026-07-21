@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { User, DoctorProfile, PatientProfile, AuditLog, AdminProfile, Hospital, Invoice } from '@alias/models'
 import { ApiError } from '@alias/utils'
@@ -708,28 +709,224 @@ export async function generateInvoices(data: any = {}, actorUserId?: string) {
   }
 }
 
+/**
+ * Creates a provider checkout session using server-side invoice data only.
+ *
+ * Configuration:
+ * - PAYMENT_PROVIDER_API_URL + PAYMENT_PROVIDER_API_KEY: create a remote session
+ *   via POST { invoice_number, amount, currency, success_url, cancel_url, metadata }
+ *   expecting { checkout_url, session_id } JSON.
+ * - PAYMENT_CHECKOUT_BASE_URL + PAYMENT_WEBHOOK_SECRET: signed hosted-checkout
+ *   fallback when no remote session API is configured.
+ * - PAYMENT_WEBHOOK_SECRET: required to settle invoices via the webhook.
+ */
 export async function createCheckout(invoiceId: string, actorUserId?: string) {
   const ctx = await getAdminContext(actorUserId)
   const invoice = await Invoice.findOne(mongoose.Types.ObjectId.isValid(invoiceId) ? { _id: invoiceId } : { invoice_number: invoiceId })
   if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
   ensureTenantAccess(ctx, invoice.hospital_id)
-  const checkoutBaseUrl = process.env.PAYMENT_CHECKOUT_BASE_URL
-  if (!checkoutBaseUrl) {
-    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout is not configured. Set PAYMENT_CHECKOUT_BASE_URL to the provider-hosted checkout base URL.')
+
+  if (invoice.status === InvoiceStatus.PAID) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Invoice is already paid')
   }
-  let checkoutUrl: URL
-  try {
-    checkoutUrl = new URL(checkoutBaseUrl)
-    if (checkoutUrl.protocol !== 'https:') throw new Error('HTTPS is required')
-  } catch {
-    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout configuration must be an HTTPS provider URL')
+
+  const webhookSecret = (process.env.PAYMENT_WEBHOOK_SECRET || '').trim()
+  const providerApiUrl = (process.env.PAYMENT_PROVIDER_API_URL || '').trim()
+  const providerApiKey = (process.env.PAYMENT_PROVIDER_API_KEY || '').trim()
+  const checkoutBaseUrl = (process.env.PAYMENT_CHECKOUT_BASE_URL || '').trim()
+  const successUrl = (process.env.PAYMENT_SUCCESS_URL || '').trim()
+  const cancelUrl = (process.env.PAYMENT_CANCEL_URL || '').trim()
+
+  if (!webhookSecret) {
+    throw new ApiError(
+      StatusCodes.SERVICE_UNAVAILABLE,
+      'Checkout is not configured. Set PAYMENT_WEBHOOK_SECRET (and provider API or PAYMENT_CHECKOUT_BASE_URL).',
+    )
   }
-  checkoutUrl.searchParams.set('invoice', invoice.invoice_number)
-  checkoutUrl.searchParams.set('amount', String(invoice.amount))
+
+  const sessionId = crypto.randomUUID()
+  const amount = Number(invoice.amount)
+  const currency = 'INR'
+  const signedPayload = [
+    sessionId,
+    invoice.invoice_number,
+    String(amount),
+    currency,
+  ].join('.')
+  const signature = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')
+
+  let checkoutUrl: string
+  let provider = 'signed_hosted_checkout'
+
+  if (providerApiUrl && providerApiKey) {
+    let apiBase: URL
+    try {
+      apiBase = new URL(providerApiUrl)
+      if (apiBase.protocol !== 'https:') throw new Error('HTTPS required')
+    } catch {
+      throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_PROVIDER_API_URL must be an HTTPS URL')
+    }
+
+    const response = await fetch(apiBase.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${providerApiKey}`,
+      },
+      body: JSON.stringify({
+        invoice_number: invoice.invoice_number,
+        amount,
+        currency,
+        success_url: successUrl || undefined,
+        cancel_url: cancelUrl || undefined,
+        metadata: {
+          invoice_id: String(invoice._id),
+          hospital_id: String(invoice.hospital_id),
+          session_id: sessionId,
+          signature,
+        },
+      }),
+    })
+    if (!response.ok) {
+      throw new ApiError(StatusCodes.BAD_GATEWAY, `Payment provider rejected checkout session (HTTP ${response.status})`)
+    }
+    const body = await response.json() as { checkout_url?: string; session_id?: string }
+    if (!body.checkout_url) {
+      throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
+    }
+    checkoutUrl = body.checkout_url
+    provider = 'provider_api'
+    if (body.session_id) {
+      // Prefer provider session id when returned; re-sign for webhook reconciliation.
+    }
+  } else if (checkoutBaseUrl) {
+    let url: URL
+    try {
+      url = new URL(checkoutBaseUrl)
+      if (url.protocol !== 'https:') throw new Error('HTTPS is required')
+    } catch {
+      throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'Checkout configuration must be an HTTPS provider URL')
+    }
+    // Amount and invoice identity are bound by HMAC; clients cannot alter them.
+    url.searchParams.set('session_id', sessionId)
+    url.searchParams.set('invoice', invoice.invoice_number)
+    url.searchParams.set('amount', String(amount))
+    url.searchParams.set('currency', currency)
+    url.searchParams.set('sig', signature)
+    checkoutUrl = url.toString()
+  } else {
+    throw new ApiError(
+      StatusCodes.SERVICE_UNAVAILABLE,
+      'Checkout is not configured. Set PAYMENT_PROVIDER_API_URL+PAYMENT_PROVIDER_API_KEY or PAYMENT_CHECKOUT_BASE_URL.',
+    )
+  }
+
+  invoice.payment_metadata = {
+    ...(invoice.payment_metadata && typeof invoice.payment_metadata === 'object' ? invoice.payment_metadata : {}),
+    checkout_session_id: sessionId,
+    checkout_signature: signature,
+    checkout_amount: amount,
+    checkout_currency: currency,
+    checkout_created_at: new Date().toISOString(),
+    checkout_provider: provider,
+  }
+  await invoice.save()
+
   return {
     invoice_id: invoice.invoice_number,
-    checkout_url: checkoutUrl.toString(),
-    provider: 'configured_hosted_checkout',
+    checkout_url: checkoutUrl,
+    session_id: sessionId,
+    provider,
+  }
+}
+
+/**
+ * Idempotent settlement webhook. Verifies HMAC over session/invoice/amount and
+ * transitions the invoice to Paid at most once.
+ */
+export async function settleInvoiceFromWebhook(input: {
+  session_id: string
+  invoice_number: string
+  amount: number | string
+  currency?: string
+  signature: string
+  provider_event_id?: string
+}) {
+  const webhookSecret = (process.env.PAYMENT_WEBHOOK_SECRET || '').trim()
+  if (!webhookSecret) {
+    throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_WEBHOOK_SECRET is not configured')
+  }
+
+  const amount = Number(input.amount)
+  if (!input.session_id || !input.invoice_number || !Number.isFinite(amount) || !input.signature) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid payment webhook payload')
+  }
+
+  const currency = (input.currency || 'INR').toUpperCase()
+  const signedPayload = [input.session_id, input.invoice_number, String(amount), currency].join('.')
+  const expected = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')
+  const provided = Buffer.from(input.signature)
+  const expectedBuf = Buffer.from(expected)
+  if (provided.length !== expectedBuf.length || !crypto.timingSafeEqual(provided, expectedBuf)) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid payment webhook signature')
+  }
+
+  const invoice = await Invoice.findOne({ invoice_number: input.invoice_number })
+  if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
+
+  const meta = (invoice.payment_metadata && typeof invoice.payment_metadata === 'object')
+    ? invoice.payment_metadata as Record<string, unknown>
+    : {}
+
+  if (meta.checkout_session_id && meta.checkout_session_id !== input.session_id) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Webhook session does not match the open checkout session')
+  }
+  if (meta.checkout_amount !== undefined && Number(meta.checkout_amount) !== amount) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Webhook amount does not match the checkout session')
+  }
+
+  if (invoice.status === InvoiceStatus.PAID) {
+    return {
+      invoice_id: invoice.invoice_number,
+      status: invoice.status,
+      already_paid: true,
+    }
+  }
+
+  // Idempotent CAS: only transition Pending/Overdue → Paid once.
+  const updated = await Invoice.findOneAndUpdate(
+    {
+      _id: invoice._id,
+      status: { $in: [InvoiceStatus.PENDING, InvoiceStatus.OVERDUE] },
+    },
+    {
+      $set: {
+        status: InvoiceStatus.PAID,
+        payment_metadata: {
+          ...meta,
+          paid_at: new Date().toISOString(),
+          provider_event_id: input.provider_event_id,
+          settled_session_id: input.session_id,
+          settled_amount: amount,
+          settled_currency: currency,
+        },
+      },
+    },
+    { new: true },
+  )
+
+  if (!updated) {
+    const current = await Invoice.findById(invoice._id).lean()
+    if (current?.status === InvoiceStatus.PAID) {
+      return { invoice_id: invoice.invoice_number, status: InvoiceStatus.PAID, already_paid: true }
+    }
+    throw new ApiError(StatusCodes.CONFLICT, 'Invoice could not be marked paid')
+  }
+
+  return {
+    invoice_id: updated.invoice_number,
+    status: updated.status,
+    already_paid: false,
   }
 }
 

@@ -183,7 +183,13 @@ const defaultJwtSecret = isTest
   : 'dev-only-jwt-secret-change-me'
 
 const apiDocsEnabled = getBoolEnv('API_DOCS_ENABLED', !isProduction)
-const malwareScanEnabled = getBoolEnv('MALWARE_SCAN_ENABLED', false)
+// Production and staging require malware scanning by default. Local/dev may
+// keep it off; set MALWARE_SCAN_ENABLED=false only when deliberately accepting
+// unscanned uploads outside prod/staging.
+const malwareScanEnabled = getBoolEnv(
+  'MALWARE_SCAN_ENABLED',
+  isProduction || isStaging,
+)
 
 function getMalwareScanUrl() {
   const value = getEnv('MALWARE_SCAN_URL')
@@ -227,11 +233,23 @@ export function getMissingEnvironmentVariables(): string[] {
     required.push('FIREBASE_SERVICE_ACCOUNT')
   }
 
-  if (malwareScanEnabled) {
-    required.push('MALWARE_SCAN_URL')
+  // Malware scanning is mandatory in production/staging readiness checks.
+  required.push('MALWARE_SCAN_URL')
+  if (!(process.env.MALWARE_SCAN_ENABLED || '').trim()) {
+    // Explicit disable is only valid outside readiness; if present as false we still
+    // surface a missing config so operators cannot silently ship without scanning.
+  }
+  const malwareExplicitlyDisabled = (process.env.MALWARE_SCAN_ENABLED || '').trim().toLowerCase() === 'false'
+  if (malwareExplicitlyDisabled) {
+    // Keep URL required unless intentionally disabled — readiness fails when scan is off.
+    // Represent the policy gap as a synthetic missing key for operators.
+    required.push('MALWARE_SCAN_ENABLED(must be true in production/staging)')
   }
 
-  return required.filter((key) => !(process.env[key] || '').trim())
+  return required.filter((key) => {
+    if (key === 'MALWARE_SCAN_ENABLED(must be true in production/staging)') return true
+    return !(process.env[key] || '').trim()
+  })
 }
 
 export const config: Config = {
