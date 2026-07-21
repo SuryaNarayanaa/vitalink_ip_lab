@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import type { Response } from 'express'
 import User from '@alias/models/user.model'
 import { hasActiveClinicalHospitalAccess, hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
@@ -8,6 +9,8 @@ import logger from '@alias/utils/logger'
 type StreamEnvelope = {
   event: string
   data: unknown
+  /** Publishing process id — subscribers ignore their own publishes to avoid double-delivery. */
+  origin?: string
 }
 
 type StreamMeta = {
@@ -22,6 +25,8 @@ export const MAX_STREAMS_PER_USER = 3
 export const MAX_STREAMS_PER_IP = 10
 
 const CHANNEL_PREFIX = 'vitalink:notifications:'
+/** Stable for the process lifetime so Redis echoes of local publishes are dropped. */
+const INSTANCE_ID = crypto.randomUUID()
 
 let pubSubInitialized = false
 
@@ -112,6 +117,9 @@ async function ensurePubSub(): Promise<void> {
       try {
         const parsed = JSON.parse(message) as StreamEnvelope
         if (!parsed?.event) return
+        // Local clients were already written by publishNotificationToUser.
+        // Only apply messages that originated on other replicas.
+        if (parsed.origin && parsed.origin === INSTANCE_ID) return
         deliverLocally(userId, parsed.event, parsed.data)
       } catch {
         // Ignore malformed broker payloads
@@ -197,6 +205,7 @@ export function publishNotificationToUser(userId: string, event: string, data: u
   deliverLocally(userId, event, data)
 
   // Fan-out to other replicas via Redis when configured.
+  // Include origin so this process's subscriber does not re-deliver the same event.
   if (!isRedisConfigured()) return
   void (async () => {
     const client = getRedisClient()
@@ -204,7 +213,7 @@ export function publishNotificationToUser(userId: string, event: string, data: u
     try {
       await client.publish(
         `${CHANNEL_PREFIX}${userId}`,
-        JSON.stringify({ event, data } satisfies StreamEnvelope),
+        JSON.stringify({ event, data, origin: INSTANCE_ID } satisfies StreamEnvelope),
       )
     } catch (error) {
       logger.warn('realtime.publish_failed', {
