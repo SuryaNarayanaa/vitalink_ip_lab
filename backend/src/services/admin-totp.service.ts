@@ -15,6 +15,12 @@ const TOTP_DIGITS = 6
 const SECRET_BYTES = 20
 const WINDOW_STEPS = 1
 
+const buildAdminOtpauthUrl = (loginId: string, secret: string): string => {
+  const issuer = 'VitaLink'
+  const accountName = encodeURIComponent(loginId)
+  return `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
+}
+
 type EncryptedSecret = {
   ciphertext: string
   iv: string
@@ -259,10 +265,7 @@ export const createAdminTotpEnrollment = async (user: any) => {
     throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP setup changed concurrently; please retry')
   }
 
-  const issuer = 'VitaLink'
-  const accountName = encodeURIComponent(currentUser.login_id)
-  const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
-  return { secret, otpauth_url }
+  return { secret, otpauth_url: buildAdminOtpauthUrl(currentUser.login_id, secret) }
 }
 
 /**
@@ -326,10 +329,7 @@ export const createAdminTotpBootstrapEnrollment = async (user: any) => {
     throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP bootstrap changed concurrently; please retry')
   }
 
-  const issuer = 'VitaLink'
-  const accountName = encodeURIComponent(currentUser.login_id)
-  const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
-  return { secret, otpauth_url }
+  return { secret, otpauth_url: buildAdminOtpauthUrl(currentUser.login_id, secret) }
 }
 
 /**
@@ -405,10 +405,11 @@ export const replaceAdminTotpForRecovery = async (user: any) => {
     })
   }
 
-  const issuer = 'VitaLink'
-  const accountName = encodeURIComponent(currentUser.login_id)
-  const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
-  return { secret, otpauth_url, challenge_cleanup_completed: challengeCleanupCompleted }
+  return {
+    secret,
+    otpauth_url: buildAdminOtpauthUrl(currentUser.login_id, secret),
+    challenge_cleanup_completed: challengeCleanupCompleted,
+  }
 }
 
 export const activateAdminTotpEnrollment = async (user: any, code: string) => {
