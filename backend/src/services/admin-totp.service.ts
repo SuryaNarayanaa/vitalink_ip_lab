@@ -266,6 +266,73 @@ export const createAdminTotpEnrollment = async (user: any) => {
 }
 
 /**
+ * Starts (or safely restarts) enrollment for an operations-bootstrapped admin.
+ * Unlike the authenticated enrollment flow, an abandoned PENDING factor may
+ * be replaced. An ENABLED factor is never rotated by this path.
+ */
+export const createAdminTotpBootstrapEnrollment = async (user: any) => {
+  if (user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Admin MFA bootstrap is only available for admins')
+  }
+  if (!config.adminTotpEncryptionKey?.trim()) {
+    throw new Error('ADMIN_TOTP_ENCRYPTION_KEY is required for admin bootstrap')
+  }
+
+  const currentUser = await User.findOne({ _id: user._id, user_type: UserType.ADMIN, is_active: true })
+  if (!currentUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Active admin user not found')
+  }
+
+  const currentTotp = getTotpSlot(currentUser)
+  const status = currentTotp.status || 'DISABLED'
+  if (status === 'ENABLED') {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  }
+  if (!['DISABLED', 'PENDING'].includes(status)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is not in a bootstrap-safe state')
+  }
+
+  const secret = generateAdminTotpSecret()
+  const encrypted = encryptSecret(secret)
+  const result = await User.updateOne(
+    {
+      _id: currentUser._id,
+      user_type: UserType.ADMIN,
+      is_active: true,
+      security_version: Number(currentUser.security_version || 0),
+      'admin_mfa.totp.factor_generation': Number(currentTotp.factor_generation || 0),
+      ...exactFactorSnapshot(currentTotp),
+    },
+    {
+      $set: {
+        'admin_mfa.totp.status': 'PENDING',
+        'admin_mfa.totp.pending_secret_ciphertext': encrypted.ciphertext,
+        'admin_mfa.totp.pending_secret_iv': encrypted.iv,
+        'admin_mfa.totp.pending_secret_auth_tag': encrypted.authTag,
+        'admin_mfa.totp.enrolled_at': new Date(),
+      },
+      $unset: {
+        'admin_mfa.totp.secret_ciphertext': '',
+        'admin_mfa.totp.secret_iv': '',
+        'admin_mfa.totp.secret_auth_tag': '',
+        'admin_mfa.totp.activated_at': '',
+        'admin_mfa.totp.last_verified_at': '',
+        'admin_mfa.totp.last_verified_time_step': '',
+        'admin_mfa.totp.last_verified_challenge_id': '',
+      },
+    },
+  )
+  if (result.modifiedCount !== 1) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP bootstrap changed concurrently; please retry')
+  }
+
+  const issuer = 'VitaLink'
+  const accountName = encodeURIComponent(currentUser.login_id)
+  const otpauth_url = `otpauth://totp/${issuer}:${accountName}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`
+  return { secret, otpauth_url }
+}
+
+/**
  * Replaces an administrator's authenticator factor during a supervised
  * recovery. The caller must deliver the returned URI directly to the new
  * device; it is deliberately never persisted in plaintext.
