@@ -22,11 +22,16 @@ type MigrationStats = {
 }
 
 function parseCliArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { dryRun: false }
+  // Default to dry-run; require explicit --execute to mutate.
+  const options: CliOptions = { dryRun: true }
 
   for (const arg of argv) {
     if (arg === '--dry-run') {
       options.dryRun = true
+      continue
+    }
+    if (arg === '--execute') {
+      options.dryRun = false
       continue
     }
     if (arg.startsWith('--limit=')) {
@@ -48,10 +53,12 @@ function parseCliArgs(argv: string[]): CliOptions {
 }
 
 function printUsageAndExit(code: number): never {
-  console.log('Usage: ts-node src/scripts/migrateInrCriticalFlags.ts [--dry-run] [--limit=<n>]')
+  console.log('Usage: ts-node src/scripts/migrateInrCriticalFlags.ts [--dry-run] [--execute] [--limit=<n>]')
   console.log('')
+  console.log('Defaults to dry-run. Pass --execute to apply writes.')
   console.log('Options:')
-  console.log('  --dry-run    Preview changes without writing to database')
+  console.log('  --dry-run    Preview changes without writing to database (default)')
+  console.log('  --execute    Apply updates to the database')
   console.log('  --limit      Scan only first N patient profiles')
   process.exit(code)
 }

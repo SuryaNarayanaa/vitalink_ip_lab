@@ -22,8 +22,6 @@ import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
-import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
-import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import * as notificationService from '@alias/services/notification.service'
 import {
@@ -32,7 +30,9 @@ import {
 } from '@alias/services/doctor-update-notification.service'
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
-import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import { createNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import { resolveStreamUserOrThrow } from '@alias/services/notification-stream-auth.service'
+import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 const normalizeLoginId = (value: string) => value.trim()
@@ -240,26 +240,21 @@ const mapNotificationToAppNotificationItem = (notification: any) => ({
   data: notification?.data,
 })
 
-const resolveDoctorStreamUserOrThrow = async (req: Request) => {
-  const headerToken = extractTokenFromHeader(req.headers.authorization)
-  if (headerToken) {
-    const { user } = await validateAuthToken(headerToken, UserType.DOCTOR)
-    return user
-  }
-  const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
-  const payload = ticket ? verifyNotificationStreamTicket(ticket, UserType.DOCTOR) : null
-  if (!payload) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
-  }
-  const user = await User.findById(payload.user_id)
-  if (!user?.is_active || user.user_type !== UserType.DOCTOR) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-  }
-  return user
-}
+const resolveDoctorStreamUserOrThrow = (req: Request) =>
+  resolveStreamUserOrThrow(req, UserType.DOCTOR, hasActiveHospitalAccess)
 
 export const createDoctorNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
-  const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.DOCTOR)
+  if (!req.user?.session_id || !req.user?.token_id) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
+  }
+  const securityVersion = Number(req.authUser?.security_version || 0)
+  const ticket = await createNotificationStreamTicket({
+    userId: String(req.user.user_id),
+    userType: UserType.DOCTOR,
+    sessionId: req.user.session_id,
+    tokenId: req.user.token_id,
+    securityVersion,
+  })
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
 })
 
@@ -993,6 +988,9 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
   }
   const { user_id } = req.user
   const user = await getDoctorUserOrThrow(user_id, req.authUser)
+  if (!user.is_active) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive')
+  }
   const hospitalId = await getDoctorHospitalId(user)
   if (!hospitalId) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to a hospital before uploading files')
@@ -1002,6 +1000,9 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
   let fileAsset: Awaited<ReturnType<typeof uploadTrackedFile>>['asset']
   const doctorProfile = await DoctorProfile.findById(user.profile_id)
   if (!doctorProfile) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor profile not found')
+  if (!doctorProfile.hospital_id || String(doctorProfile.hospital_id) !== hospitalId) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Doctor hospital membership changed; retry the upload')
+  }
   try {
     const trackedUpload = await uploadTrackedFile(`hospitals/${hospitalId}/profiles/${user._id}`, req.file, {
       hospitalId,
@@ -1019,16 +1020,36 @@ export const updateProfilePicture = asyncHandler(async (req: Request, res: Respo
 
   const previousAssetId = doctorProfile.profile_picture_file_asset_id
   try {
+    // Re-check active membership after the upload so a concurrent hospital move
+    // or suspension cannot attach a Hospital A asset to a Hospital B profile.
+    const stillActive = await User.findById(user._id).select('is_active').lean()
+    if (!stillActive?.is_active) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Account is inactive')
+    }
     const referenceFilter = previousAssetId
       ? { profile_picture_file_asset_id: previousAssetId }
       : { $or: [{ profile_picture_file_asset_id: { $exists: false } }, { profile_picture_file_asset_id: null }] }
-    const updated = await DoctorProfile.findOneAndUpdate({ _id: user.profile_id, ...referenceFilter }, {
-      profile_picture_url: uploadedFile.key,
-      profile_picture_file_asset_id: fileAsset._id,
-    }, { new: true })
-    if (!updated) throw new ApiError(StatusCodes.CONFLICT, 'Profile picture was changed by another request')
+    const updated = await DoctorProfile.findOneAndUpdate(
+      {
+        _id: user.profile_id,
+        hospital_id: hospitalId,
+        ...referenceFilter,
+      },
+      {
+        profile_picture_url: uploadedFile.key,
+        profile_picture_file_asset_id: fileAsset._id,
+      },
+      { new: true },
+    )
+    if (!updated) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'Profile picture or hospital membership changed while the upload was being applied',
+      )
+    }
   } catch (error) {
-    // Compensate only when the new asset was not committed to the profile.
+    // Compensate only when the new asset was not committed to the profile
+    // (includes hospital-move races caught by the hospital_id CAS).
     await compensateFileAsset(fileAsset, error)
     throw error
   }
@@ -1129,5 +1150,15 @@ export const markAllDoctorNotificationsAsRead = asyncHandler(async (
 
 export const streamDoctorNotifications = asyncHandler(async (req: Request, res: Response) => {
   const doctorUser = await resolveDoctorStreamUserOrThrow(req)
-  registerUserNotificationStream(String(doctorUser._id), res)
+  const result = registerUserNotificationStream(String(doctorUser._id), res, {
+    ip: req.ip || req.socket.remoteAddress || 'unknown',
+  })
+  if (result.ok === false) {
+    throw new ApiError(
+      StatusCodes.TOO_MANY_REQUESTS,
+      result.reason === 'user_limit'
+        ? 'Too many active notification streams for this user'
+        : 'Too many active notification streams from this network',
+    )
+  }
 })

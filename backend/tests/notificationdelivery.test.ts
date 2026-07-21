@@ -1199,7 +1199,9 @@ describe('Notification delivery durability', () => {
       write: jest.fn((value: string) => { writes.push(value); return true }),
       on: jest.fn(),
     } as any
-    const cleanup = realtimeNotifications.registerUserNotificationStream(String(notification.user_id), response)
+    const registered = realtimeNotifications.registerUserNotificationStream(String(notification.user_id), response)
+    expect(registered.ok).toBe(true)
+    const cleanup = registered.ok ? registered.cleanup : () => undefined
     writes.length = 0
 
     const originalFindById = User.findById.bind(User)
@@ -1246,7 +1248,9 @@ describe('Notification delivery durability', () => {
       setHeader: jest.fn(), flushHeaders: jest.fn(), writableEnded: false, destroyed: false,
       write: jest.fn((value: string) => { writes.push(value); return true }), on: jest.fn(),
     } as any
-    const cleanup = realtimeNotifications.registerUserNotificationStream(String(user._id), response)
+    const registered = realtimeNotifications.registerUserNotificationStream(String(user._id), response)
+    expect(registered.ok).toBe(true)
+    const cleanup = registered.ok ? registered.cleanup : () => undefined
     writes.length = 0
     try {
       await expect(realtimeNotifications.publishGeneralNotificationToUser(

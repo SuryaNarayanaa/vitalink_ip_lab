@@ -12,7 +12,7 @@ info:
     - Authentication uses revocable bearer JWT sessions with opaque refresh tokens.
     - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware and rate-limit responses use the older `{ success, message }` envelope.
     - Versioned responses expose `X-API-Version` and `X-API-Supported-Versions`. Legacy `/api/*` responses also expose `Deprecation`, `Sunset`, and `Link` headers.
-    - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients may pass the JWT as a `token` query parameter when they cannot set an Authorization header.
+    - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients that cannot set an Authorization header must first call `POST /notifications/stream-ticket` (authenticated) and open the stream with the short-lived single-use `ticket` query parameter (not a long-lived access JWT).
     - Multipart upload endpoints accept a single form field named `file`; validation failures such as unsupported MIME type or size limit return 400, while cloud storage failures return 507.
   contact:
     name: VitaLink Engineering
@@ -100,6 +100,32 @@ paths:
         "429":
           $ref: "#/components/responses/LoginRateLimited"
 
+  /auth/login/otp/resend:
+    post:
+      tags: [Authentication]
+      summary: Resend login OTP
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id]
+              properties:
+                challenge_id: { type: string }
+      responses:
+        "200":
+          description: OTP resent when allowed by cooldown/policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          description: Resend cooldown active
+
   /auth/login/otp/verify:
     post:
       tags: [Authentication]
@@ -170,6 +196,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminTotpSetupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /auth/admin/mfa/totp/status:
+    get:
+      tags: [Authentication]
+      summary: Admin TOTP enrollment status
+      description: Returns whether the authenticated admin has an active authenticator enrollment.
+      responses:
+        "200":
+          description: TOTP status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTotpStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -614,20 +657,63 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /patient/notifications/stream-ticket:
+    post:
+      tags: [Patient]
+      summary: Issue a single-use notification stream ticket
+      description: |
+        Returns a short-lived (≈30s) single-use ticket bound to the caller's
+        current session and security generation. Pass the ticket as `?ticket=`
+        when opening the SSE stream from clients that cannot set Authorization.
+      responses:
+        "200":
+          description: Stream ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode: { type: integer, example: 200 }
+                  message: { type: string }
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      ticket: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /patient/notifications/unread-count:
+    get:
+      tags: [Patient]
+      summary: Count unread patient notifications
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /patient/notifications/stream:
     get:
       tags: [Patient]
       summary: Stream patient notifications
       description: |
         Opens a Server-Sent Events connection. Authentication may be supplied with
-        a bearer token or a `token` query parameter.
+        a bearer access token (Authorization header) or a single-use `ticket`
+        query parameter obtained from POST /patient/notifications/stream-ticket.
+        Tickets are single-use, bound to session/security generation, and subject
+        to the same hospital and password-policy checks as normal authentication.
       parameters:
         - in: query
-          name: token
+          name: ticket
           required: false
           schema:
             type: string
-          description: Optional JWT when Authorization header is not used
+          description: Single-use stream ticket when Authorization header is not used
       responses:
         "200":
           description: SSE stream opened
@@ -640,6 +726,8 @@ paths:
                   data: {"id":"6870...","title":"Doctor update"}
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Per-user or per-IP stream connection limit exceeded
 
   /doctors/profile:
     get:
@@ -1009,21 +1097,60 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /doctors/notifications/stream-ticket:
+    post:
+      tags: [Doctor]
+      summary: Issue a single-use notification stream ticket
+      description: |
+        Returns a short-lived single-use ticket bound to the caller's session.
+        Pass as `?ticket=` when opening the SSE stream without an Authorization header.
+      responses:
+        "200":
+          description: Stream ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode: { type: integer, example: 200 }
+                  message: { type: string }
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      ticket: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /doctors/notifications/unread-count:
+    get:
+      tags: [Doctor]
+      summary: Count unread doctor notifications
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /doctors/notifications/stream:
     get:
       tags: [Doctor]
       summary: Stream doctor notifications
       description: |
-        Opens a Server-Sent Events connection for doctor notifications. The stream
-        authenticates a DOCTOR JWT from either the Authorization header or the
-        `token` query parameter for EventSource clients.
+        Opens a Server-Sent Events connection for doctor notifications. Use a
+        bearer access token or a single-use `ticket` from
+        POST /doctors/notifications/stream-ticket.
       parameters:
         - in: query
-          name: token
+          name: ticket
           required: false
           schema:
             type: string
-          description: Optional JWT when Authorization header is not used
+          description: Single-use stream ticket when Authorization header is not used
       responses:
         "200":
           description: SSE stream opened
@@ -1036,6 +1163,8 @@ paths:
                   data: {"id":"6870...","title":"Notification","type":"GENERAL"}
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Per-user or per-IP stream connection limit exceeded
 
   /admin/roles:
     get:
@@ -1753,6 +1882,26 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /admin/users/{id}/mfa/reset:
+    post:
+      tags: [Admin]
+      summary: Reset a user's authenticator MFA
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Authenticator reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /admin/system/health:
     get:
       tags: [Admin]
@@ -1768,6 +1917,61 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /admin/system/reminder-delivery-health:
+    get:
+      tags: [Admin]
+      summary: Reminder and push-delivery health
+      responses:
+        "200":
+          description: Reminder delivery health retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /webhooks/payment:
+    post:
+      tags: [Admin]
+      summary: Payment provider settlement webhook
+      security: []
+      description: |
+        Trusted payment-provider callback. Provider signs the full payload with
+        PAYMENT_WEBHOOK_SECRET as HMAC-SHA256 over
+        `session_id.invoice_number.amount.currency.provider_event_id.timestamp`
+        (unix ms). Each invoice settles at most once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, invoice_number, amount, signature, provider_event_id, timestamp]
+              properties:
+                session_id: { type: string }
+                invoice_number: { type: string }
+                amount: { type: number }
+                currency: { type: string, default: INR }
+                signature: { type: string }
+                provider_event_id: { type: string }
+                timestamp:
+                  type: number
+                  description: Unix epoch milliseconds used in the HMAC material
+      responses:
+        "200":
+          description: Invoice settled (or already paid)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageOnlyResponse"
+        "401":
+          description: Invalid signature
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /admin/legacy/patients:
     get:
@@ -2528,6 +2732,33 @@ components:
                   type: string
                 account_name:
                   type: string
+
+    AdminTotpStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [factor_type, status, enabled]
+              properties:
+                factor_type:
+                  type: string
+                  enum: [AUTHENTICATOR_APP]
+                status:
+                  type: string
+                  enum: [ENABLED, PENDING, DISABLED]
+                enabled:
+                  type: boolean
+                enrolled_at:
+                  type: [string, "null"]
+                  format: date-time
+                activated_at:
+                  type: [string, "null"]
+                  format: date-time
+                last_verified_at:
+                  type: [string, "null"]
+                  format: date-time
 
     MeResponse:
       allOf:

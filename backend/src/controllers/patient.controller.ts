@@ -6,8 +6,6 @@ import { NotificationPriority, NotificationType } from '@alias/models/notificati
 import { UserType } from '@alias/validators'
 import { getSystemConfig, isFeatureEnabled } from '@alias/services/config.service'
 import * as notificationService from '@alias/services/notification.service'
-import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
-import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import { publishClinicalNotificationToUser } from '@alias/services/realtime-notification.service'
 import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
@@ -30,7 +28,8 @@ import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls,
 import { config } from '@alias/config'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
-import { createNotificationStreamTicket, verifyNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import { createNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import { resolveStreamUserOrThrow } from '@alias/services/notification-stream-auth.service'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 type DoctorUpdateEvent = {
@@ -255,26 +254,21 @@ const getDoctorUpdateNotifications = async (
 	return notificationCursor.lean()
 }
 
-const resolvePatientStreamUserOrThrow = async (req: Request) => {
-	const headerToken = extractTokenFromHeader(req.headers.authorization)
-	if (headerToken) {
-		const { user } = await validateAuthToken(headerToken, UserType.PATIENT)
-		return user
-	}
-	const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
-	const payload = ticket ? verifyNotificationStreamTicket(ticket, UserType.PATIENT) : null
-	if (!payload) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
-	}
-	const user = await User.findById(payload.user_id)
-	if (!user?.is_active || user.user_type !== UserType.PATIENT) {
-		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-	}
-	return user
-}
+const resolvePatientStreamUserOrThrow = (req: Request) =>
+	resolveStreamUserOrThrow(req, UserType.PATIENT, hasActiveClinicalHospitalAccess)
 
 export const createPatientNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
-	const ticket = createNotificationStreamTicket(String(req.user.user_id), UserType.PATIENT)
+	if (!req.user?.session_id || !req.user?.token_id) {
+		throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
+	}
+	const securityVersion = Number(req.authUser?.security_version || 0)
+	const ticket = await createNotificationStreamTicket({
+		userId: String(req.user.user_id),
+		userType: UserType.PATIENT,
+		sessionId: req.user.session_id,
+		tokenId: req.user.token_id,
+		securityVersion,
+	})
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notification stream ticket created', { ticket }))
 })
 
@@ -1085,7 +1079,17 @@ export const markAllNotificationsAsRead = asyncHandler(async (
 
 export const streamNotifications = asyncHandler(async (req: Request, res: Response) => {
 	const patientUser = await resolvePatientStreamUserOrThrow(req)
-	registerUserNotificationStream(String(patientUser._id), res)
+	const result = registerUserNotificationStream(String(patientUser._id), res, {
+		ip: req.ip || req.socket.remoteAddress || 'unknown',
+	})
+	if (result.ok === false) {
+		throw new ApiError(
+			StatusCodes.TOO_MANY_REQUESTS,
+			result.reason === 'user_limit'
+				? 'Too many active notification streams for this user'
+				: 'Too many active notification streams from this network',
+		)
+	}
 })
 
 function parseDDMMYYYY(date: string | Date): Date {

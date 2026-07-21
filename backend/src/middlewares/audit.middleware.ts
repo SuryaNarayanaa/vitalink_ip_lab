@@ -1,9 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
-import { StatusCodes } from 'http-status-codes'
 import { AuditLog } from '@alias/models'
 import { AuditAction } from '@alias/models/auditlog.model'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
-import ApiResponse from '@alias/utils/ApiResponse'
 
 /**
  * Resource-specific allowlists for audit `new_data`.
@@ -181,10 +179,13 @@ function inferAction(method: string, path: string): AuditAction | null {
  * Audit logger middleware - automatically logs admin actions.
  * Place early on the router so it wraps res.send for route handlers.
  *
- * No durable audit outbox/queue exists in this service, so persistence is
- * fail-closed: the HTTP response is held until AuditLog.create succeeds.
- * If the audited operation would otherwise succeed but the audit write fails,
- * the client receives 500 and does not get a successful completion signal.
+ * Admin mutations commit in route handlers before this middleware writes the
+ * audit row. Returning HTTP 500 after a successful mutation causes clients to
+ * retry and can duplicate work (e.g. invitations that already issued a temp
+ * password). Instead: hold the response until the audit write attempt finishes,
+ * then always deliver the committed result. When the audit write fails for a
+ * successful mutation, attach `audit_recorded: false` and emit an operational
+ * error log for alerting.
  */
 export function auditLogger(req: Request, res: Response, next: NextFunction): void {
   const originalSend = res.send
@@ -226,39 +227,42 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
       error_message: !success ? minimizeErrorMessage(body) : undefined,
     }
 
+    const deliverBody = (responseBody: any) => {
+      if (res.headersSent) return res
+      return originalSend.call(this, responseBody)
+    }
+
+    const attachAuditRecordedFlag = (rawBody: any, auditRecorded: boolean) => {
+      if (!success) return rawBody
+      try {
+        const parsed = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const next = { ...parsed, audit_recorded: auditRecorded }
+          // Preserve string bodies when the original send used a JSON string.
+          return typeof rawBody === 'string' ? JSON.stringify(next) : next
+        }
+      } catch {
+        // Non-JSON success body: leave as-is; audit status is still logged.
+      }
+      return rawBody
+    }
+
     auditWrite = AuditLog.create(auditPayload)
-      .then(() => originalSend.call(this, body))
+      .then(() => deliverBody(attachAuditRecordedFlag(body, true)))
       .catch((err: Error) => {
-        logger.error('Audit log creation failed', {
+        logger.error('audit.persistence_failed', {
           error: sanitizeLogText(err.message),
           action,
           path: req.originalUrl.split('?')[0],
+          resource_type: resourceType,
+          resource_id: auditPayload.resource_id,
+          mutation_committed: success,
+          alert: success ? 'audit_gap' : undefined,
         })
 
-        // Fail-closed for successful operations: do not report success without
-        // a durable audit record. Persistence failure is returned to the client.
-        if (success) {
-          if (res.headersSent) {
-            return res
-          }
-          res.status(StatusCodes.INTERNAL_SERVER_ERROR)
-          return originalSend.call(
-            this,
-            JSON.stringify(
-              new ApiResponse(
-                StatusCodes.INTERNAL_SERVER_ERROR,
-                'Request could not be completed because the audit record could not be persisted',
-              ),
-            ),
-          )
-        }
-
-        // Operation already failed: still deliver the original error response
-        // so clients retain validation/business errors; audit failure is logged.
-        if (res.headersSent) {
-          return res
-        }
-        return originalSend.call(this, body)
+        // Mutation already committed: return the real outcome so clients do not
+        // retry. Surface audit_recorded:false for successful ops.
+        return deliverBody(attachAuditRecordedFlag(body, false))
       })
 
     return auditWrite

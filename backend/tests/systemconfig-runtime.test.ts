@@ -38,12 +38,15 @@ describe('system configuration runtime safeguards', () => {
     expect([...windows.keys()]).toEqual(['active'])
   })
 
-  test('uses the bounded overflow bucket after the tracked-IP capacity is reached', () => {
+  test('evicts an existing key instead of sharing a global overflow bucket when capacity is full', () => {
     const windows = new Map<string, { count: number; resetAt: number; windowMs: number }>()
     for (let index = 0; index < 10_000; index += 1) {
-      windows.set(`192.0.2.${index}`, { count: 1, resetAt: 1_000, windowMs: 60 })
+      windows.set(getRateLimitKey(`192.0.2.${index}`), { count: 1, resetAt: 1_000 + index, windowMs: 60 })
     }
-    expect(getRateLimitWindowKey(windows, '198.51.100.1')).toBe('__rate-limit-overflow__')
+    const nextKey = getRateLimitWindowKey(windows, '198.51.100.1')
+    expect(nextKey).toBe(getRateLimitKey('198.51.100.1'))
+    expect(nextKey).not.toBe('__rate-limit-overflow__')
+    expect(windows.size).toBe(9_999)
   })
 
   test('matches maintenance control-plane exemptions and both patient registration routes', () => {

@@ -75,7 +75,7 @@ describe('FileAsset legacy cutoff config validation', () => {
     expect(config.fileAssetLegacyCutoffAt.toISOString()).toBe('2100-01-01T00:00:00.000Z')
   })
 
-  test('reports a missing malware scanner URL when the production hook is enabled', () => {
+  test('reports a missing malware scanner URL in production even when not explicitly enabled', () => {
     process.env = {
       ...originalEnv,
       NODE_ENV: 'production',
@@ -89,13 +89,39 @@ describe('FileAsset legacy cutoff config validation', () => {
       TWILIO_ACCOUNT_SID: 'AC-test',
       TWILIO_AUTH_TOKEN: 'test-token',
       TWILIO_VERIFY_SERVICE_SID: 'VA-test',
-      MALWARE_SCAN_ENABLED: 'true',
       MALWARE_SCAN_URL: '',
+    }
+    delete process.env.MALWARE_SCAN_ENABLED
+    jest.resetModules()
+
+    const { getMissingEnvironmentVariables, config } = require('@alias/config')
+    expect(config.malwareScanEnabled).toBe(true)
+    expect(getMissingEnvironmentVariables()).toContain('MALWARE_SCAN_URL')
+  })
+
+  test('rejects explicitly disabled malware scanning in production readiness', () => {
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: 'production',
+      MONGO_URI: 'mongodb://example.invalid/vitalink',
+      JWT_SECRET: 'production-test-secret',
+      ACCESS_KEY_ID: 'test-access-key',
+      SECRET_ACCESS_KEY: 'test-secret-key',
+      S3_BUCKET_NAME: 'test-bucket',
+      FILE_ASSET_LEGACY_CUTOFF_AT: '2026-07-16T00:00:00.000Z',
+      ADMIN_TOTP_ENCRYPTION_KEY: 'test-only-admin-totp-encryption-key-32b',
+      TWILIO_ACCOUNT_SID: 'AC-test',
+      TWILIO_AUTH_TOKEN: 'test-token',
+      TWILIO_VERIFY_SERVICE_SID: 'VA-test',
+      MALWARE_SCAN_ENABLED: 'false',
+      MALWARE_SCAN_URL: 'https://scanner.example/scan',
     }
     jest.resetModules()
 
     const { getMissingEnvironmentVariables } = require('@alias/config')
-    expect(getMissingEnvironmentVariables()).toContain('MALWARE_SCAN_URL')
+    expect(getMissingEnvironmentVariables()).toEqual(
+      expect.arrayContaining([expect.stringContaining('MALWARE_SCAN_ENABLED')]),
+    )
   })
 
   test.each(['scanner.internal/scan', 'http://scanner.internal/scan'])('rejects non-absolute or non-HTTPS scanner URL %s', (url) => {

@@ -167,9 +167,14 @@ export async function runClinicalReminderPass(now = new Date()): Promise<Reminde
           }
         }
         for (const userId of recipients) {
+          // Avoid patient names in notification copy that may also reach push providers.
+          // In-app record stays informative without PHI; FCM body is generic at send time.
           const created = await createReminder({
             userId, key: `missed-dose:${userId}:${patientId}:${dueWindow}`, type: NotificationType.CRITICAL_ALERT,
-            title: 'Medication doses need attention', message: `${patient.demographics?.name ?? 'A patient'} has missed ${missed} scheduled doses in the last ${config.missedDoseEscalationWindowDays} days.`,
+            title: 'Medication doses need attention',
+            message: userId === patientUserId
+              ? `You have missed ${missed} scheduled doses in the last ${config.missedDoseEscalationWindowDays} days.`
+              : `A patient on your roster has missed ${missed} scheduled doses in the last ${config.missedDoseEscalationWindowDays} days.`,
             data: { route: userId === patientUserId ? 'patient-take-dosage' : 'doctor-dashboard', patientId, reminderType: 'missed-dose', dueWindow },
             deliveryValidUntil,
           })

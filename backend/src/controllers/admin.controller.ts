@@ -246,6 +246,21 @@ export const createInvoiceCheckout = asyncHandler(async (req: Request, res: Resp
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Checkout session created', result))
 })
 
+/** Unauthenticated payment provider webhook — authenticity is HMAC-bound. */
+export const paymentWebhook = asyncHandler(async (req: Request, res: Response) => {
+  const body = req.body || {}
+  const result = await adminService.settleInvoiceFromWebhook({
+    session_id: String(body.session_id || body.sessionId || ''),
+    invoice_number: String(body.invoice_number || body.invoice || ''),
+    amount: body.amount,
+    currency: body.currency ? String(body.currency) : undefined,
+    signature: String(body.signature || body.sig || req.header('x-payment-signature') || ''),
+    provider_event_id: body.provider_event_id ? String(body.provider_event_id) : undefined,
+    timestamp: body.timestamp ?? body.ts ?? req.header('x-payment-timestamp') ?? undefined,
+  })
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Payment settled', result))
+})
+
 export const listUsers = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.listUsers(req.user?.user_id)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Users retrieved successfully', result))
