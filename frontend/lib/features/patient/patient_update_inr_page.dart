@@ -90,8 +90,6 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.embedInShell ? 24.0 : 32.0;
-
     return UseMutation<void, Map<String, dynamic>>(
       options: MutationOptions<void, Map<String, dynamic>>(
         mutationFn: (variables) =>
@@ -138,16 +136,21 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
             ),
           ),
           body: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(24, 32, 24, bottomPadding),
+            padding: PortalLayout.pagePadding(
+              embedInShell: widget.embedInShell,
+              top: PortalLayout.pageTopComfortable,
+              horizontal: PortalLayout.pageGutter + AppSpacing.xs,
+            ),
             child: Column(
               children: [
                 Form(
                   key: _formKey,
                   child: Container(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(PortalLayout.sectionGap),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius:
+                          BorderRadius.circular(PortalLayout.cardRadius + 4),
                       border: Border.all(
                           color: Colors.white.withValues(alpha: 0.3)),
                     ),
@@ -159,7 +162,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.black87)),
-                        const SizedBox(height: 12),
+                        PortalLayout.fieldSpacer,
                         TextFormField(
                           controller: _inrValueController,
                           keyboardType: const TextInputType.numberWithOptions(
@@ -175,13 +178,13 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 24),
+                        PortalLayout.sectionSpacer,
                         const Text('Date of Test :',
                             style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.black87)),
-                        const SizedBox(height: 12),
+                        PortalLayout.fieldSpacer,
                         TextFormField(
                           controller: _testDateController,
                           readOnly: true,
@@ -189,35 +192,41 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                           decoration:
                               _inputDecoration('dd-mm-yyyy --:--').copyWith(
                             suffixIcon: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12.0),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: PortalLayout.itemGap,
+                              ),
                               child: Icon(Icons.calendar_month,
                                   color: Colors.black54),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        PortalLayout.sectionSpacer,
                         const Text('Upload Document:',
                             style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.black87)),
-                        const SizedBox(height: 12),
+                        PortalLayout.fieldSpacer,
                         GestureDetector(
                           onTap: _pickFile,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 16),
+                              horizontal: PortalLayout.cardPadding,
+                              vertical: PortalLayout.cardPadding,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF0E5F5)
                                   .withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(
+                                PortalLayout.controlRadius,
+                              ),
                               border: Border.all(color: Colors.black12),
                             ),
                             child: Row(
                               children: [
                                 const Icon(Icons.attach_file,
                                     color: Colors.black54, size: 20),
-                                const SizedBox(width: 12),
+                                PortalLayout.columnSpacer,
                                 Expanded(
                                   child: Text(
                                     _selectedFile?.name ?? 'Select a file',
@@ -233,7 +242,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: AppSpacing.xl),
                         SizedBox(
                           width: double.infinity,
                           height: 54,

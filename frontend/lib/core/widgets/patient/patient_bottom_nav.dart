@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:frontend/core/motion/motion_widgets.dart';
 
 class PatientBottomNavBar extends StatelessWidget {
   final int currentIndex;
@@ -34,8 +35,8 @@ class PatientBottomNavBar extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 15,
-                offset: const Offset(0, 5),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -102,8 +103,6 @@ class PatientBottomNavBar extends StatelessWidget {
     required Color inactiveColor,
     int badgeCount = 0,
   }) {
-    final showBadge = badgeCount > 0;
-
     Widget iconWithBadge(Color color) {
       return Stack(
         clipBehavior: Clip.none,
@@ -112,29 +111,11 @@ class PatientBottomNavBar extends StatelessWidget {
             iconSvg,
             colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
           ),
-          if (showBadge)
+          if (badgeCount > 0)
             Positioned(
               right: -8,
               top: -6,
-              child: Container(
-                constraints: const BoxConstraints(minWidth: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white, width: 1),
-                ),
-                child: Text(
-                  badgeCount > 99 ? '99+' : '$badgeCount',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    height: 1.1,
-                  ),
-                ),
-              ),
+              child: MotionBadge(count: badgeCount),
             ),
         ],
       );

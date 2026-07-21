@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/core/constants/layout.dart';
 import 'package:styled_widget/styled_widget.dart';
 
 /// A reusable section header widget with optional action button.
@@ -23,17 +24,19 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding ?? const EdgeInsets.symmetric(vertical: 12),
+      padding: padding ??
+          const EdgeInsets.symmetric(vertical: PortalLayout.itemGap),
       child: Row(
         children: [
           if (icon != null)
             Icon(icon, size: 20, color: iconColor ?? const Color(0xFF6366F1))
-                .padding(all: 8)
+                .padding(all: AppSpacing.xs)
                 .decorated(
-                  color: (iconColor ?? const Color(0xFF6366F1)).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: (iconColor ?? const Color(0xFF6366F1))
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppSpacing.xs),
                 )
-                .padding(right: 12),
+                .padding(right: PortalLayout.itemGap),
           Text(
             title,
             style: titleStyle ??

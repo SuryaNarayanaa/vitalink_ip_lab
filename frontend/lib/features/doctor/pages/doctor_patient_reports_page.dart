@@ -30,7 +30,10 @@ class _DoctorPatientReportsPageState extends State<DoctorPatientReportsPage> {
         children: [
           // Header Section
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: PortalLayout.pageGutter,
+              vertical: PortalLayout.itemGap,
+            ),
             color: Colors.white,
             child: Row(
               children: [
@@ -48,6 +51,7 @@ class _DoctorPatientReportsPageState extends State<DoctorPatientReportsPage> {
                               fontWeight: FontWeight.bold,
                             ),
                       ),
+                      PortalLayout.metaSpacer,
                       Text(
                         'OP: ${widget.patientOpNumber}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -64,7 +68,7 @@ class _DoctorPatientReportsPageState extends State<DoctorPatientReportsPage> {
               ],
             ),
           ),
-          const Divider(),
+          const Divider(height: 1),
           // Reports List
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -96,12 +100,12 @@ class _DoctorPatientReportsPageState extends State<DoctorPatientReportsPage> {
                           size: 48,
                           color: Colors.red[400],
                         ),
-                        const SizedBox(height: 16),
+                        PortalLayout.sectionSpacerTight,
                         Text(
                           'Error loading reports',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 24),
+                        PortalLayout.sectionSpacer,
                         ElevatedButton.icon(
                           onPressed: () => setState(() {}),
                           icon: const Icon(Icons.refresh),
@@ -201,7 +205,10 @@ class _DoctorPatientReportsPageAltState
         children: [
           // Header Section
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: PortalLayout.pageGutter,
+              vertical: PortalLayout.itemGap,
+            ),
             color: Colors.white,
             child: Row(
               children: [
@@ -219,6 +226,7 @@ class _DoctorPatientReportsPageAltState
                               fontWeight: FontWeight.bold,
                             ),
                       ),
+                      PortalLayout.metaSpacer,
                       Text(
                         'OP: ${widget.patientOpNumber}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -235,7 +243,7 @@ class _DoctorPatientReportsPageAltState
               ],
             ),
           ),
-          const Divider(),
+          const Divider(height: 1),
           // Reports List
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -255,12 +263,12 @@ class _DoctorPatientReportsPageAltState
                           size: 48,
                           color: Colors.red[400],
                         ),
-                        const SizedBox(height: 16),
+                        PortalLayout.sectionSpacerTight,
                         Text(
                           'Error loading reports',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 24),
+                        PortalLayout.sectionSpacer,
                         ElevatedButton.icon(
                           onPressed: _refreshReports,
                           icon: const Icon(Icons.refresh),

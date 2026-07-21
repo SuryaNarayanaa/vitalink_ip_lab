@@ -33,7 +33,7 @@ class PatientProfileContent extends StatelessWidget {
               Column(
                 children: [
                   _buildAvatar(),
-                  const SizedBox(height: 16),
+                  PortalLayout.sectionSpacerTight,
                   _buildHeaderDetails(isCentered: true),
                 ],
               )
@@ -42,13 +42,17 @@ class PatientProfileContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   _buildAvatar(diameter: useSmallerHeader ? 88 : 100),
-                  SizedBox(width: useSmallerHeader ? 16 : 20),
+                  SizedBox(
+                    width: useSmallerHeader
+                        ? PortalLayout.cardPadding
+                        : PortalLayout.cardPaddingComfortable,
+                  ),
                   Expanded(child: _buildHeaderDetails()),
                 ],
               ),
-            const SizedBox(height: 24),
+            PortalLayout.sectionSpacer,
 
-            // Info Cards
+            // Info Cards — dense clinical facts
             if (isNarrow)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -59,7 +63,7 @@ class PatientProfileContent extends StatelessWidget {
                     value: '${profile['age'] ?? 'N/A'} yrs',
                     color: const Color(0xFFFF7643),
                   ),
-                  const SizedBox(height: 12),
+                  PortalLayout.itemSpacer,
                   PatientInfoSmallCard(
                     icon: profile['gender'] == 'Female'
                         ? Icons.female
@@ -81,7 +85,7 @@ class PatientProfileContent extends StatelessWidget {
                       color: const Color(0xFFFF7643),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  PortalLayout.columnSpacer,
                   Expanded(
                     child: PatientInfoSmallCard(
                       icon: profile['gender'] == 'Female'
@@ -94,7 +98,7 @@ class PatientProfileContent extends StatelessWidget {
                   ),
                 ],
               ),
-            const SizedBox(height: 12),
+            PortalLayout.itemSpacer,
 
             PatientInfoCard(
               icon: Icons.medical_services,
@@ -102,20 +106,21 @@ class PatientProfileContent extends StatelessWidget {
               value: profile['therapyDrug'] ?? 'Warfarin',
               color: const Color(0xFF8B5CF6),
             ),
-            const SizedBox(height: 12),
+            PortalLayout.itemSpacer,
 
-            if (profile['doctorName'] != null)
+            if (profile['doctorName'] != null) ...[
               PatientInfoCard(
                 icon: Icons.person,
                 label: 'Assigned Doctor',
                 value: profile['doctorName']!,
                 color: const Color(0xFF3B82F6),
               ),
-            const SizedBox(height: 12),
+              PortalLayout.itemSpacer,
+            ],
 
             // Profile Details Section
             PatientProfileDetails(profile: profile),
-            const SizedBox(height: 24),
+            PortalLayout.sectionSpacer,
 
             // Action Buttons
             PatientActionButtons(

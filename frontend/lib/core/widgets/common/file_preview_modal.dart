@@ -1,6 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:pdfrx/pdfrx.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Full-screen in-app file preview for INR report attachments.
+///
+/// PDFs render inside the app via [PdfViewer]; images use [Image.network].
+/// External open remains available as a secondary action.
 class FilePreviewModal extends StatefulWidget {
   final String fileUrl;
   final String? fileName;
@@ -13,18 +20,21 @@ class FilePreviewModal extends StatefulWidget {
     this.fileType,
   });
 
+  /// Opens a full-screen viewer route (preferred for reading PDFs).
   static Future<void> show(
     BuildContext context, {
     required String fileUrl,
     String? fileName,
     String? fileType,
   }) {
-    return showDialog(
-      context: context,
-      builder: (context) => FilePreviewModal(
-        fileUrl: fileUrl,
-        fileName: fileName,
-        fileType: fileType,
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => FilePreviewModal(
+          fileUrl: fileUrl,
+          fileName: fileName,
+          fileType: fileType,
+        ),
       ),
     );
   }
@@ -34,352 +44,375 @@ class FilePreviewModal extends StatefulWidget {
 }
 
 class _FilePreviewModalState extends State<FilePreviewModal> {
-  bool _isLoading = false;
-  String? _detectedFileType;
+  bool _isOpeningExternal = false;
+  late final String _detectedFileType;
+  final PdfViewerController _pdfController = PdfViewerController();
+  Timer? _imageLoadingTimer;
+  bool _imageLoadingTimedOut = false;
 
   @override
   void initState() {
     super.initState();
-    _detectFileType();
+    _detectedFileType = _resolveFileType();
   }
 
-  void _detectFileType() {
-    if (widget.fileType != null) {
-      _detectedFileType = widget.fileType;
-      return;
-    }
+  @override
+  void dispose() {
+    _imageLoadingTimer?.cancel();
+    super.dispose();
+  }
+
+  String _resolveFileType() {
+    if (widget.fileType != null) return widget.fileType!;
 
     final urlLower = widget.fileUrl.toLowerCase();
-    if (urlLower.contains('.pdf')) {
-      _detectedFileType = 'pdf';
-    } else if (urlLower.contains('.png') ||
+    // Signed URLs often bury the extension before query params.
+    final path = Uri.tryParse(widget.fileUrl)?.path.toLowerCase() ?? urlLower;
+    if (path.endsWith('.pdf') || urlLower.contains('.pdf')) {
+      return 'pdf';
+    }
+    if (path.endsWith('.png') ||
+        path.endsWith('.jpg') ||
+        path.endsWith('.jpeg') ||
+        path.endsWith('.gif') ||
+        path.endsWith('.webp') ||
+        urlLower.contains('.png') ||
         urlLower.contains('.jpg') ||
         urlLower.contains('.jpeg') ||
         urlLower.contains('.gif') ||
         urlLower.contains('.webp')) {
-      _detectedFileType = 'image';
-    } else {
-      // Default to PDF for unknown types
-      _detectedFileType = 'pdf';
+      return 'image';
     }
+    // INR report attachments default to PDF when type is ambiguous.
+    return 'pdf';
   }
 
   String get _displayName {
-    if (widget.fileName != null) return widget.fileName!;
-
+    if (widget.fileName != null && widget.fileName!.trim().isNotEmpty) {
+      return widget.fileName!;
+    }
     try {
       final uri = Uri.parse(widget.fileUrl);
       final pathSegments = uri.path.split('/');
-      return pathSegments.last.split('?').first;
-    } catch (_) {
-      return 'Report File';
-    }
+      final last = pathSegments.isNotEmpty ? pathSegments.last : '';
+      final cleaned = last.split('?').first;
+      if (cleaned.isNotEmpty) return cleaned;
+    } catch (_) {}
+    return 'Report File';
   }
 
-  Future<void> _downloadFile() async {
+  Future<void> _openExternally() async {
     try {
-      setState(() => _isLoading = true);
-
+      setState(() => _isOpeningExternal = true);
       final uri = Uri.parse(widget.fileUrl);
-
       if (!await canLaunchUrl(uri)) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cannot open this file type'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot open this file externally')),
+        );
         return;
       }
-
-      await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Opening download...'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
-      debugPrint('Error downloading file: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error downloading file: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      debugPrint('Error opening file externally: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error opening file: $e')),
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isOpeningExternal = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final maxHeight = screenHeight * 0.7; // 70% of screen height
-    
-    return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      backgroundColor: Colors.white,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: maxHeight,
-          maxWidth: 500,
+    final isPdf = _detectedFileType == 'pdf';
+
+    return Scaffold(
+      backgroundColor: isPdf ? const Color(0xFF1F2937) : Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF111827),
+        elevation: 0.5,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Close',
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey[200]!),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'File Preview',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _displayName,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => Navigator.pop(context),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
+            Text(
+              isPdf ? 'PDF Report' : 'File Preview',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF111827),
               ),
             ),
-            // Content
-            Flexible(
-              child: _buildPreviewContent(),
-            ),
-            // Footer with download button
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(color: Colors.grey[200]!),
-                ),
+            Text(
+              _displayName,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
               ),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _downloadFile,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.download, size: 18),
-                  label: Text(_isLoading ? 'Downloading...' : 'Download'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
+        actions: [
+          if (isPdf)
+            IconButton(
+              tooltip: 'Zoom out',
+              onPressed: () {
+                if (!_pdfController.isReady) return;
+                unawaited(_pdfController.zoomDown());
+              },
+              icon: const Icon(Icons.zoom_out),
+            ),
+          if (isPdf)
+            IconButton(
+              tooltip: 'Zoom in',
+              onPressed: () {
+                if (!_pdfController.isReady) return;
+                unawaited(_pdfController.zoomUp());
+              },
+              icon: const Icon(Icons.zoom_in),
+            ),
+          IconButton(
+            tooltip: 'Open externally',
+            onPressed: _isOpeningExternal ? null : _openExternally,
+            icon: _isOpeningExternal
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.open_in_new),
+          ),
+        ],
       ),
+      body: isPdf ? _buildPdfViewer() : _buildImagePreview(),
     );
   }
 
-  Widget _buildPreviewContent() {
-    return Container(
-      color: Colors.grey[50],
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: _detectedFileType == 'image'
-              ? _buildImagePreview()
-              : _buildPdfPreview(),
-        ),
+  Widget _buildPdfViewer() {
+    final uri = Uri.tryParse(widget.fileUrl);
+    if (uri == null ||
+        !uri.hasScheme ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        !uri.hasAuthority ||
+        uri.host.isEmpty) {
+      return _ErrorPane(
+        message: 'This report link is invalid or expired.',
+        onDark: true,
+        onRetryExternal: _openExternally,
+      );
+    }
+
+    return PdfViewer.uri(
+      uri,
+      controller: _pdfController,
+      timeout: const Duration(seconds: 45),
+      params: PdfViewerParams(
+        backgroundColor: const Color(0xFF1F2937),
+        margin: 10,
+        loadingBannerBuilder: (context, bytesDownloaded, totalBytes) {
+          final progress = totalBytes != null && totalBytes > 0
+              ? bytesDownloaded / totalBytes
+              : null;
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: 3,
+                    color: Colors.white,
+                    backgroundColor: Colors.white24,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  progress == null
+                      ? 'Loading PDF…'
+                      : 'Loading PDF… ${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+        errorBannerBuilder: (context, error, stackTrace, documentRef) {
+          return _ErrorPane(
+            message:
+                'Could not load this PDF in the app. The link may have expired, or the file is unavailable.',
+            detail: error.toString(),
+            onDark: true,
+            onRetryExternal: _openExternally,
+          );
+        },
+        viewerOverlayBuilder: (context, size, handleLinkTap) => [
+          PdfViewerScrollThumb(
+            controller: _pdfController,
+            orientation: ScrollbarOrientation.right,
+            thumbSize: const Size(28, 48),
+            margin: 4,
+            thumbBuilder: (context, thumbSize, pageNumber, controller) {
+              return Container(
+                width: thumbSize.width,
+                height: thumbSize.height,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: pageNumber == null
+                    ? null
+                    : Text(
+                        '$pageNumber',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildImagePreview() {
-    return Container(
-      constraints: const BoxConstraints(
-        maxHeight: 400,
-      ),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[300]!, width: 1),
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.white,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.network(
-          widget.fileUrl,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.image_not_supported,
-                    size: 40,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Failed to load image',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                  ),
-                ],
-              ),
-            );
-          },
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Container(
-              height: 200,
-              padding: const EdgeInsets.all(32),
-              child: Center(
+    if (_imageLoadingTimedOut) {
+      return ColoredBox(
+        color: const Color(0xFFF9FAFB),
+        child: _ErrorPane(
+          message:
+              'Could not load this image in the app. The link may have expired, or the file is unavailable.',
+          detail: 'Loading timed out after 45 seconds.',
+          onRetryExternal: _openExternally,
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: const Color(0xFFF9FAFB),
+      child: InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 5,
+        child: Center(
+          child: Image.network(
+            widget.fileUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              _imageLoadingTimer?.cancel();
+              return _ErrorPane(
+                message: 'Failed to load image.',
+                onRetryExternal: _openExternally,
+              );
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                // Image loaded successfully, cancel timeout.
+                _imageLoadingTimer?.cancel();
+                return child;
+              }
+              // Start timeout timer on first loading frame.
+              if (_imageLoadingTimer == null && !_imageLoadingTimedOut) {
+                _imageLoadingTimer = Timer(const Duration(seconds: 45), () {
+                  if (mounted) {
+                    setState(() => _imageLoadingTimedOut = true);
+                  }
+                });
+              }
+              return Center(
                 child: CircularProgressIndicator(
                   value: loadingProgress.expectedTotalBytes != null
                       ? loadingProgress.cumulativeBytesLoaded /
                           loadingProgress.expectedTotalBytes!
                       : null,
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildPdfPreview() {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.red[50],
-              shape: BoxShape.circle,
+class _ErrorPane extends StatelessWidget {
+  const _ErrorPane({
+    required this.message,
+    this.detail,
+    this.onDark = false,
+    this.onRetryExternal,
+  });
+
+  final String message;
+  final String? detail;
+  final bool onDark;
+  final VoidCallback? onRetryExternal;
+
+  @override
+  Widget build(BuildContext context) {
+    final onSurface = onDark ? Colors.white : const Color(0xFF374151);
+    final muted = onDark ? Colors.white70 : const Color(0xFF6B7280);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.picture_as_pdf_outlined, size: 48, color: muted),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: onSurface,
+              ),
             ),
-            child: Icon(
-              Icons.picture_as_pdf,
-              size: 48,
-              color: Colors.red[600],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'PDF Preview',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 20,
-                ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Tap Download to view or save the PDF file',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[600],
-                  fontSize: 13,
-                ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue[100]!),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  color: Colors.blue[700],
-                  size: 18,
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    'Opens with your default viewer',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.blue[700],
-                          fontSize: 12,
-                        ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+            if (detail != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                detail!,
+                textAlign: TextAlign.center,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+            ],
+            if (onRetryExternal != null) ...[
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: onRetryExternal,
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Open externally'),
+                style: onDark
+                    ? OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                      )
+                    : null,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

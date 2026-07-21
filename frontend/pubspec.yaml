@@ -54,6 +54,7 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   qr_flutter: ^4.1.0
   shared_preferences: ^2.5.5
+  pdfrx: ^2.4.7
 
 dev_dependencies:
   flutter_test:
