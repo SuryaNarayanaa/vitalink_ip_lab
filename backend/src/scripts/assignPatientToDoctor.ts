@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import connectDB from '@alias/config/db'
-import { DoctorProfile, PatientProfile, User } from '@alias/models'
+import { DoctorProfile, Hospital, PatientProfile, User } from '@alias/models'
 import { UserType } from '@alias/validators'
 import logger from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
@@ -10,12 +10,14 @@ import {
   terminalizePatientAssignment,
 } from '@alias/services/doctor-assignment.service'
 import { createDoctorUpdateNotification } from '@alias/services/doctor-update-notification.service'
-import { Hospital } from '@alias/models'
 
 /**
  * Operational reassignment entrypoint.
  * Applies the same tenant, activity, assignment-fence, and notification
  * protections as the admin reassignment service. Does not log patient PII.
+ *
+ * Guard leases are always released via try/finally — never call process.exit
+ * while a lease is held.
  */
 async function main() {
   const doctorLoginId = process.argv[2]
@@ -83,7 +85,8 @@ async function main() {
     process.exit(1)
   }
 
-  if (patientProfile.account_status && patientProfile.account_status !== 'Active') {
+  // Match the CAS filter: unset/empty/non-Active must fail early and clearly.
+  if (patientProfile.account_status !== 'Active') {
     logger.error('Patient is not Active; reassignment refused', {
       patient_login_id: patientLoginId,
       account_status: patientProfile.account_status,
@@ -104,31 +107,33 @@ async function main() {
   }
 
   let releasePreviousDoctorGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
-  if (previousDoctorId && String(previousDoctorId) !== String(doctorUser._id)) {
-    const previousDoctor = await User.findOne({
-      user_type: UserType.DOCTOR,
-      is_active: true,
-      $or: [{ _id: previousDoctorId }, { profile_id: previousDoctorId }],
-    }).select('_id profile_id')
-    if (previousDoctor) {
-      releasePreviousDoctorGuard = await acquireDoctorAssignmentGuard(previousDoctor._id)
-      await stampDoctorProfileFence(previousDoctor.profile_id, {
-        fenceToken: releasePreviousDoctorGuard.fenceToken,
-        assertOwned: releasePreviousDoctorGuard.assertOwned,
-      })
-    }
-  }
-
-  let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>>
-  try {
-    releaseAssignmentGuard = await acquireDoctorAssignmentGuard(doctorUser._id)
-  } catch (error) {
-    if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard()
-    throw error
-  }
-
+  let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
   let updated
+
   try {
+    if (previousDoctorId && String(previousDoctorId) !== String(doctorUser._id)) {
+      const previousDoctor = await User.findOne({
+        user_type: UserType.DOCTOR,
+        is_active: true,
+        $or: [{ _id: previousDoctorId }, { profile_id: previousDoctorId }],
+      }).select('_id profile_id')
+      if (previousDoctor) {
+        releasePreviousDoctorGuard = await acquireDoctorAssignmentGuard(previousDoctor._id)
+        try {
+          await stampDoctorProfileFence(previousDoctor.profile_id, {
+            fenceToken: releasePreviousDoctorGuard.fenceToken,
+            assertOwned: releasePreviousDoctorGuard.assertOwned,
+          })
+        } catch (error) {
+          await releasePreviousDoctorGuard()
+          releasePreviousDoctorGuard = undefined
+          throw error
+        }
+      }
+    }
+
+    releaseAssignmentGuard = await acquireDoctorAssignmentGuard(doctorUser._id)
+
     const guardedDoctor = await User.findById(doctorUser._id).select('is_active profile_id')
     const guardedDoctorProfile = guardedDoctor
       ? await DoctorProfile.findById(guardedDoctor.profile_id).select('hospital_id doctor_operation_fence')
@@ -138,8 +143,7 @@ async function main() {
       !guardedDoctorProfile?.hospital_id ||
       String(guardedDoctorProfile.hospital_id) !== patientHospitalId
     ) {
-      logger.error('Target doctor lifecycle changed during reassignment')
-      process.exit(1)
+      throw new Error('Target doctor lifecycle changed during reassignment')
     }
     await stampDoctorProfileFence(guardedDoctor.profile_id, {
       fenceToken: releaseAssignmentGuard.fenceToken,
@@ -185,19 +189,14 @@ async function main() {
             doctor_login_id: doctorLoginId,
           })
         } else if (terminal.state === 'QUARANTINED') {
-          logger.error('patient_reassignment.assignment_conflict', {
-            patient_login_id: patientLoginId,
-            doctor_login_id: doctorLoginId,
-          })
-          process.exit(1)
+          throw new Error('Patient assignment entered conflict review')
         } else {
-          logger.error('Patient assignment was superseded by another request')
-          process.exit(1)
+          throw new Error('Patient assignment was superseded by another request')
         }
       }
     }
   } finally {
-    await releaseAssignmentGuard()
+    if (releaseAssignmentGuard) await releaseAssignmentGuard()
     if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard()
   }
 

@@ -767,38 +767,55 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
       throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_PROVIDER_API_URL must be an HTTPS URL')
     }
 
-    const response = await fetch(apiBase.toString(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${providerApiKey}`,
-      },
-      body: JSON.stringify({
-        invoice_number: invoice.invoice_number,
-        amount,
-        currency,
-        success_url: successUrl || undefined,
-        cancel_url: cancelUrl || undefined,
-        metadata: {
-          invoice_id: String(invoice._id),
-          hospital_id: String(invoice.hospital_id),
-          session_id: sessionId,
-          signature,
+    let response: Response
+    try {
+      response = await fetch(apiBase.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${providerApiKey}`,
         },
-      }),
-    })
+        body: JSON.stringify({
+          invoice_number: invoice.invoice_number,
+          amount,
+          currency,
+          success_url: successUrl || undefined,
+          cancel_url: cancelUrl || undefined,
+          metadata: {
+            invoice_id: String(invoice._id),
+            hospital_id: String(invoice.hospital_id),
+            // Webhook settlement expects this local session id + signature.
+            session_id: sessionId,
+            signature,
+          },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+      throw new ApiError(
+        StatusCodes.BAD_GATEWAY,
+        aborted
+          ? 'Payment provider checkout timed out'
+          : `Payment provider checkout failed: ${error instanceof Error ? error.message : 'network error'}`,
+      )
+    }
     if (!response.ok) {
       throw new ApiError(StatusCodes.BAD_GATEWAY, `Payment provider rejected checkout session (HTTP ${response.status})`)
     }
-    const body = await response.json() as { checkout_url?: string; session_id?: string }
+    let body: { checkout_url?: string; session_id?: string }
+    try {
+      body = await response.json() as { checkout_url?: string; session_id?: string }
+    } catch {
+      throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider returned an invalid JSON response')
+    }
     if (!body.checkout_url) {
       throw new ApiError(StatusCodes.BAD_GATEWAY, 'Payment provider response missing checkout_url')
     }
+    // Always reconcile webhooks against our locally signed sessionId (not a
+    // provider-native id) so settlement stays HMAC-bound to invoice/amount.
     checkoutUrl = body.checkout_url
     provider = 'provider_api'
-    if (body.session_id) {
-      // Prefer provider session id when returned; re-sign for webhook reconciliation.
-    }
   } else if (checkoutBaseUrl) {
     let url: URL
     try {

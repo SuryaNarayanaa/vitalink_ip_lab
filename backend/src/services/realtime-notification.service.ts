@@ -29,6 +29,8 @@ const CHANNEL_PREFIX = 'vitalink:notifications:'
 const INSTANCE_ID = crypto.randomUUID()
 
 let pubSubInitialized = false
+/** Single-flight guard so concurrent stream registrations share one subscribe. */
+let pubSubInitPromise: Promise<void> | null = null
 
 const toJson = (value: unknown) => JSON.stringify(value)
 
@@ -73,11 +75,11 @@ const writeSseComment = async (res: Response, comment: string): Promise<boolean>
 
 const removeClient = (userId: string, meta: StreamMeta) => {
   const streams = userStreams.get(userId)
-  if (streams) {
-    streams.delete(meta)
-    if (streams.size === 0) {
-      userStreams.delete(userId)
-    }
+  // Only decrement bookkeeping when this meta was still tracked, so duplicate
+  // cleanup (close+error, write-fail+close, heartbeat) is a no-op.
+  if (!streams || !streams.delete(meta)) return
+  if (streams.size === 0) {
+    userStreams.delete(userId)
   }
   const current = ipConnectionCounts.get(meta.ip) ?? 0
   if (current <= 1) ipConnectionCounts.delete(meta.ip)
@@ -104,13 +106,13 @@ const deliverLocally = (userId: string, event: string, data: unknown) => {
 
 async function ensurePubSub(): Promise<void> {
   if (pubSubInitialized || !isRedisConfigured()) return
-  const sub = getRedisSubscriber()
-  if (!sub || !(await ensureRedisConnected(sub))) return
+  if (pubSubInitPromise) return pubSubInitPromise
 
-  try {
-    // Pattern subscribe for all user notification channels.
-    await sub.psubscribe(`${CHANNEL_PREFIX}*`)
-    sub.on('pmessage', (_pattern, channel, message) => {
+  pubSubInitPromise = (async () => {
+    const sub = getRedisSubscriber()
+    if (!sub || !(await ensureRedisConnected(sub))) return
+
+    const onMessage = (_pattern: string, channel: string, message: string) => {
       if (!channel.startsWith(CHANNEL_PREFIX)) return
       const userId = channel.slice(CHANNEL_PREFIX.length)
       if (!userId) return
@@ -124,14 +126,26 @@ async function ensurePubSub(): Promise<void> {
       } catch {
         // Ignore malformed broker payloads
       }
-    })
-    pubSubInitialized = true
-    logger.info('realtime.pubsub_subscribed')
-  } catch (error) {
-    logger.warn('realtime.pubsub_subscribe_failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
+    }
+
+    try {
+      // Register the handler before psubscribe so early messages are not dropped.
+      sub.on('pmessage', onMessage)
+      await sub.psubscribe(`${CHANNEL_PREFIX}*`)
+      pubSubInitialized = true
+      logger.info('realtime.pubsub_subscribed')
+    } catch (error) {
+      sub.off('pmessage', onMessage)
+      logger.warn('realtime.pubsub_subscribe_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  })().finally(() => {
+    // Clear in-flight state so a failed attempt can be retried later.
+    if (!pubSubInitialized) pubSubInitPromise = null
+  })
+
+  return pubSubInitPromise
 }
 
 export type RegisterStreamResult =

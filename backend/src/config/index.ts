@@ -235,14 +235,9 @@ export function getMissingEnvironmentVariables(): string[] {
 
   // Malware scanning is mandatory in production/staging readiness checks.
   required.push('MALWARE_SCAN_URL')
-  if (!(process.env.MALWARE_SCAN_ENABLED || '').trim()) {
-    // Explicit disable is only valid outside readiness; if present as false we still
-    // surface a missing config so operators cannot silently ship without scanning.
-  }
-  const malwareExplicitlyDisabled = (process.env.MALWARE_SCAN_ENABLED || '').trim().toLowerCase() === 'false'
-  if (malwareExplicitlyDisabled) {
-    // Keep URL required unless intentionally disabled — readiness fails when scan is off.
-    // Represent the policy gap as a synthetic missing key for operators.
+  // Use the parsed flag (not only the literal "false") so 0/no/off/garbage cannot
+  // silently disable scanning while readiness still passes.
+  if (!malwareScanEnabled) {
     required.push('MALWARE_SCAN_ENABLED(must be true in production/staging)')
   }
 

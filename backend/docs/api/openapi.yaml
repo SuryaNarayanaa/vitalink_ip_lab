@@ -1110,7 +1110,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageOnlyResponse"
+                type: object
+                properties:
+                  statusCode: { type: integer, example: 200 }
+                  message: { type: string }
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      ticket: { type: string }
         "401":
           $ref: "#/components/responses/Unauthorized"
 
