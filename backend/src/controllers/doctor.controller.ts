@@ -22,8 +22,6 @@ import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 import { getObjectIdString } from '@alias/utils/objectid'
-import { extractTokenFromHeader } from '@alias/utils/jwt.utils'
-import { validateAuthToken } from '@alias/middlewares/authProvider.middleware'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import * as notificationService from '@alias/services/notification.service'
 import {
@@ -32,14 +30,9 @@ import {
 } from '@alias/services/doctor-update-notification.service'
 import { generateTemporaryPassword } from '@alias/services/password.service'
 import { acquireDoctorAssignmentGuard, stampDoctorProfileFence, terminalizePatientAssignment } from '@alias/services/doctor-assignment.service'
-import {
-  consumeStreamTicketJti,
-  createNotificationStreamTicket,
-  verifyNotificationStreamTicket,
-} from '@alias/services/notification-stream-ticket.service'
-import { findActiveSessionForAccessToken } from '@alias/services/auth-session.service'
+import { createNotificationStreamTicket } from '@alias/services/notification-stream-ticket.service'
+import { resolveStreamUserOrThrow } from '@alias/services/notification-stream-auth.service'
 import { hasActiveHospitalAccess } from '@alias/services/hospital-access.service'
-import { getPasswordPolicyState } from '@alias/services/password.service'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
 
 const normalizeLoginId = (value: string) => value.trim()
@@ -247,49 +240,8 @@ const mapNotificationToAppNotificationItem = (notification: any) => ({
   data: notification?.data,
 })
 
-const resolveDoctorStreamUserOrThrow = async (req: Request) => {
-  const headerToken = extractTokenFromHeader(req.headers.authorization)
-  if (headerToken) {
-    const { user } = await validateAuthToken(headerToken, UserType.DOCTOR)
-    return user
-  }
-  const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
-  const payload = ticket ? verifyNotificationStreamTicket(ticket, UserType.DOCTOR) : null
-  if (!payload) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Missing authentication token')
-  }
-  const consumed = await consumeStreamTicketJti(payload.jti)
-  if (!consumed) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-  }
-  const user = await User.findById(payload.user_id)
-    .select('is_active user_type profile_id must_change_password password_changed_at createdAt security_version')
-    .lean()
-  if (!user?.is_active || user.user_type !== UserType.DOCTOR) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-  }
-  if (Number(user.security_version || 0) !== Number(payload.security_version || 0)) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-  }
-  const session = await findActiveSessionForAccessToken({
-    sessionId: payload.session_id,
-    tokenId: payload.token_id,
-    userId: payload.user_id,
-    userType: UserType.DOCTOR,
-    securityVersion: Number(user.security_version || 0),
-  })
-  if (!session) {
-    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid or expired stream ticket')
-  }
-  if (!await hasActiveHospitalAccess(user)) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital is suspended or inactive. Please contact support.')
-  }
-  const passwordState = getPasswordPolicyState(user)
-  if (passwordState.must_change_password) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Password change is required before continuing.')
-  }
-  return user
-}
+const resolveDoctorStreamUserOrThrow = (req: Request) =>
+  resolveStreamUserOrThrow(req, UserType.DOCTOR, hasActiveHospitalAccess)
 
 export const createDoctorNotificationStreamTicket = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user?.session_id || !req.user?.token_id) {

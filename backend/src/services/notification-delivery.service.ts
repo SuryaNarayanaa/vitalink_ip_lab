@@ -630,12 +630,15 @@ export async function processNotificationDelivery(deliveryId: string): Promise<{
 
   incrementDeliveryMetric('processed')
   // Lock-screen / FCM provider surfaces must not carry clinical details
-  // (medication names, doses, patient names). In-app notification records keep
-  // the full title/body; push only carries a generic prompt plus opaque routing data.
+  // (medication names, doses, patient names, patientId, reminderType). In-app
+  // records keep full content; push only carries a generic prompt plus an
+  // opaque notification id so the app fetches details after auth.
   const payload: PushPayload = {
     title: 'VitaLink',
     body: 'You have a new VitaLink update',
-    data: payloadDataAsRecord(delivery.data as any),
+    data: {
+      notification_id: String(delivery.notification_id),
+    },
   }
   const staleLease = () => {
     incrementDeliveryMetric('stale_lease')

@@ -754,9 +754,12 @@ export async function createCheckout(invoiceId: string, actorUserId?: string) {
     throw new ApiError(StatusCodes.SERVICE_UNAVAILABLE, 'PAYMENT_PROVIDER_API_URL must be an HTTPS URL')
   }
 
-  const sessionId = crypto.randomUUID()
   const amount = Number(invoice.amount)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Invoice amount must be a positive number before checkout')
+  }
   const currency = 'INR'
+  const sessionId = crypto.randomUUID()
   // Settlement proof is shared only with the payment provider, never with admins/clients.
   const signedPayload = [sessionId, invoice.invoice_number, String(amount), currency].join('.')
   const signature = crypto.createHmac('sha256', webhookSecret).update(signedPayload).digest('hex')

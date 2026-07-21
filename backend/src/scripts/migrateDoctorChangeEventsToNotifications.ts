@@ -130,7 +130,8 @@ async function run() {
             .lean()
           if (existing) continue
           try {
-            await Notification.create([doc], { session })
+            // Disable schema timestamps so legacy event.created_at is preserved.
+            await Notification.create([doc], { session, timestamps: false })
             insertedCount += 1
           } catch (error: any) {
             // Duplicate key on concurrent rerun is fine (idempotent).
