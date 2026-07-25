@@ -1,0 +1,16 @@
+{
+  "local-compose": {
+    "baseUrl": "http://127.0.0.1:8080",
+    "allowedHosts": ["127.0.0.1", "localhost", "host.docker.internal"],
+    "fingerprint": "replace-with-seeded-environment-fingerprint"
+  },
+  "dedicated-staging": {
+    "baseUrl": "https://load-staging.example.invalid",
+    "allowedHosts": ["load-staging.example.invalid"],
+    "fingerprint": "replace-with-seeded-environment-fingerprint"
+  },
+  "knownProductionHosts": [
+    "vitalink-uimf.onrender.com",
+    "api.vitalink.invalid"
+  ]
+}

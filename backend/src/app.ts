@@ -15,15 +15,31 @@ import { getNotificationDeliveryWorkerHealth } from './jobs/notification-deliver
 import { apiLimiter, authLimiter } from "./config/ratelimiter";
 import { apiVersionHeaders, legacyApiHeaders } from "./middlewares/apiVersion.middleware";
 import { enforceSystemFeatureFlags } from './middlewares/systemConfig.middleware'
+import {
+  initializeLoadTestMetrics,
+  loadTestMetricsEnabled,
+  observeLoadTestRequest,
+  renderLoadTestMetrics,
+} from './loadTestMetrics'
 
 const app = express();
 app.set('trust proxy', config.trustProxy);
+initializeLoadTestMetrics()
 const dbStates: Record<number, string> = {
   0: 'disconnected',
   1: 'connected',
   2: 'connecting',
   3: 'disconnecting',
 };
+
+function exposeAuthorizedLoadTestIdentity(res: Response): void {
+  if (process.env.LOAD_TEST_IDENTITY_ENABLED?.toLowerCase() !== 'true') return
+  const fingerprint = (process.env.LOAD_TEST_ENV_FINGERPRINT || '').trim()
+  const runId = (process.env.LOAD_TEST_RUN_ID || '').trim()
+  if (!fingerprint || !runId) return
+  res.setHeader('X-Load-Test-Environment-Fingerprint', fingerprint)
+  res.setHeader('X-Load-Test-Run-Id', runId)
+}
 
 morgan.token('request-id', (req: Request) => (req as any).requestId ?? '-');
 morgan.token('safe-url', (req: Request) => {
@@ -66,6 +82,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Request-Id', requestId);
   next();
 });
+
+app.use(observeLoadTestRequest)
 
 app.use(morgan(':method :safe-url :status :res[content-length] - :response-time ms [request-id=:request-id]', {
   stream: {
@@ -141,6 +159,7 @@ app.get('/health/live', (req, res) => {
 });
 
 app.get('/health/ready', (req, res) => {
+  exposeAuthorizedLoadTestIdentity(res)
   const readyState = mongoose.connection.readyState;
   const databaseState = dbStates[readyState] || 'unknown';
   const firebase = getFirebaseMessagingHealth();
@@ -180,6 +199,14 @@ app.get('/health/ready', (req, res) => {
 
   return res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Service is ready', responseData));
 });
+
+app.get('/load-test/metrics', (_req, res) => {
+  if (!loadTestMetricsEnabled()) {
+    return res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Not found'))
+  }
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
+  return res.status(StatusCodes.OK).send(renderLoadTestMetrics())
+})
 
 if (config.apiDocsEnabled) {
   const docsRouter = require("./routes/docs.routes").default;

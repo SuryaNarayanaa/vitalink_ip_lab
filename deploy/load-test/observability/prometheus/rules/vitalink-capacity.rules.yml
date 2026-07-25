@@ -1,0 +1,45 @@
+groups:
+  - name: vitalink-capacity-live
+    interval: 5s
+    rules:
+      - record: vitalink:k6_endpoint_rps:rate1m
+        expr: sum by (load_run_id, endpoint_id, method, route_family) (rate(k6_load_request_attempts_total[1m]))
+
+      - record: vitalink:k6_endpoint_error_ratio:rate1m
+        expr: |
+          sum by (load_run_id, endpoint_id, method, route_family) (rate(k6_load_unexpected_statuses_total[1m]))
+          /
+          clamp_min(sum by (load_run_id, endpoint_id, method, route_family) (rate(k6_load_request_attempts_total[1m])), 0.000001)
+
+      - record: vitalink:k6_endpoint_semantic_error_ratio:rate1m
+        expr: |
+          sum by (load_run_id, endpoint_id, method, route_family) (rate(k6_load_semantic_failures_total[1m]))
+          /
+          clamp_min(sum by (load_run_id, endpoint_id, method, route_family) (rate(k6_load_request_attempts_total[1m])), 0.000001)
+
+      - alert: VitaLinkEndpointErrorBudgetExceeded
+        expr: vitalink:k6_endpoint_error_ratio:rate1m > 0.01
+        for: 30s
+        labels:
+          severity: stop
+        annotations:
+          summary: "Endpoint error ratio exceeded 1%"
+          description: "{{ $labels.endpoint_id }} is above the capacity-test error budget."
+
+      - alert: VitaLinkDependencyExporterDown
+        expr: up{job=~"mongodb|redis|load-test-containers|load-test-http-probes"} == 0
+        for: 30s
+        labels:
+          severity: stop
+        annotations:
+          summary: "Required load-test telemetry is unavailable"
+          description: "{{ $labels.job }} / {{ $labels.instance }} has been down for 30 seconds."
+
+      - alert: VitaLinkContainerTelemetryMissing
+        expr: absent(container_cpu_usage_seconds_total{container_label_com_docker_compose_project="vitalink-load-test", image!=""})
+        for: 30s
+        labels:
+          severity: evidence
+        annotations:
+          summary: "Docker container resource telemetry is missing"
+          description: "cAdvisor is reachable but exposes no usable VitaLink Compose container series."

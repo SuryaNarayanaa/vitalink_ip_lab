@@ -1,0 +1,4495 @@
+{
+  "schemaVersion": 1,
+  "sourceDigest": "sha256:d03c082de0d9389001ec32c142fd94feca9a0a37fbdde1501f780cf73cf3ac56",
+  "sources": {
+    "application": "backend/src/app.ts",
+    "routerRoot": "backend/src/routes/index.ts",
+    "openApi": "backend/docs/api/openapi.yaml",
+    "nginx": "deploy/nginx/conf.d/default.conf"
+  },
+  "defaults": {
+    "apiVersion": "v1",
+    "apiDocsEnabledByDefault": {
+      "nonProduction": true,
+      "production": false
+    },
+    "apiDocsPath": "/docs"
+  },
+  "counts": {
+    "canonical": 95,
+    "legacy": 95,
+    "global": 3,
+    "edge": 1,
+    "mandatoryExplicit": 194,
+    "openApiOperations": 95,
+    "conditional": 5,
+    "derivedProtocolChecks": 251
+  },
+  "explicitEndpoints": [
+    {
+      "id": "GET /api/v1",
+      "method": "GET",
+      "path": "/api/v1",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1",
+      "openApiPath": "/",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/app.ts",
+      "sourceLine": 150
+    },
+    {
+      "id": "GET /api/v1/admin/audit-logs",
+      "method": "GET",
+      "path": "/api/v1/admin/audit-logs",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/audit-logs",
+      "openApiPath": "/admin/audit-logs",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 72
+    },
+    {
+      "id": "POST /api/v1/admin/billing/checkout/{invoiceId}",
+      "method": "POST",
+      "path": "/api/v1/admin/billing/checkout/{invoiceId}",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/billing/checkout/{invoiceId}",
+      "openApiPath": "/admin/billing/checkout/{invoiceId}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 49
+    },
+    {
+      "id": "GET /api/v1/admin/billing/invoices",
+      "method": "GET",
+      "path": "/api/v1/admin/billing/invoices",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/billing/invoices",
+      "openApiPath": "/admin/billing/invoices",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 47
+    },
+    {
+      "id": "POST /api/v1/admin/billing/invoices",
+      "method": "POST",
+      "path": "/api/v1/admin/billing/invoices",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/billing/invoices",
+      "openApiPath": "/admin/billing/invoices",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 48
+    },
+    {
+      "id": "GET /api/v1/admin/config",
+      "method": "GET",
+      "path": "/api/v1/admin/config",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/config",
+      "openApiPath": "/admin/config",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 75
+    },
+    {
+      "id": "PUT /api/v1/admin/config",
+      "method": "PUT",
+      "path": "/api/v1/admin/config",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/config",
+      "openApiPath": "/admin/config",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 76
+    },
+    {
+      "id": "GET /api/v1/admin/doctors",
+      "method": "GET",
+      "path": "/api/v1/admin/doctors",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/doctors",
+      "openApiPath": "/admin/doctors",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 58
+    },
+    {
+      "id": "POST /api/v1/admin/doctors",
+      "method": "POST",
+      "path": "/api/v1/admin/doctors",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/doctors",
+      "openApiPath": "/admin/doctors",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 57
+    },
+    {
+      "id": "DELETE /api/v1/admin/doctors/{id}",
+      "method": "DELETE",
+      "path": "/api/v1/admin/doctors/{id}",
+      "scope": "canonical",
+      "canonicalId": "DELETE /api/v1/admin/doctors/{id}",
+      "openApiPath": "/admin/doctors/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 60
+    },
+    {
+      "id": "PUT /api/v1/admin/doctors/{id}",
+      "method": "PUT",
+      "path": "/api/v1/admin/doctors/{id}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/doctors/{id}",
+      "openApiPath": "/admin/doctors/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 59
+    },
+    {
+      "id": "GET /api/v1/admin/hospitals",
+      "method": "GET",
+      "path": "/api/v1/admin/hospitals",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/hospitals",
+      "openApiPath": "/admin/hospitals",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "POST /api/v1/admin/hospitals",
+      "method": "POST",
+      "path": "/api/v1/admin/hospitals",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/hospitals",
+      "openApiPath": "/admin/hospitals",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 41
+    },
+    {
+      "id": "DELETE /api/v1/admin/hospitals/{id}",
+      "method": "DELETE",
+      "path": "/api/v1/admin/hospitals/{id}",
+      "scope": "canonical",
+      "canonicalId": "DELETE /api/v1/admin/hospitals/{id}",
+      "openApiPath": "/admin/hospitals/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 45
+    },
+    {
+      "id": "GET /api/v1/admin/hospitals/{id}",
+      "method": "GET",
+      "path": "/api/v1/admin/hospitals/{id}",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/hospitals/{id}",
+      "openApiPath": "/admin/hospitals/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "PUT /api/v1/admin/hospitals/{id}",
+      "method": "PUT",
+      "path": "/api/v1/admin/hospitals/{id}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/hospitals/{id}",
+      "openApiPath": "/admin/hospitals/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 43
+    },
+    {
+      "id": "PATCH /api/v1/admin/hospitals/{id}/status",
+      "method": "PATCH",
+      "path": "/api/v1/admin/hospitals/{id}/status",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/admin/hospitals/{id}/status",
+      "openApiPath": "/admin/hospitals/{id}/status",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 44
+    },
+    {
+      "id": "GET /api/v1/admin/legacy/doctor/{id}",
+      "method": "GET",
+      "path": "/api/v1/admin/legacy/doctor/{id}",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/legacy/doctor/{id}",
+      "openApiPath": "/admin/legacy/doctor/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 94
+    },
+    {
+      "id": "GET /api/v1/admin/legacy/patient/{op_num}",
+      "method": "GET",
+      "path": "/api/v1/admin/legacy/patient/{op_num}",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/legacy/patient/{op_num}",
+      "openApiPath": "/admin/legacy/patient/{op_num}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "GET /api/v1/admin/legacy/patients",
+      "method": "GET",
+      "path": "/api/v1/admin/legacy/patients",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/legacy/patients",
+      "openApiPath": "/admin/legacy/patients",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 92
+    },
+    {
+      "id": "POST /api/v1/admin/notifications/broadcast",
+      "method": "POST",
+      "path": "/api/v1/admin/notifications/broadcast",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/notifications/broadcast",
+      "openApiPath": "/admin/notifications/broadcast",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 79
+    },
+    {
+      "id": "GET /api/v1/admin/patients",
+      "method": "GET",
+      "path": "/api/v1/admin/patients",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/patients",
+      "openApiPath": "/admin/patients",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 64
+    },
+    {
+      "id": "POST /api/v1/admin/patients",
+      "method": "POST",
+      "path": "/api/v1/admin/patients",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/patients",
+      "openApiPath": "/admin/patients",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 63
+    },
+    {
+      "id": "DELETE /api/v1/admin/patients/{id}",
+      "method": "DELETE",
+      "path": "/api/v1/admin/patients/{id}",
+      "scope": "canonical",
+      "canonicalId": "DELETE /api/v1/admin/patients/{id}",
+      "openApiPath": "/admin/patients/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 66
+    },
+    {
+      "id": "PUT /api/v1/admin/patients/{id}",
+      "method": "PUT",
+      "path": "/api/v1/admin/patients/{id}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/patients/{id}",
+      "openApiPath": "/admin/patients/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 65
+    },
+    {
+      "id": "PUT /api/v1/admin/reassign/{op_num}",
+      "method": "PUT",
+      "path": "/api/v1/admin/reassign/{op_num}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/reassign/{op_num}",
+      "openApiPath": "/admin/reassign/{op_num}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 69
+    },
+    {
+      "id": "GET /api/v1/admin/roles",
+      "method": "GET",
+      "path": "/api/v1/admin/roles",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/roles",
+      "openApiPath": "/admin/roles",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 37
+    },
+    {
+      "id": "PUT /api/v1/admin/roles/{roleKey}",
+      "method": "PUT",
+      "path": "/api/v1/admin/roles/{roleKey}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/roles/{roleKey}",
+      "openApiPath": "/admin/roles/{roleKey}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "GET /api/v1/admin/system/health",
+      "method": "GET",
+      "path": "/api/v1/admin/system/health",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/system/health",
+      "openApiPath": "/admin/system/health",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 88
+    },
+    {
+      "id": "GET /api/v1/admin/system/reminder-delivery-health",
+      "method": "GET",
+      "path": "/api/v1/admin/system/reminder-delivery-health",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/system/reminder-delivery-health",
+      "openApiPath": "/admin/system/reminder-delivery-health",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "GET /api/v1/admin/users",
+      "method": "GET",
+      "path": "/api/v1/admin/users",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/admin/users",
+      "openApiPath": "/admin/users",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 51
+    },
+    {
+      "id": "POST /api/v1/admin/users",
+      "method": "POST",
+      "path": "/api/v1/admin/users",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/users",
+      "openApiPath": "/admin/users",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 52
+    },
+    {
+      "id": "PUT /api/v1/admin/users/{id}",
+      "method": "PUT",
+      "path": "/api/v1/admin/users/{id}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/admin/users/{id}",
+      "openApiPath": "/admin/users/{id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 54
+    },
+    {
+      "id": "POST /api/v1/admin/users/{id}/mfa/reset",
+      "method": "POST",
+      "path": "/api/v1/admin/users/{id}/mfa/reset",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/users/{id}/mfa/reset",
+      "openApiPath": "/admin/users/{id}/mfa/reset",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 53
+    },
+    {
+      "id": "POST /api/v1/admin/users/batch",
+      "method": "POST",
+      "path": "/api/v1/admin/users/batch",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/users/batch",
+      "openApiPath": "/admin/users/batch",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 82
+    },
+    {
+      "id": "POST /api/v1/admin/users/reset-password",
+      "method": "POST",
+      "path": "/api/v1/admin/users/reset-password",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/admin/users/reset-password",
+      "openApiPath": "/admin/users/reset-password",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 85
+    },
+    {
+      "id": "POST /api/v1/auth/admin/mfa/totp/activate",
+      "method": "POST",
+      "path": "/api/v1/auth/admin/mfa/totp/activate",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/admin/mfa/totp/activate",
+      "openApiPath": "/auth/admin/mfa/totp/activate",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 44
+    },
+    {
+      "id": "POST /api/v1/auth/admin/mfa/totp/setup",
+      "method": "POST",
+      "path": "/api/v1/auth/admin/mfa/totp/setup",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/admin/mfa/totp/setup",
+      "openApiPath": "/auth/admin/mfa/totp/setup",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "GET /api/v1/auth/admin/mfa/totp/status",
+      "method": "GET",
+      "path": "/api/v1/auth/admin/mfa/totp/status",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/auth/admin/mfa/totp/status",
+      "openApiPath": "/auth/admin/mfa/totp/status",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "POST /api/v1/auth/change-password",
+      "method": "POST",
+      "path": "/api/v1/auth/change-password",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/change-password",
+      "openApiPath": "/auth/change-password",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "POST /api/v1/auth/login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/login",
+      "openApiPath": "/auth/login",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 22
+    },
+    {
+      "id": "POST /api/v1/auth/login/otp/resend",
+      "method": "POST",
+      "path": "/api/v1/auth/login/otp/resend",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/login/otp/resend",
+      "openApiPath": "/auth/login/otp/resend",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 26
+    },
+    {
+      "id": "POST /api/v1/auth/login/otp/verify",
+      "method": "POST",
+      "path": "/api/v1/auth/login/otp/verify",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/login/otp/verify",
+      "openApiPath": "/auth/login/otp/verify",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 24
+    },
+    {
+      "id": "POST /api/v1/auth/login/totp/verify",
+      "method": "POST",
+      "path": "/api/v1/auth/login/totp/verify",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/login/totp/verify",
+      "openApiPath": "/auth/login/totp/verify",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 28
+    },
+    {
+      "id": "POST /api/v1/auth/logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/logout",
+      "openApiPath": "/auth/logout",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 34
+    },
+    {
+      "id": "GET /api/v1/auth/me",
+      "method": "GET",
+      "path": "/api/v1/auth/me",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/auth/me",
+      "openApiPath": "/auth/me",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 36
+    },
+    {
+      "id": "POST /api/v1/auth/refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/refresh",
+      "openApiPath": "/auth/refresh",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 30
+    },
+    {
+      "id": "POST /api/v1/auth/revoke",
+      "method": "POST",
+      "path": "/api/v1/auth/revoke",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/auth/revoke",
+      "openApiPath": "/auth/revoke",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 32
+    },
+    {
+      "id": "DELETE /api/v1/devices/{tokenId}",
+      "method": "DELETE",
+      "path": "/api/v1/devices/{tokenId}",
+      "scope": "canonical",
+      "canonicalId": "DELETE /api/v1/devices/{tokenId}",
+      "openApiPath": "/devices/{tokenId}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/device.routes.ts",
+      "sourceLine": 10
+    },
+    {
+      "id": "POST /api/v1/devices/register",
+      "method": "POST",
+      "path": "/api/v1/devices/register",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/devices/register",
+      "openApiPath": "/devices/register",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/device.routes.ts",
+      "sourceLine": 9
+    },
+    {
+      "id": "GET /api/v1/doctors/doctors",
+      "method": "GET",
+      "path": "/api/v1/doctors/doctors",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/doctors",
+      "openApiPath": "/doctors/doctors",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 94
+    },
+    {
+      "id": "GET /api/v1/doctors/notifications",
+      "method": "GET",
+      "path": "/api/v1/doctors/notifications",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/notifications",
+      "openApiPath": "/doctors/notifications",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 78
+    },
+    {
+      "id": "PATCH /api/v1/doctors/notifications/{notification_id}/read",
+      "method": "PATCH",
+      "path": "/api/v1/doctors/notifications/{notification_id}/read",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/doctors/notifications/{notification_id}/read",
+      "openApiPath": "/doctors/notifications/{notification_id}/read",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 80
+    },
+    {
+      "id": "PATCH /api/v1/doctors/notifications/read-all",
+      "method": "PATCH",
+      "path": "/api/v1/doctors/notifications/read-all",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/doctors/notifications/read-all",
+      "openApiPath": "/doctors/notifications/read-all",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 79
+    },
+    {
+      "id": "GET /api/v1/doctors/notifications/stream",
+      "method": "GET",
+      "path": "/api/v1/doctors/notifications/stream",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/notifications/stream",
+      "openApiPath": "/doctors/notifications/stream",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 75
+    },
+    {
+      "id": "POST /api/v1/doctors/notifications/stream-ticket",
+      "method": "POST",
+      "path": "/api/v1/doctors/notifications/stream-ticket",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/doctors/notifications/stream-ticket",
+      "openApiPath": "/doctors/notifications/stream-ticket",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 76
+    },
+    {
+      "id": "GET /api/v1/doctors/notifications/unread-count",
+      "method": "GET",
+      "path": "/api/v1/doctors/notifications/unread-count",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/notifications/unread-count",
+      "openApiPath": "/doctors/notifications/unread-count",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 77
+    },
+    {
+      "id": "GET /api/v1/doctors/patients",
+      "method": "GET",
+      "path": "/api/v1/doctors/patients",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/patients",
+      "openApiPath": "/doctors/patients",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 82
+    },
+    {
+      "id": "POST /api/v1/doctors/patients",
+      "method": "POST",
+      "path": "/api/v1/doctors/patients",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/doctors/patients",
+      "openApiPath": "/doctors/patients",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 84
+    },
+    {
+      "id": "GET /api/v1/doctors/patients/{op_num}",
+      "method": "GET",
+      "path": "/api/v1/doctors/patients/{op_num}",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}",
+      "openApiPath": "/doctors/patients/{op_num}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 83
+    },
+    {
+      "id": "PUT /api/v1/doctors/patients/{op_num}/config",
+      "method": "PUT",
+      "path": "/api/v1/doctors/patients/{op_num}/config",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/config",
+      "openApiPath": "/doctors/patients/{op_num}/config",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 91
+    },
+    {
+      "id": "PUT /api/v1/doctors/patients/{op_num}/dosage",
+      "method": "PUT",
+      "path": "/api/v1/doctors/patients/{op_num}/dosage",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/dosage",
+      "openApiPath": "/doctors/patients/{op_num}/dosage",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 86
+    },
+    {
+      "id": "PUT /api/v1/doctors/patients/{op_num}/instructions",
+      "method": "PUT",
+      "path": "/api/v1/doctors/patients/{op_num}/instructions",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/instructions",
+      "openApiPath": "/doctors/patients/{op_num}/instructions",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 92
+    },
+    {
+      "id": "PATCH /api/v1/doctors/patients/{op_num}/reassign",
+      "method": "PATCH",
+      "path": "/api/v1/doctors/patients/{op_num}/reassign",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/doctors/patients/{op_num}/reassign",
+      "openApiPath": "/doctors/patients/{op_num}/reassign",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 85
+    },
+    {
+      "id": "GET /api/v1/doctors/patients/{op_num}/reports",
+      "method": "GET",
+      "path": "/api/v1/doctors/patients/{op_num}/reports",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}/reports",
+      "openApiPath": "/doctors/patients/{op_num}/reports",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 87
+    },
+    {
+      "id": "GET /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "method": "GET",
+      "path": "/api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiPath": "/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "PUT /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "method": "PUT",
+      "path": "/api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiPath": "/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "GET /api/v1/doctors/profile",
+      "method": "GET",
+      "path": "/api/v1/doctors/profile",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/doctors/profile",
+      "openApiPath": "/doctors/profile",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "PUT /api/v1/doctors/profile",
+      "method": "PUT",
+      "path": "/api/v1/doctors/profile",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/doctors/profile",
+      "openApiPath": "/doctors/profile",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "POST /api/v1/doctors/profile-pic",
+      "method": "POST",
+      "path": "/api/v1/doctors/profile-pic",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/doctors/profile-pic",
+      "openApiPath": "/doctors/profile-pic",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 95
+    },
+    {
+      "id": "GET /api/v1/patient/doctor-updates",
+      "method": "GET",
+      "path": "/api/v1/patient/doctor-updates",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/doctor-updates",
+      "openApiPath": "/patient/doctor-updates",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 117
+    },
+    {
+      "id": "PATCH /api/v1/patient/doctor-updates/{event_id}/read",
+      "method": "PATCH",
+      "path": "/api/v1/patient/doctor-updates/{event_id}/read",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/patient/doctor-updates/{event_id}/read",
+      "openApiPath": "/patient/doctor-updates/{event_id}/read",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 119
+    },
+    {
+      "id": "PATCH /api/v1/patient/doctor-updates/read-all",
+      "method": "PATCH",
+      "path": "/api/v1/patient/doctor-updates/read-all",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/patient/doctor-updates/read-all",
+      "openApiPath": "/patient/doctor-updates/read-all",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 118
+    },
+    {
+      "id": "GET /api/v1/patient/doctor-updates/summary",
+      "method": "GET",
+      "path": "/api/v1/patient/doctor-updates/summary",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/doctor-updates/summary",
+      "openApiPath": "/patient/doctor-updates/summary",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 116
+    },
+    {
+      "id": "POST /api/v1/patient/dosage",
+      "method": "POST",
+      "path": "/api/v1/patient/dosage",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/patient/dosage",
+      "openApiPath": "/patient/dosage",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 108
+    },
+    {
+      "id": "GET /api/v1/patient/dosage-calendar",
+      "method": "GET",
+      "path": "/api/v1/patient/dosage-calendar",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/dosage-calendar",
+      "openApiPath": "/patient/dosage-calendar",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 107
+    },
+    {
+      "id": "POST /api/v1/patient/health-logs",
+      "method": "POST",
+      "path": "/api/v1/patient/health-logs",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/patient/health-logs",
+      "openApiPath": "/patient/health-logs",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 109
+    },
+    {
+      "id": "GET /api/v1/patient/missed-doses",
+      "method": "GET",
+      "path": "/api/v1/patient/missed-doses",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/missed-doses",
+      "openApiPath": "/patient/missed-doses",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 106
+    },
+    {
+      "id": "GET /api/v1/patient/notifications",
+      "method": "GET",
+      "path": "/api/v1/patient/notifications",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/notifications",
+      "openApiPath": "/patient/notifications",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 113
+    },
+    {
+      "id": "PATCH /api/v1/patient/notifications/{notification_id}/read",
+      "method": "PATCH",
+      "path": "/api/v1/patient/notifications/{notification_id}/read",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/patient/notifications/{notification_id}/read",
+      "openApiPath": "/patient/notifications/{notification_id}/read",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 115
+    },
+    {
+      "id": "PATCH /api/v1/patient/notifications/read-all",
+      "method": "PATCH",
+      "path": "/api/v1/patient/notifications/read-all",
+      "scope": "canonical",
+      "canonicalId": "PATCH /api/v1/patient/notifications/read-all",
+      "openApiPath": "/patient/notifications/read-all",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 114
+    },
+    {
+      "id": "GET /api/v1/patient/notifications/stream",
+      "method": "GET",
+      "path": "/api/v1/patient/notifications/stream",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/notifications/stream",
+      "openApiPath": "/patient/notifications/stream",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 110
+    },
+    {
+      "id": "POST /api/v1/patient/notifications/stream-ticket",
+      "method": "POST",
+      "path": "/api/v1/patient/notifications/stream-ticket",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/patient/notifications/stream-ticket",
+      "openApiPath": "/patient/notifications/stream-ticket",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 111
+    },
+    {
+      "id": "GET /api/v1/patient/notifications/unread-count",
+      "method": "GET",
+      "path": "/api/v1/patient/notifications/unread-count",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/notifications/unread-count",
+      "openApiPath": "/patient/notifications/unread-count",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 112
+    },
+    {
+      "id": "GET /api/v1/patient/profile",
+      "method": "GET",
+      "path": "/api/v1/patient/profile",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/profile",
+      "openApiPath": "/patient/profile",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 103
+    },
+    {
+      "id": "PUT /api/v1/patient/profile",
+      "method": "PUT",
+      "path": "/api/v1/patient/profile",
+      "scope": "canonical",
+      "canonicalId": "PUT /api/v1/patient/profile",
+      "openApiPath": "/patient/profile",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 103
+    },
+    {
+      "id": "POST /api/v1/patient/profile-pic",
+      "method": "POST",
+      "path": "/api/v1/patient/profile-pic",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/patient/profile-pic",
+      "openApiPath": "/patient/profile-pic",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 120
+    },
+    {
+      "id": "GET /api/v1/patient/reports",
+      "method": "GET",
+      "path": "/api/v1/patient/reports",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/patient/reports",
+      "openApiPath": "/patient/reports",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 104
+    },
+    {
+      "id": "POST /api/v1/patient/reports",
+      "method": "POST",
+      "path": "/api/v1/patient/reports",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/patient/reports",
+      "openApiPath": "/patient/reports",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 105
+    },
+    {
+      "id": "GET /api/v1/statistics/admin",
+      "method": "GET",
+      "path": "/api/v1/statistics/admin",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/statistics/admin",
+      "openApiPath": "/statistics/admin",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "GET /api/v1/statistics/compliance",
+      "method": "GET",
+      "path": "/api/v1/statistics/compliance",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/statistics/compliance",
+      "openApiPath": "/statistics/compliance",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "GET /api/v1/statistics/period",
+      "method": "GET",
+      "path": "/api/v1/statistics/period",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/statistics/period",
+      "openApiPath": "/statistics/period",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "GET /api/v1/statistics/trends",
+      "method": "GET",
+      "path": "/api/v1/statistics/trends",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/statistics/trends",
+      "openApiPath": "/statistics/trends",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 39
+    },
+    {
+      "id": "GET /api/v1/statistics/workload",
+      "method": "GET",
+      "path": "/api/v1/statistics/workload",
+      "scope": "canonical",
+      "canonicalId": "GET /api/v1/statistics/workload",
+      "openApiPath": "/statistics/workload",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 41
+    },
+    {
+      "id": "POST /api/v1/webhooks/payment",
+      "method": "POST",
+      "path": "/api/v1/webhooks/payment",
+      "scope": "canonical",
+      "canonicalId": "POST /api/v1/webhooks/payment",
+      "openApiPath": "/webhooks/payment",
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/index.ts",
+      "sourceLine": 21
+    },
+    {
+      "id": "GET /api",
+      "method": "GET",
+      "path": "/api",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/app.ts",
+      "sourceLine": 141
+    },
+    {
+      "id": "GET /api/admin/audit-logs",
+      "method": "GET",
+      "path": "/api/admin/audit-logs",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/audit-logs",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 72
+    },
+    {
+      "id": "POST /api/admin/billing/checkout/{invoiceId}",
+      "method": "POST",
+      "path": "/api/admin/billing/checkout/{invoiceId}",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/billing/checkout/{invoiceId}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 49
+    },
+    {
+      "id": "GET /api/admin/billing/invoices",
+      "method": "GET",
+      "path": "/api/admin/billing/invoices",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/billing/invoices",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 47
+    },
+    {
+      "id": "POST /api/admin/billing/invoices",
+      "method": "POST",
+      "path": "/api/admin/billing/invoices",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/billing/invoices",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 48
+    },
+    {
+      "id": "GET /api/admin/config",
+      "method": "GET",
+      "path": "/api/admin/config",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/config",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 75
+    },
+    {
+      "id": "PUT /api/admin/config",
+      "method": "PUT",
+      "path": "/api/admin/config",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/config",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 76
+    },
+    {
+      "id": "GET /api/admin/doctors",
+      "method": "GET",
+      "path": "/api/admin/doctors",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/doctors",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 58
+    },
+    {
+      "id": "POST /api/admin/doctors",
+      "method": "POST",
+      "path": "/api/admin/doctors",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/doctors",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 57
+    },
+    {
+      "id": "DELETE /api/admin/doctors/{id}",
+      "method": "DELETE",
+      "path": "/api/admin/doctors/{id}",
+      "scope": "legacy",
+      "canonicalId": "DELETE /api/v1/admin/doctors/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 60
+    },
+    {
+      "id": "PUT /api/admin/doctors/{id}",
+      "method": "PUT",
+      "path": "/api/admin/doctors/{id}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/doctors/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 59
+    },
+    {
+      "id": "GET /api/admin/hospitals",
+      "method": "GET",
+      "path": "/api/admin/hospitals",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/hospitals",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "POST /api/admin/hospitals",
+      "method": "POST",
+      "path": "/api/admin/hospitals",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/hospitals",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 41
+    },
+    {
+      "id": "DELETE /api/admin/hospitals/{id}",
+      "method": "DELETE",
+      "path": "/api/admin/hospitals/{id}",
+      "scope": "legacy",
+      "canonicalId": "DELETE /api/v1/admin/hospitals/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 45
+    },
+    {
+      "id": "GET /api/admin/hospitals/{id}",
+      "method": "GET",
+      "path": "/api/admin/hospitals/{id}",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/hospitals/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "PUT /api/admin/hospitals/{id}",
+      "method": "PUT",
+      "path": "/api/admin/hospitals/{id}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/hospitals/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 43
+    },
+    {
+      "id": "PATCH /api/admin/hospitals/{id}/status",
+      "method": "PATCH",
+      "path": "/api/admin/hospitals/{id}/status",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/admin/hospitals/{id}/status",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 44
+    },
+    {
+      "id": "GET /api/admin/legacy/doctor/{id}",
+      "method": "GET",
+      "path": "/api/admin/legacy/doctor/{id}",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/legacy/doctor/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 94
+    },
+    {
+      "id": "GET /api/admin/legacy/patient/{op_num}",
+      "method": "GET",
+      "path": "/api/admin/legacy/patient/{op_num}",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/legacy/patient/{op_num}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "GET /api/admin/legacy/patients",
+      "method": "GET",
+      "path": "/api/admin/legacy/patients",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/legacy/patients",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 92
+    },
+    {
+      "id": "POST /api/admin/notifications/broadcast",
+      "method": "POST",
+      "path": "/api/admin/notifications/broadcast",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/notifications/broadcast",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 79
+    },
+    {
+      "id": "GET /api/admin/patients",
+      "method": "GET",
+      "path": "/api/admin/patients",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/patients",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 64
+    },
+    {
+      "id": "POST /api/admin/patients",
+      "method": "POST",
+      "path": "/api/admin/patients",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/patients",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 63
+    },
+    {
+      "id": "DELETE /api/admin/patients/{id}",
+      "method": "DELETE",
+      "path": "/api/admin/patients/{id}",
+      "scope": "legacy",
+      "canonicalId": "DELETE /api/v1/admin/patients/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 66
+    },
+    {
+      "id": "PUT /api/admin/patients/{id}",
+      "method": "PUT",
+      "path": "/api/admin/patients/{id}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/patients/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 65
+    },
+    {
+      "id": "PUT /api/admin/reassign/{op_num}",
+      "method": "PUT",
+      "path": "/api/admin/reassign/{op_num}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/reassign/{op_num}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 69
+    },
+    {
+      "id": "GET /api/admin/roles",
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/roles",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 37
+    },
+    {
+      "id": "PUT /api/admin/roles/{roleKey}",
+      "method": "PUT",
+      "path": "/api/admin/roles/{roleKey}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/roles/{roleKey}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "GET /api/admin/system/health",
+      "method": "GET",
+      "path": "/api/admin/system/health",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/system/health",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 88
+    },
+    {
+      "id": "GET /api/admin/system/reminder-delivery-health",
+      "method": "GET",
+      "path": "/api/admin/system/reminder-delivery-health",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/system/reminder-delivery-health",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "GET /api/admin/users",
+      "method": "GET",
+      "path": "/api/admin/users",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/admin/users",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 51
+    },
+    {
+      "id": "POST /api/admin/users",
+      "method": "POST",
+      "path": "/api/admin/users",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/users",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 52
+    },
+    {
+      "id": "PUT /api/admin/users/{id}",
+      "method": "PUT",
+      "path": "/api/admin/users/{id}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/admin/users/{id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 54
+    },
+    {
+      "id": "POST /api/admin/users/{id}/mfa/reset",
+      "method": "POST",
+      "path": "/api/admin/users/{id}/mfa/reset",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/users/{id}/mfa/reset",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 53
+    },
+    {
+      "id": "POST /api/admin/users/batch",
+      "method": "POST",
+      "path": "/api/admin/users/batch",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/users/batch",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 82
+    },
+    {
+      "id": "POST /api/admin/users/reset-password",
+      "method": "POST",
+      "path": "/api/admin/users/reset-password",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/admin/users/reset-password",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/admin.routes.ts",
+      "sourceLine": 85
+    },
+    {
+      "id": "POST /api/auth/admin/mfa/totp/activate",
+      "method": "POST",
+      "path": "/api/auth/admin/mfa/totp/activate",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/admin/mfa/totp/activate",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 44
+    },
+    {
+      "id": "POST /api/auth/admin/mfa/totp/setup",
+      "method": "POST",
+      "path": "/api/auth/admin/mfa/totp/setup",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/admin/mfa/totp/setup",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "GET /api/auth/admin/mfa/totp/status",
+      "method": "GET",
+      "path": "/api/auth/admin/mfa/totp/status",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/auth/admin/mfa/totp/status",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "POST /api/auth/change-password",
+      "method": "POST",
+      "path": "/api/auth/change-password",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/change-password",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "POST /api/auth/login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/login",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 22
+    },
+    {
+      "id": "POST /api/auth/login/otp/resend",
+      "method": "POST",
+      "path": "/api/auth/login/otp/resend",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/login/otp/resend",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 26
+    },
+    {
+      "id": "POST /api/auth/login/otp/verify",
+      "method": "POST",
+      "path": "/api/auth/login/otp/verify",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/login/otp/verify",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 24
+    },
+    {
+      "id": "POST /api/auth/login/totp/verify",
+      "method": "POST",
+      "path": "/api/auth/login/totp/verify",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/login/totp/verify",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 28
+    },
+    {
+      "id": "POST /api/auth/logout",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/logout",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 34
+    },
+    {
+      "id": "GET /api/auth/me",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/auth/me",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 36
+    },
+    {
+      "id": "POST /api/auth/refresh",
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/refresh",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 30
+    },
+    {
+      "id": "POST /api/auth/revoke",
+      "method": "POST",
+      "path": "/api/auth/revoke",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/auth/revoke",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/auth.routes.ts",
+      "sourceLine": 32
+    },
+    {
+      "id": "DELETE /api/devices/{tokenId}",
+      "method": "DELETE",
+      "path": "/api/devices/{tokenId}",
+      "scope": "legacy",
+      "canonicalId": "DELETE /api/v1/devices/{tokenId}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/device.routes.ts",
+      "sourceLine": 10
+    },
+    {
+      "id": "POST /api/devices/register",
+      "method": "POST",
+      "path": "/api/devices/register",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/devices/register",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/device.routes.ts",
+      "sourceLine": 9
+    },
+    {
+      "id": "GET /api/doctors/doctors",
+      "method": "GET",
+      "path": "/api/doctors/doctors",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/doctors",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 94
+    },
+    {
+      "id": "GET /api/doctors/notifications",
+      "method": "GET",
+      "path": "/api/doctors/notifications",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/notifications",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 78
+    },
+    {
+      "id": "PATCH /api/doctors/notifications/{notification_id}/read",
+      "method": "PATCH",
+      "path": "/api/doctors/notifications/{notification_id}/read",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/doctors/notifications/{notification_id}/read",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 80
+    },
+    {
+      "id": "PATCH /api/doctors/notifications/read-all",
+      "method": "PATCH",
+      "path": "/api/doctors/notifications/read-all",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/doctors/notifications/read-all",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 79
+    },
+    {
+      "id": "GET /api/doctors/notifications/stream",
+      "method": "GET",
+      "path": "/api/doctors/notifications/stream",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/notifications/stream",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 75
+    },
+    {
+      "id": "POST /api/doctors/notifications/stream-ticket",
+      "method": "POST",
+      "path": "/api/doctors/notifications/stream-ticket",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/doctors/notifications/stream-ticket",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 76
+    },
+    {
+      "id": "GET /api/doctors/notifications/unread-count",
+      "method": "GET",
+      "path": "/api/doctors/notifications/unread-count",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/notifications/unread-count",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 77
+    },
+    {
+      "id": "GET /api/doctors/patients",
+      "method": "GET",
+      "path": "/api/doctors/patients",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/patients",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 82
+    },
+    {
+      "id": "POST /api/doctors/patients",
+      "method": "POST",
+      "path": "/api/doctors/patients",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/doctors/patients",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 84
+    },
+    {
+      "id": "GET /api/doctors/patients/{op_num}",
+      "method": "GET",
+      "path": "/api/doctors/patients/{op_num}",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 83
+    },
+    {
+      "id": "PUT /api/doctors/patients/{op_num}/config",
+      "method": "PUT",
+      "path": "/api/doctors/patients/{op_num}/config",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/config",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 91
+    },
+    {
+      "id": "PUT /api/doctors/patients/{op_num}/dosage",
+      "method": "PUT",
+      "path": "/api/doctors/patients/{op_num}/dosage",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/dosage",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 86
+    },
+    {
+      "id": "PUT /api/doctors/patients/{op_num}/instructions",
+      "method": "PUT",
+      "path": "/api/doctors/patients/{op_num}/instructions",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/instructions",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 92
+    },
+    {
+      "id": "PATCH /api/doctors/patients/{op_num}/reassign",
+      "method": "PATCH",
+      "path": "/api/doctors/patients/{op_num}/reassign",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/doctors/patients/{op_num}/reassign",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 85
+    },
+    {
+      "id": "GET /api/doctors/patients/{op_num}/reports",
+      "method": "GET",
+      "path": "/api/doctors/patients/{op_num}/reports",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}/reports",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 87
+    },
+    {
+      "id": "GET /api/doctors/patients/{op_num}/reports/{report_id}",
+      "method": "GET",
+      "path": "/api/doctors/patients/{op_num}/reports/{report_id}",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "PUT /api/doctors/patients/{op_num}/reports/{report_id}",
+      "method": "PUT",
+      "path": "/api/doctors/patients/{op_num}/reports/{report_id}",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 89
+    },
+    {
+      "id": "GET /api/doctors/profile",
+      "method": "GET",
+      "path": "/api/doctors/profile",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/doctors/profile",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "PUT /api/doctors/profile",
+      "method": "PUT",
+      "path": "/api/doctors/profile",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/doctors/profile",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 93
+    },
+    {
+      "id": "POST /api/doctors/profile-pic",
+      "method": "POST",
+      "path": "/api/doctors/profile-pic",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/doctors/profile-pic",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/doctor.routes.ts",
+      "sourceLine": 95
+    },
+    {
+      "id": "GET /api/patient/doctor-updates",
+      "method": "GET",
+      "path": "/api/patient/doctor-updates",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/doctor-updates",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 117
+    },
+    {
+      "id": "PATCH /api/patient/doctor-updates/{event_id}/read",
+      "method": "PATCH",
+      "path": "/api/patient/doctor-updates/{event_id}/read",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/patient/doctor-updates/{event_id}/read",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 119
+    },
+    {
+      "id": "PATCH /api/patient/doctor-updates/read-all",
+      "method": "PATCH",
+      "path": "/api/patient/doctor-updates/read-all",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/patient/doctor-updates/read-all",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 118
+    },
+    {
+      "id": "GET /api/patient/doctor-updates/summary",
+      "method": "GET",
+      "path": "/api/patient/doctor-updates/summary",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/doctor-updates/summary",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 116
+    },
+    {
+      "id": "POST /api/patient/dosage",
+      "method": "POST",
+      "path": "/api/patient/dosage",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/patient/dosage",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 108
+    },
+    {
+      "id": "GET /api/patient/dosage-calendar",
+      "method": "GET",
+      "path": "/api/patient/dosage-calendar",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/dosage-calendar",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 107
+    },
+    {
+      "id": "POST /api/patient/health-logs",
+      "method": "POST",
+      "path": "/api/patient/health-logs",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/patient/health-logs",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 109
+    },
+    {
+      "id": "GET /api/patient/missed-doses",
+      "method": "GET",
+      "path": "/api/patient/missed-doses",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/missed-doses",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 106
+    },
+    {
+      "id": "GET /api/patient/notifications",
+      "method": "GET",
+      "path": "/api/patient/notifications",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/notifications",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 113
+    },
+    {
+      "id": "PATCH /api/patient/notifications/{notification_id}/read",
+      "method": "PATCH",
+      "path": "/api/patient/notifications/{notification_id}/read",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/patient/notifications/{notification_id}/read",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 115
+    },
+    {
+      "id": "PATCH /api/patient/notifications/read-all",
+      "method": "PATCH",
+      "path": "/api/patient/notifications/read-all",
+      "scope": "legacy",
+      "canonicalId": "PATCH /api/v1/patient/notifications/read-all",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 114
+    },
+    {
+      "id": "GET /api/patient/notifications/stream",
+      "method": "GET",
+      "path": "/api/patient/notifications/stream",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/notifications/stream",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 110
+    },
+    {
+      "id": "POST /api/patient/notifications/stream-ticket",
+      "method": "POST",
+      "path": "/api/patient/notifications/stream-ticket",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/patient/notifications/stream-ticket",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 111
+    },
+    {
+      "id": "GET /api/patient/notifications/unread-count",
+      "method": "GET",
+      "path": "/api/patient/notifications/unread-count",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/notifications/unread-count",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 112
+    },
+    {
+      "id": "GET /api/patient/profile",
+      "method": "GET",
+      "path": "/api/patient/profile",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/profile",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 103
+    },
+    {
+      "id": "PUT /api/patient/profile",
+      "method": "PUT",
+      "path": "/api/patient/profile",
+      "scope": "legacy",
+      "canonicalId": "PUT /api/v1/patient/profile",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 103
+    },
+    {
+      "id": "POST /api/patient/profile-pic",
+      "method": "POST",
+      "path": "/api/patient/profile-pic",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/patient/profile-pic",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 120
+    },
+    {
+      "id": "GET /api/patient/reports",
+      "method": "GET",
+      "path": "/api/patient/reports",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/patient/reports",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 104
+    },
+    {
+      "id": "POST /api/patient/reports",
+      "method": "POST",
+      "path": "/api/patient/reports",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/patient/reports",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/patient.routes.ts",
+      "sourceLine": 105
+    },
+    {
+      "id": "GET /api/statistics/admin",
+      "method": "GET",
+      "path": "/api/statistics/admin",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/statistics/admin",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 38
+    },
+    {
+      "id": "GET /api/statistics/compliance",
+      "method": "GET",
+      "path": "/api/statistics/compliance",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/statistics/compliance",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 40
+    },
+    {
+      "id": "GET /api/statistics/period",
+      "method": "GET",
+      "path": "/api/statistics/period",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/statistics/period",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 42
+    },
+    {
+      "id": "GET /api/statistics/trends",
+      "method": "GET",
+      "path": "/api/statistics/trends",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/statistics/trends",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 39
+    },
+    {
+      "id": "GET /api/statistics/workload",
+      "method": "GET",
+      "path": "/api/statistics/workload",
+      "scope": "legacy",
+      "canonicalId": "GET /api/v1/statistics/workload",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/statistics.routes.ts",
+      "sourceLine": 41
+    },
+    {
+      "id": "POST /api/webhooks/payment",
+      "method": "POST",
+      "path": "/api/webhooks/payment",
+      "scope": "legacy",
+      "canonicalId": "POST /api/v1/webhooks/payment",
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/routes/index.ts",
+      "sourceLine": 21
+    },
+    {
+      "id": "GET /",
+      "method": "GET",
+      "path": "/",
+      "scope": "global",
+      "canonicalId": null,
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/app.ts",
+      "sourceLine": 133
+    },
+    {
+      "id": "GET /health/live",
+      "method": "GET",
+      "path": "/health/live",
+      "scope": "global",
+      "canonicalId": null,
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/app.ts",
+      "sourceLine": 157
+    },
+    {
+      "id": "GET /health/ready",
+      "method": "GET",
+      "path": "/health/ready",
+      "scope": "global",
+      "canonicalId": null,
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "backend/src/app.ts",
+      "sourceLine": 161
+    },
+    {
+      "id": "GET /nginx-health",
+      "method": "GET",
+      "path": "/nginx-health",
+      "scope": "edge",
+      "canonicalId": null,
+      "openApiPath": null,
+      "openApiOperationId": null,
+      "sourceFile": "deploy/nginx/conf.d/default.conf",
+      "sourceLine": 9
+    }
+  ],
+  "conditionalEndpoints": [
+    {
+      "id": "GET /docs",
+      "method": "GET",
+      "path": "/docs",
+      "condition": "API_DOCS_ENABLED=true; effective path is API_DOCS_PATH",
+      "kind": "documentation",
+      "sourceFile": "backend/src/routes/docs.routes.ts"
+    },
+    {
+      "id": "HEAD /docs",
+      "method": "HEAD",
+      "path": "/docs",
+      "condition": "API_DOCS_ENABLED=true; effective path is API_DOCS_PATH",
+      "kind": "documentation",
+      "sourceFile": "backend/src/routes/docs.routes.ts"
+    },
+    {
+      "id": "GET /docs/{swaggerAsset}",
+      "method": "GET",
+      "path": "/docs/{swaggerAsset}",
+      "condition": "API_DOCS_ENABLED=true; effective path is API_DOCS_PATH",
+      "kind": "documentation-asset",
+      "sourceFile": "backend/src/routes/docs.routes.ts"
+    },
+    {
+      "id": "GET /docs/openapi.yaml",
+      "method": "GET",
+      "path": "/docs/openapi.yaml",
+      "condition": "API_DOCS_ENABLED=true; effective path is API_DOCS_PATH",
+      "kind": "documentation-spec",
+      "sourceFile": "backend/src/routes/docs.routes.ts"
+    },
+    {
+      "id": "HEAD /docs/openapi.yaml",
+      "method": "HEAD",
+      "path": "/docs/openapi.yaml",
+      "condition": "API_DOCS_ENABLED=true; effective path is API_DOCS_PATH",
+      "kind": "documentation-spec",
+      "sourceFile": "backend/src/routes/docs.routes.ts"
+    }
+  ],
+  "derivedProtocolChecks": [
+    {
+      "id": "HEAD / [derived]",
+      "method": "HEAD",
+      "path": "/",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /"
+      ]
+    },
+    {
+      "id": "OPTIONS / [derived]",
+      "method": "OPTIONS",
+      "path": "/",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /"
+      ]
+    },
+    {
+      "id": "HEAD /api [derived]",
+      "method": "HEAD",
+      "path": "/api",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api"
+      ]
+    },
+    {
+      "id": "OPTIONS /api [derived]",
+      "method": "OPTIONS",
+      "path": "/api",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api"
+      ]
+    },
+    {
+      "id": "GET /api/{unmatchedPath} [semantic-fallback]",
+      "method": "GET",
+      "path": "/api/{unmatchedPath}",
+      "kind": "api-not-found-fallback",
+      "derivedFromEndpointIds": []
+    },
+    {
+      "id": "HEAD /api/admin/audit-logs [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/audit-logs",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/audit-logs"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/audit-logs [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/audit-logs",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/audit-logs"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/billing/checkout/{invoiceId} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/billing/checkout/{invoiceId}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/admin/billing/checkout/{invoiceId}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/billing/invoices [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/billing/invoices",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/billing/invoices"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/billing/invoices [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/billing/invoices",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/billing/invoices",
+        "POST /api/admin/billing/invoices"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/config [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/config",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/config"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/config [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/config",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/config",
+        "PUT /api/admin/config"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/doctors [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/doctors",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/doctors [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/doctors",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/doctors",
+        "POST /api/admin/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/doctors/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/doctors/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/admin/doctors/{id}",
+        "PUT /api/admin/doctors/{id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/hospitals [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/hospitals",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/hospitals"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/hospitals [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/hospitals",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/hospitals",
+        "POST /api/admin/hospitals"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/hospitals/{id} [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/hospitals/{id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/hospitals/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/hospitals/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/hospitals/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/admin/hospitals/{id}",
+        "GET /api/admin/hospitals/{id}",
+        "PUT /api/admin/hospitals/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/hospitals/{id}/status [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/hospitals/{id}/status",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/admin/hospitals/{id}/status"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/legacy/doctor/{id} [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/legacy/doctor/{id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/doctor/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/legacy/doctor/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/legacy/doctor/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/doctor/{id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/legacy/patient/{op_num} [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/legacy/patient/{op_num}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/patient/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/legacy/patient/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/legacy/patient/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/patient/{op_num}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/legacy/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/legacy/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/legacy/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/legacy/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/legacy/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/notifications/broadcast [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/notifications/broadcast",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/admin/notifications/broadcast"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/patients",
+        "POST /api/admin/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/patients/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/patients/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/admin/patients/{id}",
+        "PUT /api/admin/patients/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/reassign/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/reassign/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/admin/reassign/{op_num}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/roles [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/roles",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/roles"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/roles [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/roles",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/roles"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/roles/{roleKey} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/roles/{roleKey}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/admin/roles/{roleKey}"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/system/health [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/system/health",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/system/health"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/system/health [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/system/health",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/system/health"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/system/reminder-delivery-health [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/system/reminder-delivery-health",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/system/reminder-delivery-health"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/system/reminder-delivery-health [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/system/reminder-delivery-health",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/system/reminder-delivery-health"
+      ]
+    },
+    {
+      "id": "HEAD /api/admin/users [derived]",
+      "method": "HEAD",
+      "path": "/api/admin/users",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/users"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/users [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/users",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/admin/users",
+        "POST /api/admin/users"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/users/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/users/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/admin/users/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/users/{id}/mfa/reset [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/users/{id}/mfa/reset",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/admin/users/{id}/mfa/reset"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/users/batch [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/users/batch",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/admin/users/batch"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/admin/users/reset-password [derived]",
+      "method": "OPTIONS",
+      "path": "/api/admin/users/reset-password",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/admin/users/reset-password"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/admin/mfa/totp/activate [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/admin/mfa/totp/activate",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/admin/mfa/totp/activate"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/admin/mfa/totp/setup [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/admin/mfa/totp/setup",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/admin/mfa/totp/setup"
+      ]
+    },
+    {
+      "id": "HEAD /api/auth/admin/mfa/totp/status [derived]",
+      "method": "HEAD",
+      "path": "/api/auth/admin/mfa/totp/status",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/auth/admin/mfa/totp/status"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/admin/mfa/totp/status [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/admin/mfa/totp/status",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/auth/admin/mfa/totp/status"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/change-password [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/change-password",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/change-password"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/login [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/login",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/login"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/login/otp/resend [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/login/otp/resend",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/login/otp/resend"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/login/otp/verify [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/login/otp/verify",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/login/otp/verify"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/login/totp/verify [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/login/totp/verify",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/login/totp/verify"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/logout [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/logout",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/logout"
+      ]
+    },
+    {
+      "id": "HEAD /api/auth/me [derived]",
+      "method": "HEAD",
+      "path": "/api/auth/me",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/auth/me"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/me [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/me",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/auth/me"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/refresh [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/refresh",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/refresh"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/auth/revoke [derived]",
+      "method": "OPTIONS",
+      "path": "/api/auth/revoke",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/auth/revoke"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/devices/{tokenId} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/devices/{tokenId}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/devices/{tokenId}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/devices/register [derived]",
+      "method": "OPTIONS",
+      "path": "/api/devices/register",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/devices/register"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/doctors [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/doctors",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/doctors [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/doctors",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/doctors"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/notifications [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/notifications",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications/{notification_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications/{notification_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/doctors/notifications/{notification_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/doctors/notifications/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/notifications/stream [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/notifications/stream",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications/stream [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications/stream",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "SSE /api/doctors/notifications/stream [protocol]",
+      "method": "GET",
+      "path": "/api/doctors/notifications/stream",
+      "kind": "sse-stream",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications/stream-ticket [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications/stream-ticket",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/doctors/notifications/stream-ticket"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/notifications/unread-count [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/notifications/unread-count",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/notifications/unread-count [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/notifications/unread-count",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients",
+        "POST /api/doctors/patients"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/patients/{op_num} [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/patients/{op_num}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/config [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/config",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/doctors/patients/{op_num}/config"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/dosage [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/dosage",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/doctors/patients/{op_num}/dosage"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/instructions [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/instructions",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/doctors/patients/{op_num}/instructions"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/reassign [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/reassign",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/doctors/patients/{op_num}/reassign"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/patients/{op_num}/reports [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/patients/{op_num}/reports",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}/reports"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/reports [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/reports",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}/reports"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/patients/{op_num}/reports/{report_id} [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/patients/{op_num}/reports/{report_id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}/reports/{report_id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/patients/{op_num}/reports/{report_id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/patients/{op_num}/reports/{report_id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/patients/{op_num}/reports/{report_id}",
+        "PUT /api/doctors/patients/{op_num}/reports/{report_id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/doctors/profile [derived]",
+      "method": "HEAD",
+      "path": "/api/doctors/profile",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/profile [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/profile",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/doctors/profile",
+        "PUT /api/doctors/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/doctors/profile-pic [derived]",
+      "method": "OPTIONS",
+      "path": "/api/doctors/profile-pic",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/doctors/profile-pic"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/doctor-updates [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/doctor-updates",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/doctor-updates"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/doctor-updates [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/doctor-updates",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/doctor-updates"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/doctor-updates/{event_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/doctor-updates/{event_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/patient/doctor-updates/{event_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/doctor-updates/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/doctor-updates/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/patient/doctor-updates/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/doctor-updates/summary [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/doctor-updates/summary",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/doctor-updates/summary"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/doctor-updates/summary [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/doctor-updates/summary",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/doctor-updates/summary"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/dosage [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/dosage",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/patient/dosage"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/dosage-calendar [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/dosage-calendar",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/dosage-calendar"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/dosage-calendar [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/dosage-calendar",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/dosage-calendar"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/health-logs [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/health-logs",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/patient/health-logs"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/missed-doses [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/missed-doses",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/missed-doses"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/missed-doses [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/missed-doses",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/missed-doses"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/notifications [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/notifications",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications/{notification_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications/{notification_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/patient/notifications/{notification_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/patient/notifications/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/notifications/stream [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/notifications/stream",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications/stream [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications/stream",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "SSE /api/patient/notifications/stream [protocol]",
+      "method": "GET",
+      "path": "/api/patient/notifications/stream",
+      "kind": "sse-stream",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications/stream-ticket [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications/stream-ticket",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/patient/notifications/stream-ticket"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/notifications/unread-count [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/notifications/unread-count",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/notifications/unread-count [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/notifications/unread-count",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/profile [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/profile",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/profile [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/profile",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/profile",
+        "PUT /api/patient/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/profile-pic [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/profile-pic",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/patient/profile-pic"
+      ]
+    },
+    {
+      "id": "HEAD /api/patient/reports [derived]",
+      "method": "HEAD",
+      "path": "/api/patient/reports",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/reports"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/patient/reports [derived]",
+      "method": "OPTIONS",
+      "path": "/api/patient/reports",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/patient/reports",
+        "POST /api/patient/reports"
+      ]
+    },
+    {
+      "id": "HEAD /api/statistics/admin [derived]",
+      "method": "HEAD",
+      "path": "/api/statistics/admin",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/admin"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/statistics/admin [derived]",
+      "method": "OPTIONS",
+      "path": "/api/statistics/admin",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/admin"
+      ]
+    },
+    {
+      "id": "HEAD /api/statistics/compliance [derived]",
+      "method": "HEAD",
+      "path": "/api/statistics/compliance",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/compliance"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/statistics/compliance [derived]",
+      "method": "OPTIONS",
+      "path": "/api/statistics/compliance",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/compliance"
+      ]
+    },
+    {
+      "id": "HEAD /api/statistics/period [derived]",
+      "method": "HEAD",
+      "path": "/api/statistics/period",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/period"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/statistics/period [derived]",
+      "method": "OPTIONS",
+      "path": "/api/statistics/period",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/period"
+      ]
+    },
+    {
+      "id": "HEAD /api/statistics/trends [derived]",
+      "method": "HEAD",
+      "path": "/api/statistics/trends",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/trends"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/statistics/trends [derived]",
+      "method": "OPTIONS",
+      "path": "/api/statistics/trends",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/trends"
+      ]
+    },
+    {
+      "id": "HEAD /api/statistics/workload [derived]",
+      "method": "HEAD",
+      "path": "/api/statistics/workload",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/workload"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/statistics/workload [derived]",
+      "method": "OPTIONS",
+      "path": "/api/statistics/workload",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/statistics/workload"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1 [derived]",
+      "method": "HEAD",
+      "path": "/api/v1",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1 [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/audit-logs [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/audit-logs",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/audit-logs"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/audit-logs [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/audit-logs",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/audit-logs"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/billing/checkout/{invoiceId} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/billing/checkout/{invoiceId}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/admin/billing/checkout/{invoiceId}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/billing/invoices [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/billing/invoices",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/billing/invoices"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/billing/invoices [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/billing/invoices",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/billing/invoices",
+        "POST /api/v1/admin/billing/invoices"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/config [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/config",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/config"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/config [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/config",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/config",
+        "PUT /api/v1/admin/config"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/doctors [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/doctors",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/doctors [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/doctors",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/doctors",
+        "POST /api/v1/admin/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/doctors/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/doctors/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/v1/admin/doctors/{id}",
+        "PUT /api/v1/admin/doctors/{id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/hospitals [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/hospitals",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/hospitals"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/hospitals [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/hospitals",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/hospitals",
+        "POST /api/v1/admin/hospitals"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/hospitals/{id} [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/hospitals/{id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/hospitals/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/hospitals/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/hospitals/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/v1/admin/hospitals/{id}",
+        "GET /api/v1/admin/hospitals/{id}",
+        "PUT /api/v1/admin/hospitals/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/hospitals/{id}/status [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/hospitals/{id}/status",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/admin/hospitals/{id}/status"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/legacy/doctor/{id} [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/legacy/doctor/{id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/doctor/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/legacy/doctor/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/legacy/doctor/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/doctor/{id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/legacy/patient/{op_num} [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/legacy/patient/{op_num}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/patient/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/legacy/patient/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/legacy/patient/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/patient/{op_num}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/legacy/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/legacy/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/legacy/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/legacy/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/legacy/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/notifications/broadcast [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/notifications/broadcast",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/admin/notifications/broadcast"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/patients",
+        "POST /api/v1/admin/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/patients/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/patients/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/v1/admin/patients/{id}",
+        "PUT /api/v1/admin/patients/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/reassign/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/reassign/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/admin/reassign/{op_num}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/roles [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/roles",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/roles"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/roles [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/roles",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/roles"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/roles/{roleKey} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/roles/{roleKey}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/admin/roles/{roleKey}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/system/health [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/system/health",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/system/health"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/system/health [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/system/health",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/system/health"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/system/reminder-delivery-health [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/system/reminder-delivery-health",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/system/reminder-delivery-health"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/system/reminder-delivery-health [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/system/reminder-delivery-health",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/system/reminder-delivery-health"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/admin/users [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/admin/users",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/users"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/users [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/users",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/admin/users",
+        "POST /api/v1/admin/users"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/users/{id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/users/{id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/admin/users/{id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/users/{id}/mfa/reset [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/users/{id}/mfa/reset",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/admin/users/{id}/mfa/reset"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/users/batch [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/users/batch",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/admin/users/batch"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/admin/users/reset-password [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/admin/users/reset-password",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/admin/users/reset-password"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/admin/mfa/totp/activate [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/admin/mfa/totp/activate",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/admin/mfa/totp/activate"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/admin/mfa/totp/setup [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/admin/mfa/totp/setup",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/admin/mfa/totp/setup"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/auth/admin/mfa/totp/status [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/auth/admin/mfa/totp/status",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/auth/admin/mfa/totp/status"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/admin/mfa/totp/status [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/admin/mfa/totp/status",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/auth/admin/mfa/totp/status"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/change-password [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/change-password",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/change-password"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/login [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/login",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/login"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/login/otp/resend [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/login/otp/resend",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/login/otp/resend"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/login/otp/verify [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/login/otp/verify",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/login/otp/verify"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/login/totp/verify [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/login/totp/verify",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/login/totp/verify"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/logout [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/logout",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/logout"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/auth/me [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/auth/me",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/auth/me"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/me [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/me",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/auth/me"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/refresh [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/refresh",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/refresh"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/auth/revoke [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/auth/revoke",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/auth/revoke"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/devices/{tokenId} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/devices/{tokenId}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "DELETE /api/v1/devices/{tokenId}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/devices/register [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/devices/register",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/devices/register"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/doctors [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/doctors",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/doctors"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/doctors [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/doctors",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/doctors"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/notifications [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/notifications",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications/{notification_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications/{notification_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/doctors/notifications/{notification_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/doctors/notifications/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/notifications/stream [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/notifications/stream",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications/stream [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications/stream",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "SSE /api/v1/doctors/notifications/stream [protocol]",
+      "method": "GET",
+      "path": "/api/v1/doctors/notifications/stream",
+      "kind": "sse-stream",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications/stream-ticket [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications/stream-ticket",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/doctors/notifications/stream-ticket"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/notifications/unread-count [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/notifications/unread-count",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/notifications/unread-count [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/notifications/unread-count",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/patients [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/patients",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients",
+        "POST /api/v1/doctors/patients"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/patients/{op_num} [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/patients/{op_num}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/config [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/config",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/doctors/patients/{op_num}/config"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/dosage [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/dosage",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/doctors/patients/{op_num}/dosage"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/instructions [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/instructions",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PUT /api/v1/doctors/patients/{op_num}/instructions"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/reassign [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/reassign",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/doctors/patients/{op_num}/reassign"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/patients/{op_num}/reports [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/patients/{op_num}/reports",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}/reports"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/reports [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/reports",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}/reports"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/patients/{op_num}/reports/{report_id} [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}/reports/{report_id}"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/patients/{op_num}/reports/{report_id} [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/patients/{op_num}/reports/{report_id}",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/patients/{op_num}/reports/{report_id}",
+        "PUT /api/v1/doctors/patients/{op_num}/reports/{report_id}"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/doctors/profile [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/doctors/profile",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/profile [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/profile",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/doctors/profile",
+        "PUT /api/v1/doctors/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/doctors/profile-pic [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/doctors/profile-pic",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/doctors/profile-pic"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/doctor-updates [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/doctor-updates",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/doctor-updates"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/doctor-updates [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/doctor-updates",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/doctor-updates"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/doctor-updates/{event_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/doctor-updates/{event_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/patient/doctor-updates/{event_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/doctor-updates/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/doctor-updates/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/patient/doctor-updates/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/doctor-updates/summary [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/doctor-updates/summary",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/doctor-updates/summary"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/doctor-updates/summary [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/doctor-updates/summary",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/doctor-updates/summary"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/dosage [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/dosage",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/patient/dosage"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/dosage-calendar [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/dosage-calendar",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/dosage-calendar"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/dosage-calendar [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/dosage-calendar",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/dosage-calendar"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/health-logs [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/health-logs",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/patient/health-logs"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/missed-doses [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/missed-doses",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/missed-doses"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/missed-doses [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/missed-doses",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/missed-doses"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/notifications [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/notifications",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications/{notification_id}/read [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications/{notification_id}/read",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/patient/notifications/{notification_id}/read"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications/read-all [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications/read-all",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "PATCH /api/v1/patient/notifications/read-all"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/notifications/stream [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/notifications/stream",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications/stream [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications/stream",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "SSE /api/v1/patient/notifications/stream [protocol]",
+      "method": "GET",
+      "path": "/api/v1/patient/notifications/stream",
+      "kind": "sse-stream",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications/stream"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications/stream-ticket [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications/stream-ticket",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/patient/notifications/stream-ticket"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/notifications/unread-count [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/notifications/unread-count",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/notifications/unread-count [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/notifications/unread-count",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/notifications/unread-count"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/profile [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/profile",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/profile [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/profile",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/profile",
+        "PUT /api/v1/patient/profile"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/profile-pic [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/profile-pic",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/patient/profile-pic"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/patient/reports [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/patient/reports",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/reports"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/patient/reports [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/patient/reports",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/patient/reports",
+        "POST /api/v1/patient/reports"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/statistics/admin [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/statistics/admin",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/admin"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/statistics/admin [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/statistics/admin",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/admin"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/statistics/compliance [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/statistics/compliance",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/compliance"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/statistics/compliance [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/statistics/compliance",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/compliance"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/statistics/period [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/statistics/period",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/period"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/statistics/period [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/statistics/period",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/period"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/statistics/trends [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/statistics/trends",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/trends"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/statistics/trends [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/statistics/trends",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/trends"
+      ]
+    },
+    {
+      "id": "HEAD /api/v1/statistics/workload [derived]",
+      "method": "HEAD",
+      "path": "/api/v1/statistics/workload",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/workload"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/statistics/workload [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/statistics/workload",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /api/v1/statistics/workload"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/v1/webhooks/payment [derived]",
+      "method": "OPTIONS",
+      "path": "/api/v1/webhooks/payment",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/v1/webhooks/payment"
+      ]
+    },
+    {
+      "id": "OPTIONS /api/webhooks/payment [derived]",
+      "method": "OPTIONS",
+      "path": "/api/webhooks/payment",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "POST /api/webhooks/payment"
+      ]
+    },
+    {
+      "id": "HEAD /health/live [derived]",
+      "method": "HEAD",
+      "path": "/health/live",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /health/live"
+      ]
+    },
+    {
+      "id": "OPTIONS /health/live [derived]",
+      "method": "OPTIONS",
+      "path": "/health/live",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /health/live"
+      ]
+    },
+    {
+      "id": "HEAD /health/ready [derived]",
+      "method": "HEAD",
+      "path": "/health/ready",
+      "kind": "express-head",
+      "derivedFromEndpointIds": [
+        "GET /health/ready"
+      ]
+    },
+    {
+      "id": "OPTIONS /health/ready [derived]",
+      "method": "OPTIONS",
+      "path": "/health/ready",
+      "kind": "cors-preflight",
+      "derivedFromEndpointIds": [
+        "GET /health/ready"
+      ]
+    }
+  ]
+}

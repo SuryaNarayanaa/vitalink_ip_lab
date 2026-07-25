@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    environment: vitalink-load-test
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # The capacity controller publishes durable breakpoint summaries here.
+  - job_name: capacity-results
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
+  - job_name: load-test-containers
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: mongodb
+    static_configs:
+      - targets: ["mongodb-exporter:9216"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # These probes show whether the edge and API are alive while saturation rises.
+  - job_name: load-test-http-probes
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://nginx:8080/nginx-health
+          - http://nginx:8080/health/live
+          - http://nginx:8080/health/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Disabled by default in the API. The target is healthy only when the isolated
+  # process has LOAD_TEST_METRICS_ENABLED=true and load-test identity enabled.
+  - job_name: vitalink-api-process
+    metrics_path: /load-test/metrics
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+
+  # Optional Windows host telemetry. Install windows_exporter with the cpu,
+  # memory, net, logical_disk and process collectors to populate host panels.
+  - job_name: windows-host
+    static_configs:
+      - targets: ["host.docker.internal:9182"]

@@ -1,0 +1,388 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Mentor-ready endpoint breakpoint, live load, correctness and dependency-resource evidence for authorized VitaLink capacity tests.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Maximum repeatable passing VUs published by the capacity controller. Missing means the endpoint has not completed a capacity search.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 10 }, { "color": "green", "value": 50 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "displayMode": "gradient", "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "sizing": "auto", "valueMode": "color" },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "max by (endpoint_id) (vitalink_endpoint_safe_max_vus{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"})", "legendFormat": "{{endpoint_id}}", "range": true, "refId": "A" }],
+      "title": "Safe maximum concurrent VUs by endpoint",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Difference between the first failed VU step and the last repeatable passing step.",
+      "fieldConfig": { "defaults": { "color": { "mode": "continuous-GrYlRd" }, "decimals": 0, "mappings": [], "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "displayMode": "gradient", "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "sizing": "auto", "valueMode": "color" },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "max by (endpoint_id) (vitalink_endpoint_first_failed_vus{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"}) - max by (endpoint_id) (vitalink_endpoint_safe_max_vus{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"})", "legendFormat": "{{endpoint_id}}", "range": true, "refId": "A" }],
+      "title": "Breakpoint search gap (failed minus safe VUs)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Current k6 VUs. Endpoint searches should be isolated so this global value describes the selected endpoint.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "max(k6_vus{load_run_id=~\"$run_id\"})", "legendFormat": "active VUs", "range": true, "refId": "A" }],
+      "title": "Concurrent VUs during search",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Achieved request rate, grouped by stable endpoint ID.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "calcs": ["lastNotNull", "max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "vitalink:k6_endpoint_rps:rate1m{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"}", "legendFormat": "{{endpoint_id}}", "range": true, "refId": "A" }],
+      "title": "Achieved RPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Custom request-duration p95/p99 gauges emitted by k6 Prometheus remote write.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "max by (endpoint_id) (k6_load_request_duration_p95{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"})", "legendFormat": "p95 {{endpoint_id}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "max by (endpoint_id) (k6_load_request_duration_p99{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"})", "legendFormat": "p99 {{endpoint_id}}", "range": true, "refId": "B" }
+      ],
+      "title": "Endpoint latency percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Unexpected HTTP status ratio and semantic-response failure ratio. The red line is the default 1% stop threshold.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "line" } }, "mappings": [], "max": 0.1, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }, "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "vitalink:k6_endpoint_error_ratio:rate1m{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"}", "legendFormat": "HTTP {{endpoint_id}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vitalink:k6_endpoint_semantic_error_ratio:rate1m{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"}", "legendFormat": "semantic {{endpoint_id}}", "range": true, "refId": "B" }
+      ],
+      "title": "Correctness failure ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Iteration demand the load generator could not schedule; a non-zero value invalidates a claimed capacity result.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 16 },
+      "id": 7,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "sum(increase(k6_dropped_iterations_total{load_run_id=~\"$run_id\"}[$__range]))", "legendFormat": "dropped", "range": true, "refId": "A" }],
+      "title": "Dropped iterations",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Number of stable endpoint IDs observed in this selected run.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 1 }, { "color": "green", "value": 194 }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 16 },
+      "id": 8,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "count(count by (endpoint_id) (k6_load_request_attempts_total{load_run_id=~\"$run_id\"}))", "legendFormat": "observed", "range": true, "refId": "A" }],
+      "title": "Endpoints observed",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "The final pass/fail metric published by the capacity controller for the selected endpoints.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [{ "options": { "0": { "color": "red", "index": 0, "text": "FAILED" }, "1": { "color": "green", "index": 1, "text": "PASSED" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 16 },
+      "id": 9,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "min(vitalink_endpoint_capacity_pass{load_run_id=~\"$run_id\", endpoint_id=~\"$endpoint_id\"})", "legendFormat": "capacity result", "range": true, "refId": "A" }],
+      "title": "Selected result",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 10,
+      "panels": [],
+      "title": "Backend and dependency resources",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "CPU used by containers in the vitalink-load-test Compose project. The host-run Node API requires optional Windows exporter telemetry.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "cores" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 25 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_project=\"vitalink-load-test\", image!=\"\"}[$__rate_interval]))", "legendFormat": "{{container_label_com_docker_compose_service}}", "range": true, "refId": "A" }],
+      "title": "Load-test container CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Working-set memory used by each load-test container.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 25 },
+      "id": 12,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes{container_label_com_docker_compose_project=\"vitalink-load-test\", image!=\"\"})", "legendFormat": "{{container_label_com_docker_compose_service}}", "range": true, "refId": "A" }],
+      "title": "Load-test container memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Redis live clients and MongoDB current connections. Missing Mongo series should be investigated against the exporter version before reporting zero.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 25 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "redis_connected_clients", "legendFormat": "Redis clients", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "mongodb_ss_connections{conn_type=\"current\"}", "legendFormat": "Mongo connections", "range": true, "refId": "B" }
+      ],
+      "title": "Database connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Blackbox response time and success for Nginx, API liveness and API readiness.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+      "id": 14,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "probe_duration_seconds{job=\"load-test-http-probes\"}", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Edge/API probe duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Scrape/probe health. Required targets must remain 1 throughout a claimed capacity step; API-process and windows-host are optional.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [{ "options": { "0": { "color": "red", "index": 0, "text": "DOWN" }, "1": { "color": "green", "index": 1, "text": "UP" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+      "id": 15,
+      "options": { "displayMode": "gradient", "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true, "sizing": "auto", "valueMode": "color" },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "up{job=~\"prometheus|capacity-results|load-test-containers|mongodb|redis|load-test-http-probes|vitalink-api-process|windows-host\"}", "legendFormat": "{{job}} {{instance}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "probe_success{job=\"load-test-http-probes\"}", "legendFormat": "probe {{instance}}", "range": true, "refId": "B" }
+      ],
+      "title": "Telemetry and health targets",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Optional Windows host CPU and memory. Install windows_exporter on the test host; absence is not reported as zero.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 5, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+      "id": 16,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "1 - avg(rate(windows_cpu_time_total{mode=\"idle\"}[$__rate_interval]))", "legendFormat": "host CPU", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "1 - (windows_os_physical_memory_free_bytes / windows_cs_physical_memory_bytes)", "legendFormat": "host memory", "range": true, "refId": "B" }
+      ],
+      "title": "Host resources (optional Windows exporter)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "id": 17,
+      "panels": [],
+      "title": "Host-run VitaLink API process",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Current and peak requests executing in the isolated API process. A growing active count after load stops indicates stalled work.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+      "id": 18,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "vitalink_load_active_requests", "legendFormat": "active", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vitalink_load_peak_active_requests", "legendFormat": "peak", "range": true, "refId": "B" }
+      ],
+      "title": "API request concurrency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "CPU cores consumed by the host-run Node process.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "cores" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+      "id": 19,
+      "options": { "legend": { "calcs": ["lastNotNull", "max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "rate(vitalink_load_process_cpu_seconds_total[$__rate_interval])", "legendFormat": "Node API", "range": true, "refId": "A" }],
+      "title": "API process CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Resident set and V8 heap used. Persistent post-test growth should block a soak-capacity claim.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+      "id": 20,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "vitalink_load_process_resident_memory_bytes", "legendFormat": "RSS", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vitalink_load_process_heap_used_bytes", "legendFormat": "heap used", "range": true, "refId": "B" }
+      ],
+      "title": "API process memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Node event-loop delay. High p95/max delay is a saturation signal even when HTTP responses still succeed.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 50 },
+      "id": 21,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "vitalink_load_event_loop_delay_seconds{quantile=\"0.95\"}", "legendFormat": "p95", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vitalink_load_event_loop_delay_seconds{quantile=\"max\"}", "legendFormat": "max", "range": true, "refId": "B" }
+      ],
+      "title": "API event-loop delay",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Server-side latency from the API histogram, independent of k6 network timing.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 50 },
+      "id": 22,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(vitalink_load_http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "server p95", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(vitalink_load_http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "server p99", "range": true, "refId": "B" }
+      ],
+      "title": "API server-side duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Completed API requests per second grouped by bounded HTTP status.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 8, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 3, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "normal" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 50 },
+      "id": 23,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "sum by (status) (rate(vitalink_load_http_requests_total[$__rate_interval]))", "legendFormat": "HTTP {{status}}", "range": true, "refId": "A" }],
+      "title": "API responses by status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Active Node handles; sustained growth after recovery can indicate leaked timers or sockets.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 58 },
+      "id": 24,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "vitalink_load_process_active_handles", "legendFormat": "handles", "range": true, "refId": "A" }],
+      "title": "Node active handles",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+      "description": "Unexpected reset during a step is evidence of an API restart or crash.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 58 },
+      "id": 25,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
+      "pluginVersion": "12.1.0",
+      "targets": [{ "editorMode": "code", "expr": "vitalink_load_process_uptime_seconds", "legendFormat": "uptime", "range": true, "refId": "A" }],
+      "title": "API process uptime",
+      "type": "stat"
+    }
+  ],
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["vitalink", "k6", "capacity", "mentor-report"],
+  "templating": {
+    "list": [
+      {
+        "current": { "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+        "definition": "label_values({__name__=~\"k6_load_request_attempts_total|vitalink_endpoint_safe_max_vus\"}, load_run_id)",
+        "includeAll": true,
+        "label": "Run ID",
+        "multi": true,
+        "name": "run_id",
+        "options": [],
+        "query": { "query": "label_values({__name__=~\"k6_load_request_attempts_total|vitalink_endpoint_safe_max_vus\"}, load_run_id)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "sort": 2,
+        "type": "query"
+      },
+      {
+        "current": { "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "vitalink-prometheus" },
+        "definition": "label_values({load_run_id=~\"$run_id\", __name__=~\"k6_load_request_attempts_total|vitalink_endpoint_safe_max_vus\"}, endpoint_id)",
+        "includeAll": true,
+        "label": "Endpoint",
+        "multi": true,
+        "name": "endpoint_id",
+        "options": [],
+        "query": { "query": "label_values({load_run_id=~\"$run_id\", __name__=~\"k6_load_request_attempts_total|vitalink_endpoint_safe_max_vus\"}, endpoint_id)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "VitaLink Endpoint Capacity",
+  "uid": "vitalink-endpoint-capacity",
+  "version": 1,
+  "weekStart": ""
+}

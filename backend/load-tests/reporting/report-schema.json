@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vitalink.local/schemas/load-test-report-v1.json",
+  "title": "VitaLink per-endpoint load-test report",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "status", "coverage", "endpoints"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["passed", "failed", "incomplete"] },
+    "coverage": {
+      "type": "object",
+      "required": ["required", "attempted", "missing"],
+      "properties": {
+        "required": { "type": "integer", "minimum": 0 },
+        "attempted": { "type": "integer", "minimum": 0 },
+        "missing": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "method", "path", "attempts", "status", "latencyMs"],
+        "properties": {
+          "id": { "type": "string" },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "attempts": { "type": "number", "minimum": 0 },
+          "status": { "enum": ["passed", "failed", "missing", "not_applicable"] },
+          "latencyMs": { "type": "object" }
+        }
+      }
+    }
+  }
+}

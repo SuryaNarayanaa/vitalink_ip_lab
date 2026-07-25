@@ -1,0 +1,92 @@
+name: vitalink-load-test
+
+services:
+  mongo:
+    image: mongo:8.0.12
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "127.0.0.1:${LOAD_TEST_MONGO_PORT:-27018}:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - load-test-net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'try { db.adminCommand({ ping: 1 }).ok ? quit(0) : quit(1) } catch (e) { quit(1) }'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  mongo-init:
+    image: mongo:8.0.12
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./init-replica-set.sh:/scripts/init-replica-set.sh:ro
+    entrypoint: ["bash", "/scripts/init-replica-set.sh"]
+    networks:
+      - load-test-net
+    restart: "no"
+
+  redis:
+    image: redis:7.4.5-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "127.0.0.1:${LOAD_TEST_REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - load-test-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  provider-stub:
+    image: node:22.17.1-alpine
+    working_dir: /stub
+    command: ["node", "/stub/provider-stub.js"]
+    environment:
+      PORT: "8080"
+      NODE_ENV: "test"
+    ports:
+      - "127.0.0.1:${LOAD_TEST_PROVIDER_PORT:-18080}:8080"
+    volumes:
+      - ./provider-stub.js:/stub/provider-stub.js:ro
+    networks:
+      - load-test-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "127.0.0.1:${LOAD_TEST_NGINX_PORT:-18081}:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - load-test-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/nginx-health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+networks:
+  load-test-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:
