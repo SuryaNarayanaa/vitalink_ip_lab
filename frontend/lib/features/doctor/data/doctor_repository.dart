@@ -33,7 +33,11 @@ class DoctorRepository {
     final response =
         await _apiClient.get('${AppStrings.doctorPatientsPath}/$opNumber');
     final patient = response['patient'];
-    return PatientDetailModel.fromJson(patient as Map<String, dynamic>);
+    if (patient is! Map) {
+      throw Exception('Patient detail payload is incomplete');
+    }
+    // Coerce map typing so nested health_logs survive Dio/JSON decode shapes.
+    return PatientDetailModel.fromJson(Map<String, dynamic>.from(patient));
   }
 
   Future<void> updatePatientDosage(

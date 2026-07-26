@@ -108,6 +108,22 @@ class PatientService {
             ? Map<String, dynamic>.from(dataSection['doctor_updates'] as Map)
             : null;
 
+        final healthLogs = profile['health_logs'] is List
+            ? List<dynamic>.from(profile['health_logs'] as List)
+            : <dynamic>[];
+
+        String? logDescription(String type) {
+          for (final log in healthLogs) {
+            if (log is! Map) continue;
+            if (log['type']?.toString() != type) continue;
+            final description = log['description']?.toString().trim();
+            if (description != null && description.isNotEmpty) {
+              return description;
+            }
+          }
+          return null;
+        }
+
         return {
           'name': demographics['name'] ?? 'Patient',
           'opNumber': data['login_id'] ?? data['_id'] ?? 'N/A',
@@ -127,7 +143,11 @@ class PatientService {
           'kinPhone': nextOfKin['phone'] ?? 'N/A',
           'instructions': medicalConfig['instructions'] ?? [],
           'weeklyDosage': profile['weekly_dosage'] ?? {},
-          'healthLogs': profile['health_logs'] ?? [],
+          'healthLogs': healthLogs,
+          'sideEffects': logDescription('SIDE_EFFECT') ?? 'None Reported',
+          'lifestyleChanges': logDescription('LIFESTYLE') ?? 'Stable',
+          'otherMedication': logDescription('OTHER_MEDS') ?? 'None',
+          'prolongedIllness': logDescription('ILLNESS') ?? 'None',
           'medicalHistory': profile['medical_history'] ?? [],
           'doctorUpdatesUnreadCount': doctorUpdates?['unread_count'] ?? 0,
           'latestDoctorUpdate': doctorUpdates?['latest'],
@@ -480,11 +500,12 @@ class PatientService {
     return null;
   }
 
-  // Update patient profile
+  // Update patient profile.
+  // Backend schema is strict: only demographics + medical_history are allowed.
+  // medical_config (e.g. therapy_start_date) is doctor-only and will 400.
   static Future<void> updateProfile({
     Map<String, dynamic>? demographics,
     List<Map<String, dynamic>>? medicalHistory,
-    Map<String, dynamic>? medicalConfig,
   }) async {
     _setupInterceptors();
     try {
@@ -496,10 +517,6 @@ class PatientService {
 
       if (medicalHistory != null) {
         data['medical_history'] = medicalHistory;
-      }
-
-      if (medicalConfig != null) {
-        data['medical_config'] = medicalConfig;
       }
 
       final response = await _dio.put(_endpoint('/profile'), data: data);

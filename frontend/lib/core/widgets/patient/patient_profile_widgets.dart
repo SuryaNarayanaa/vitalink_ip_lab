@@ -4,7 +4,6 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/utils/phone_utils.dart';
 import 'package:frontend/core/widgets/index.dart';
-import 'package:intl/intl.dart';
 
 class PatientProfileContent extends StatelessWidget {
   final Map<String, dynamic> profile;
@@ -643,42 +642,12 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
   String? _selectedGender;
   bool _isLoading = false;
   String? _error;
-  DateTime _selectedTherapyDate = DateTime.now();
 
-  Future<void> _selectDate(BuildContext context) async {
-    final now = DateTime.now();
-    final firstDate = DateTime(1900);
-    var initialDate = _selectedTherapyDate;
-    if (initialDate.isAfter(now)) {
-      initialDate = now;
-    } else if (initialDate.isBefore(firstDate)) {
-      initialDate = firstDate;
-    }
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: now,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: const Color(0xFF6366F1),
-              onPrimary: Colors.white,
-              onSurface: Colors.black87,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        _selectedTherapyDate = picked;
-        _therapyStartController.text = DateFormat('dd-MM-yyyy').format(picked);
-      });
-    }
+  /// Treat placeholder values like "N/A" as empty for form fields.
+  static String _displayOrEmpty(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty || text.toUpperCase() == 'N/A') return '';
+    return text;
   }
 
   @override
@@ -691,29 +660,23 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
     _phoneController = TextEditingController(
       text: PhoneUtils.toLocalDigits(widget.profile['phone']?.toString()),
     );
+    // Caregiver maps to next_of_kin.relation; kin name maps to next_of_kin.name.
     _caregiverController = TextEditingController(
-      text: widget.profile['caregiver'] ?? '',
+      text: _displayOrEmpty(widget.profile['kinRelation']),
     );
     _kinNameController = TextEditingController(
-      text: widget.profile['kinName'] ?? '',
+      text: _displayOrEmpty(widget.profile['kinName']),
     );
     _kinPhoneController = TextEditingController(
       text: PhoneUtils.toLocalDigits(widget.profile['kinPhone']?.toString()),
     );
-    _therapyStartController = TextEditingController(
-      text: widget.profile['therapyStartDate'] ?? '',
-    );
-    _selectedGender = widget.profile['gender'];
-
-    if (widget.profile['therapyStartDate'] != null) {
-      try {
-        _selectedTherapyDate = DateFormat(
-          'dd-MM-yyyy',
-        ).parse(widget.profile['therapyStartDate']);
-      } catch (_) {
-        _selectedTherapyDate = DateTime.now();
-      }
-    }
+    // Therapy start is clinician-owned; show for context only (not submitted).
+    final therapyStart = _displayOrEmpty(widget.profile['therapyStartDate']);
+    _therapyStartController = TextEditingController(text: therapyStart);
+    final gender = widget.profile['gender']?.toString();
+    _selectedGender = (gender == 'Male' || gender == 'Female' || gender == 'Other')
+        ? gender
+        : null;
   }
 
   @override
@@ -737,12 +700,17 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
     });
 
     try {
+      // Backend updateProfileSchema is strict and only accepts demographics
+      // (+ medical_history). medical_config / therapy_start_date are doctor-only
+      // and are rejected with "Validation failed" if sent.
       final demographics = <String, dynamic>{};
-      final medicalConfig = <String, dynamic>{};
 
       demographics['name'] = _nameController.text.trim();
       if (_ageController.text.isNotEmpty) {
-        demographics['age'] = int.tryParse(_ageController.text) ?? 0;
+        final age = int.tryParse(_ageController.text.trim());
+        if (age != null && age > 0) {
+          demographics['age'] = age;
+        }
       }
       if (_selectedGender != null) {
         demographics['gender'] = _selectedGender;
@@ -753,28 +721,24 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
       }
 
       final nextOfKin = <String, dynamic>{};
-      if (_kinNameController.text.trim().isNotEmpty) {
-        nextOfKin['name'] = _kinNameController.text.trim();
+      final kinName = _kinNameController.text.trim();
+      if (kinName.isNotEmpty && kinName.toUpperCase() != 'N/A') {
+        nextOfKin['name'] = kinName;
       }
       final kinPhone = PhoneUtils.formatForApi(_kinPhoneController.text);
       if (kinPhone != null) {
         nextOfKin['phone'] = kinPhone;
       }
-      if (_caregiverController.text.trim().isNotEmpty) {
-        nextOfKin['relation'] = _caregiverController.text.trim();
+      final caregiver = _caregiverController.text.trim();
+      if (caregiver.isNotEmpty && caregiver.toUpperCase() != 'N/A') {
+        nextOfKin['relation'] = caregiver;
       }
       if (nextOfKin.isNotEmpty) {
         demographics['next_of_kin'] = nextOfKin;
       }
 
-      if (_therapyStartController.text.trim().isNotEmpty) {
-        medicalConfig['therapy_start_date'] =
-            _therapyStartController.text.trim();
-      }
-
       await AppDependencies.patientRepository.updateProfile(
         demographics: demographics,
-        medicalConfig: medicalConfig.isNotEmpty ? medicalConfig : null,
       );
 
       if (mounted) {
@@ -961,9 +925,9 @@ class _PatientEditProfileModalState extends State<PatientEditProfileModal> {
                       label: 'Start Date (DD-MM-YYYY)',
                       icon: Icons.date_range_outlined,
                       readOnly: true,
-                      onTap: () => _selectDate(context),
+                      helperText: 'Managed by your doctor — not editable here',
                       suffixIcon: const Icon(
-                        Icons.calendar_month,
+                        Icons.lock_outline,
                         color: Color(0xFF9CA3AF),
                         size: 20,
                       ),

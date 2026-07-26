@@ -4,6 +4,7 @@ import 'package:frontend/core/widgets/index.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/patient_query_keys.dart';
 import 'package:frontend/app/routers.dart';
+import 'package:frontend/features/patient/data/patient_repository.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 
 class PatientPage extends StatefulWidget {
@@ -427,6 +428,7 @@ class _PatientPageState extends State<PatientPage> {
                       PortalLayout.sectionSpacerTight,
 
                       // 6. Monitoring & Side Effects Card
+                      // Values come from health_logs (mapped in PatientRepository).
                       _buildSectionCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,14 +442,42 @@ class _PatientPageState extends State<PatientPage> {
                               ),
                             ),
                             PortalLayout.sectionSpacerTight,
-                            _buildHealthNote('Side Effects',
-                                profile['sideEffects'] ?? 'None Reported'),
-                            _buildHealthNote('Lifestyle',
-                                profile['lifestyleChanges'] ?? 'Stable'),
-                            _buildHealthNote('Other Meds',
-                                profile['otherMedication'] ?? 'None'),
-                            _buildHealthNote('Illness',
-                                profile['prolongedIllness'] ?? 'None'),
+                            _buildHealthNote(
+                              'Side Effects',
+                              _monitoringValue(
+                                profile,
+                                type: 'SIDE_EFFECT',
+                                mappedKey: 'sideEffects',
+                                fallback: 'None Reported',
+                              ),
+                            ),
+                            _buildHealthNote(
+                              'Lifestyle',
+                              _monitoringValue(
+                                profile,
+                                type: 'LIFESTYLE',
+                                mappedKey: 'lifestyleChanges',
+                                fallback: 'Stable',
+                              ),
+                            ),
+                            _buildHealthNote(
+                              'Other Meds',
+                              _monitoringValue(
+                                profile,
+                                type: 'OTHER_MEDS',
+                                mappedKey: 'otherMedication',
+                                fallback: 'None',
+                              ),
+                            ),
+                            _buildHealthNote(
+                              'Illness',
+                              _monitoringValue(
+                                profile,
+                                type: 'ILLNESS',
+                                mappedKey: 'prolongedIllness',
+                                fallback: 'None',
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -911,6 +941,26 @@ class _PatientPageState extends State<PatientPage> {
         ],
       ),
     );
+  }
+
+  /// Prefer flattened profile fields; fall back to raw healthLogs by type.
+  String _monitoringValue(
+    Map<String, dynamic> profile, {
+    required String type,
+    required String mappedKey,
+    required String fallback,
+  }) {
+    final fromLogs = PatientRepository.healthLogDescription(
+      profile['healthLogs'] as List? ??
+          profile['health_logs'] as List? ??
+          const [],
+      type,
+    );
+    if (fromLogs != null && fromLogs.isNotEmpty) return fromLogs;
+
+    final mapped = profile[mappedKey]?.toString().trim();
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    return fallback;
   }
 
   Widget _buildHealthNote(String label, String value) {

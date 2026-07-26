@@ -21,16 +21,18 @@ class PatientRepository {
   /// generation they require.
   int _reportGeneration = 0;
 
+  /// Patient self-service profile update.
+  ///
+  /// Backend [updateProfileSchema] is strict and only accepts [demographics]
+  /// (and optional medical_history). Do not send medical_config — therapy
+  /// fields are clinician-maintained and rejected with "Validation failed".
   Future<void> updateProfile({
     required Map<String, dynamic> demographics,
-    Map<String, dynamic>? medicalConfig,
   }) async {
     await _apiClient.put(
       '$_patientBasePath/profile',
       data: <String, dynamic>{
         'demographics': demographics,
-        if (medicalConfig != null && medicalConfig.isNotEmpty)
-          'medical_config': medicalConfig,
       },
     );
   }
@@ -39,46 +41,38 @@ class PatientRepository {
 
   Future<Map<String, dynamic>> getProfile() async {
     final response = await _apiClient.getRaw('$_patientBasePath/profile');
-    final data = response['data'] is Map<String, dynamic>
-        ? response['data'] as Map<String, dynamic>
-        : response;
+    final data = _asStringKeyMap(response['data']) ?? response;
 
-    final patient = data['patient'];
-    if (patient is! Map<String, dynamic> || patient['profile_id'] == null) {
+    final patient = _asStringKeyMap(data['patient']);
+    if (patient == null || patient['profile_id'] == null) {
       throw Exception('Profile data is incomplete');
     }
 
-    final profile = patient['profile_id'] is Map<String, dynamic>
-        ? patient['profile_id'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final demographics = profile['demographics'] is Map<String, dynamic>
-        ? profile['demographics'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final medicalConfig = profile['medical_config'] is Map<String, dynamic>
-        ? profile['medical_config'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final targetInr = medicalConfig['target_inr'] is Map<String, dynamic>
-        ? medicalConfig['target_inr'] as Map<String, dynamic>
-        : <String, dynamic>{};
+    final profile = _asStringKeyMap(patient['profile_id']) ?? <String, dynamic>{};
+    final demographics =
+        _asStringKeyMap(profile['demographics']) ?? <String, dynamic>{};
+    final medicalConfig =
+        _asStringKeyMap(profile['medical_config']) ?? <String, dynamic>{};
+    final targetInr =
+        _asStringKeyMap(medicalConfig['target_inr']) ?? <String, dynamic>{};
 
     String doctorName = 'Unassigned';
     String doctorPhone = 'N/A';
-    final doctorUser = profile['assigned_doctor_id'];
-    if (doctorUser is Map<String, dynamic>) {
-      final doctorProfile = doctorUser['profile_id'];
-      if (doctorProfile is Map<String, dynamic>) {
+    final doctorUser = _asStringKeyMap(profile['assigned_doctor_id']);
+    if (doctorUser != null) {
+      final doctorProfile = _asStringKeyMap(doctorUser['profile_id']);
+      if (doctorProfile != null) {
         doctorName = doctorProfile['name']?.toString() ?? 'Unassigned';
         doctorPhone = doctorProfile['contact_number']?.toString() ?? 'N/A';
       }
     }
 
-    final nextOfKin = demographics['next_of_kin'] is Map<String, dynamic>
-        ? demographics['next_of_kin'] as Map<String, dynamic>
-        : <String, dynamic>{};
+    final nextOfKin =
+        _asStringKeyMap(demographics['next_of_kin']) ?? <String, dynamic>{};
 
-    final doctorUpdates = data['doctor_updates'] is Map<String, dynamic>
-        ? data['doctor_updates'] as Map<String, dynamic>
-        : null;
+    final doctorUpdates = _asStringKeyMap(data['doctor_updates']);
+
+    final healthLogs = normalizeHealthLogs(profile['health_logs']);
 
     return {
       'name': demographics['name'] ?? 'Patient',
@@ -92,17 +86,61 @@ class PatientRepository {
       'therapyStartDate': formatDate(medicalConfig['therapy_start_date']),
       'doctorName': doctorName,
       'doctorPhone': doctorPhone,
-      'caregiver': nextOfKin['name'] ?? 'N/A',
+      // Caregiver form field maps to next_of_kin.relation; kin name to .name.
+      'caregiver': nextOfKin['relation'] ?? 'N/A',
       'kinName': nextOfKin['name'] ?? 'N/A',
       'kinRelation': nextOfKin['relation'] ?? 'N/A',
       'kinPhone': nextOfKin['phone'] ?? 'N/A',
       'instructions': medicalConfig['instructions'] ?? [],
       'weeklyDosage': profile['weekly_dosage'] ?? {},
-      'healthLogs': profile['health_logs'] ?? [],
+      'healthLogs': healthLogs,
+      // Flatten latest log per type for home / monitoring cards.
+      'sideEffects':
+          healthLogDescription(healthLogs, 'SIDE_EFFECT') ?? 'None Reported',
+      'lifestyleChanges':
+          healthLogDescription(healthLogs, 'LIFESTYLE') ?? 'Stable',
+      'otherMedication':
+          healthLogDescription(healthLogs, 'OTHER_MEDS') ?? 'None',
+      'prolongedIllness':
+          healthLogDescription(healthLogs, 'ILLNESS') ?? 'None',
       'medicalHistory': profile['medical_history'] ?? [],
       'doctorUpdatesUnreadCount': doctorUpdates?['unread_count'] ?? 0,
       'latestDoctorUpdate': doctorUpdates?['latest'],
     };
+  }
+
+  /// Coerce API map payloads that may not be typed as [Map<String, dynamic>].
+  static Map<String, dynamic>? _asStringKeyMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  /// Normalize health_logs from profile payloads (list of typed entries).
+  static List<Map<String, dynamic>> normalizeHealthLogs(dynamic raw) {
+    if (raw is! List) return const [];
+    final logs = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      final map = _asStringKeyMap(item);
+      if (map != null) logs.add(map);
+    }
+    return logs;
+  }
+
+  /// Latest description for a health-log type (backend keeps one entry per type).
+  static String? healthLogDescription(List<dynamic> logs, String type) {
+    for (final log in logs) {
+      final map = log is Map<String, dynamic>
+          ? log
+          : (log is Map ? Map<String, dynamic>.from(log) : null);
+      if (map == null) continue;
+      if (map['type']?.toString() != type) continue;
+      final description = map['description']?.toString().trim();
+      if (description != null && description.isNotEmpty) {
+        return description;
+      }
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> getMissedDoses() async {

@@ -305,6 +305,11 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
                 // Medical History
                 _MedicalHistoryCard(patient: patient),
 
+                PortalLayout.sectionSpacerTight,
+
+                // Side effects & other monitoring logs from patient health reports
+                _MonitoringLogsCard(patient: patient),
+
                 PortalLayout.sectionSpacer,
 
                 // INR Reports Section
@@ -1130,6 +1135,131 @@ class _MedicalHistoryCard extends StatelessWidget {
         }).toList(),
       ),
     );
+  }
+}
+
+class _MonitoringLogsCard extends StatelessWidget {
+  final PatientDetailModel patient;
+
+  const _MonitoringLogsCard({required this.patient});
+
+  static const _entries = <({String type, String label, String fallback})>[
+    (type: 'SIDE_EFFECT', label: 'Side Effects', fallback: 'None reported'),
+    (type: 'ILLNESS', label: 'Illness', fallback: 'None reported'),
+    (type: 'LIFESTYLE', label: 'Lifestyle', fallback: 'Stable'),
+    (type: 'OTHER_MEDS', label: 'Other Medications', fallback: 'None reported'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final logs = patient.healthLogs;
+    final hasAny = logs != null &&
+        logs.any((log) {
+          if (log is! Map) return false;
+          final description = log['description']?.toString().trim();
+          return description != null && description.isNotEmpty;
+        });
+
+    return InfoCard(
+      title: 'Monitoring Logs',
+      child: hasAny
+          ? Column(
+              children: _entries.map((entry) {
+                final description = patient.healthLogDescription(
+                  entry.type,
+                  fallback: entry.fallback,
+                );
+                final dateRaw = patient.healthLogDate(entry.type);
+                final dateLabel = _formatLogDate(dateRaw);
+                final isReported = description != entry.fallback;
+
+                return Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isReported
+                        ? const Color(0xFFFEF3C7)
+                        : const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isReported
+                          ? const Color(0xFFFCD34D)
+                          : const Color(0xFFE5E7EB),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            isReported
+                                ? Icons.warning_amber_rounded
+                                : Icons.check_circle_outline,
+                            size: 18,
+                            color: isReported
+                                ? const Color(0xFFD97706)
+                                : const Color(0xFF9CA3AF),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              entry.label,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: isReported
+                                    ? const Color(0xFF92400E)
+                                    : const Color(0xFF6B7280),
+                              ),
+                            ),
+                          ),
+                          if (dateLabel != null)
+                            Text(
+                              dateLabel,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight:
+                              isReported ? FontWeight.w600 : FontWeight.w500,
+                          color: isReported
+                              ? const Color(0xFF1F2937)
+                              : const Color(0xFF9CA3AF),
+                          fontStyle:
+                              isReported ? FontStyle.normal : FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            )
+          : const Text(
+              'No monitoring logs reported by the patient yet',
+              style: TextStyle(
+                color: Color(0xFF6B7280),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+    );
+  }
+
+  String? _formatLogDate(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    return DateFormat('dd-MM-yyyy').format(parsed.toLocal());
   }
 }
 
