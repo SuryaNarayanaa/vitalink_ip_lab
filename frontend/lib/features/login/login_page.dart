@@ -4,7 +4,6 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/network/api_client.dart';
-import 'package:frontend/core/widgets/common/api_error_state.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
 import 'package:frontend/features/login/models/login_models.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -31,7 +30,6 @@ class _LoginPageState extends State<LoginPage> {
   LoginTotpChallenge? _totpChallenge;
   bool _isVerifyingOtp = false;
   bool _isResendingOtp = false;
-  Object? _otpError;
 
   @override
   void dispose() {
@@ -103,13 +101,29 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _handleError(Object error) {
+  void _handleError(Object error, {bool returnToLoginForm = false}) {
     final message = error is ApiException
-        ? '${error.title}: ${error.message}'
+        ? error.message
         : error.toString();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Login failed: $message')));
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFFB3261E),
+        ),
+      );
+
+    // Invalid credentials and other auth failures should not leave a
+    // "Session expired / Back to login" card on this page — toast only.
+    if (returnToLoginForm &&
+        error is ApiException &&
+        error.shouldReturnToLogin &&
+        (_otpChallenge != null || _totpChallenge != null)) {
+      _returnToLogin();
+    }
   }
 
   void _submit(MutationResult<LoginResult, LoginRequest> mutation) {
@@ -129,7 +143,6 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() {
       _isVerifyingOtp = true;
-      _otpError = null;
     });
 
     try {
@@ -142,10 +155,7 @@ class _LoginPageState extends State<LoginPage> {
       await _handleSuccess(response);
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _otpError = error;
-      });
-      _handleError(error);
+      _handleError(error, returnToLoginForm: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -161,7 +171,6 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() {
       _isVerifyingOtp = true;
-      _otpError = null;
     });
 
     try {
@@ -174,10 +183,7 @@ class _LoginPageState extends State<LoginPage> {
       await _handleSuccess(response);
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _otpError = error;
-      });
-      _handleError(error);
+      _handleError(error, returnToLoginForm: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -193,7 +199,6 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() {
       _isResendingOtp = true;
-      _otpError = null;
     });
 
     try {
@@ -210,10 +215,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _otpError = error;
-      });
-      _handleError(error);
+      _handleError(error, returnToLoginForm: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -228,7 +230,6 @@ class _LoginPageState extends State<LoginPage> {
       _otpChallenge = null;
       _totpChallenge = null;
       _otpController.clear();
-      _otpError = null;
     });
   }
 
@@ -249,7 +250,6 @@ class _LoginPageState extends State<LoginPage> {
                 _otpChallenge = data.otpChallenge;
                 _totpChallenge = null;
                 _otpController.clear();
-                _otpError = null;
               });
               return;
             }
@@ -259,7 +259,6 @@ class _LoginPageState extends State<LoginPage> {
                 _totpChallenge = data.totpChallenge;
                 _otpChallenge = null;
                 _otpController.clear();
-                _otpError = null;
               });
               return;
             }
@@ -275,11 +274,6 @@ class _LoginPageState extends State<LoginPage> {
           },
         ),
         builder: (context, mutation) {
-          final error = mutation.error;
-          final errorText = error is ApiException
-              ? error.message
-              : error?.toString();
-
           return SizedBox(
             width: screenWidth,
             height: screenHeight,
@@ -360,7 +354,7 @@ class _LoginPageState extends State<LoginPage> {
                             SizedBox(height: screenHeight * 0.04),
 
                             if (_otpChallenge == null && _totpChallenge == null)
-                              _buildLoginForm(mutation, error, errorText)
+                              _buildLoginForm(mutation)
                             else if (_otpChallenge != null)
                               _buildOtpForm(_otpChallenge!),
                             if (_totpChallenge != null)
@@ -493,11 +487,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildLoginForm(
-    MutationResult<LoginResult, LoginRequest> mutation,
-    Object? error,
-    String? errorText,
-  ) {
+  Widget _buildLoginForm(MutationResult<LoginResult, LoginRequest> mutation) {
     return Form(
       key: _formKey,
       child: Column(
@@ -542,11 +532,6 @@ class _LoginPageState extends State<LoginPage> {
             },
           ),
           const SizedBox(height: 28),
-          if (mutation.isError && errorText != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: ApiErrorState(error: error, compact: true),
-            ),
           _buildPrimaryButton(
             label: 'LOGIN',
             isLoading: mutation.isLoading,
@@ -643,11 +628,6 @@ class _LoginPageState extends State<LoginPage> {
             },
           ),
           const SizedBox(height: 16),
-          if (_otpError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: ApiErrorState(error: _otpError, compact: true),
-            ),
           _buildPrimaryButton(
             label: 'VERIFY OTP',
             isLoading: _isVerifyingOtp,
@@ -775,11 +755,6 @@ class _LoginPageState extends State<LoginPage> {
             },
           ),
           const SizedBox(height: 16),
-          if (_otpError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: ApiErrorState(error: _otpError, compact: true),
-            ),
           _buildPrimaryButton(
             label: 'VERIFY',
             isLoading: _isVerifyingOtp,
