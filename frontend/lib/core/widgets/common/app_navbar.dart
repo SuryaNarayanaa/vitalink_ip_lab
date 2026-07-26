@@ -71,6 +71,12 @@ class AppNavBar extends StatelessWidget {
                               child: Image.asset(
                                 'assets/images/psg_ims.png',
                                 fit: BoxFit.contain,
+                                filterQuality: FilterQuality.medium,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.local_hospital_outlined,
+                                  size: logoHeight * 0.7,
+                                  color: Colors.indigo.shade700,
+                                ),
                               ),
                             ),
                           ),
@@ -89,8 +95,15 @@ class AppNavBar extends StatelessWidget {
                             child: SizedBox(
                               height: logoHeight,
                               child: Image.asset(
-                                'assets/images/psg_logo_2.jpg.jpeg',
+                                // Prefer stable .png; some Android builds mishandle .jpg.jpeg
+                                'assets/images/psg_logo_2.png',
                                 fit: BoxFit.contain,
+                                filterQuality: FilterQuality.medium,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.account_balance_outlined,
+                                  size: logoHeight * 0.7,
+                                  color: Colors.indigo.shade700,
+                                ),
                               ),
                             ),
                           ),

@@ -368,17 +368,22 @@ class _LoginPageState extends State<LoginPage> {
 
                             SizedBox(height: screenHeight * 0.04),
 
-                            // Logos
+                            // Logos (opaque PNGs — transparent crests vanished on
+                            // some Android GPUs / dark launcher themes)
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 SizedBox(
                                   height: 45,
                                   child: Image.asset(
-                                    'assets/images/psg_logo_2.jpg.jpeg',
+                                    'assets/images/psg_logo_2.png',
                                     fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) =>
-                                        const SizedBox.shrink(),
+                                    filterQuality: FilterQuality.medium,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.account_balance_outlined,
+                                      size: 40,
+                                      color: _primaryPurple,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 20),
@@ -387,8 +392,12 @@ class _LoginPageState extends State<LoginPage> {
                                   child: Image.asset(
                                     'assets/images/psg_ims.png',
                                     fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) =>
-                                        const SizedBox.shrink(),
+                                    filterQuality: FilterQuality.medium,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.local_hospital_outlined,
+                                      size: 40,
+                                      color: _primaryPurple,
+                                    ),
                                   ),
                                 ),
                               ],

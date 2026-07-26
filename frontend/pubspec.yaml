@@ -74,13 +74,17 @@ flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/icons/icon.png"
-  # Optional: configure adaptive icons for Android
-  # adaptive_icon_background: "#ffffff"
-  # adaptive_icon_foreground: "assets/icon/foreground.png"
-  # Optional: configure for web, windows, or macOS
-  # web:
-  #   generate: true
-  #   image_path: "assets/icon/icon.png"
+  # Solid white adaptive background — transparent purple crest was invisible
+  # on dark home screens / several OEM launchers without adaptive icons.
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icons/adaptive_foreground.png"
+  adaptive_icon_foreground_inset: 16
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#0175C2"
 
 # The following section is specific to Flutter packages.
 flutter:

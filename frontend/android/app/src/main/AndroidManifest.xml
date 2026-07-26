@@ -8,6 +8,7 @@
         android:label="Vitalink"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
+        android:roundIcon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="false">
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

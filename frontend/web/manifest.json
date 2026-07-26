@@ -3,7 +3,7 @@
     "short_name": "Vitalink",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
+    "background_color": "#FFFFFF",
     "theme_color": "#0175C2",
     "description": "INR monitoring application for PSG Medical Institute.",
     "orientation": "portrait-primary",
