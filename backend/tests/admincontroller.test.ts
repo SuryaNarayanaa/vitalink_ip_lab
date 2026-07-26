@@ -555,6 +555,34 @@ describe('Admin Routes', () => {
             expect(inactiveUpdateHospital.data.message).toMatch(/hospital must be active/i);
             await Hospital.findByIdAndUpdate(secondaryHospital._id, { status: 'active' });
         });
+
+        test('should reject admin role assignment on doctor/patient accounts instead of silently no-oping', async () => {
+            const headers = { Authorization: `Bearer ${adminToken}` };
+
+            const rejectedDoctor = await api.put(`/api/admin/users/${primaryDoctorUser._id}`, {
+                role: 'hospital_admin',
+                hospital_id: primaryHospital._id.toString(),
+            }, { headers });
+            expect(rejectedDoctor.status).toBe(400);
+            expect(rejectedDoctor.data.message).toMatch(/existing administrator accounts/i);
+
+            const doctorAfter = await User.findById(primaryDoctorUser._id).lean();
+            expect(doctorAfter?.user_type).toBe('DOCTOR');
+
+            const rejectedPatient = await api.put(`/api/admin/users/${baselinePatientUser._id}`, {
+                role: 'auditor',
+            }, { headers });
+            expect(rejectedPatient.status).toBe(400);
+            expect(rejectedPatient.data.message).toMatch(/existing administrator accounts/i);
+
+            // Suspend remains valid for clinical accounts on this endpoint.
+            const suspendedDoctor = await api.put(`/api/admin/users/${primaryDoctorUser._id}`, {
+                status: 'inactive',
+            }, { headers });
+            expect(suspendedDoctor.status).toBe(200);
+            expect(suspendedDoctor.data.data.user.status).toBe('inactive');
+            await User.findByIdAndUpdate(primaryDoctorUser._id, { is_active: true });
+        });
     });
 
     describe('Doctor Management', () => {

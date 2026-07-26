@@ -339,19 +339,31 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                     _Detail(Icons.verified_user_outlined, status),
                   ],
                   menu: [
-                    ...['app_admin', 'hospital_admin', 'auditor'].map(
-                      (r) => PopupMenuItem(
-                        value: r,
-                        child: Text('Set ${r.replaceAll('_', ' ')}'),
-                        onTap: () => Future.microtask(
-                          () => r == 'hospital_admin'
-                              ? _showHospitalAdminRoleDialog(id,
-                                  '${u['name'] ?? u['email'] ?? 'this user'}')
-                              : _runAction(
-                                  () => _repo.updateUser(id, {'role': r})),
-                        ),
-                      ),
-                    ),
+                    // Role changes only apply to AdminProfile-backed accounts.
+                    // Offering them on doctors/patients previously looked like
+                    // success in the UI while the backend left user_type alone.
+                    if (role == 'app_admin' ||
+                        role == 'hospital_admin' ||
+                        role == 'auditor')
+                      ...['app_admin', 'hospital_admin', 'auditor']
+                          .where((r) => r != role)
+                          .map(
+                            (r) => PopupMenuItem(
+                              value: r,
+                              child: Text('Set ${r.replaceAll('_', ' ')}'),
+                              onTap: () => Future.microtask(
+                                () => r == 'hospital_admin'
+                                    ? _showHospitalAdminRoleDialog(
+                                        id,
+                                        '${u['name'] ?? u['email'] ?? 'this user'}',
+                                      )
+                                    : _runAction(
+                                        () =>
+                                            _repo.updateUser(id, {'role': r}),
+                                      ),
+                              ),
+                            ),
+                          ),
                     PopupMenuItem(
                       value: 'status',
                       child: Text(status == 'active' ? 'Suspend' : 'Activate'),

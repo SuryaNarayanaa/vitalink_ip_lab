@@ -1226,6 +1226,19 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
   const profile: any = user.profile_id
   const originalProfile = typeof profile?.toObject === 'function' ? profile.toObject() : { ...profile }
   const updates: any = {}
+  const hasAdminProfileMutation =
+    data.role !== undefined || Boolean(data.name) || Boolean(data.hospital_id) || Boolean(data.hospital)
+
+  // Role/hospital/name live on AdminProfile. Doctors and patients share this
+  // list UI, but applying role here used to return 200 and skip the write —
+  // so "Set hospital admin" looked successful while the user stayed a doctor.
+  if (hasAdminProfileMutation && user.user_type !== UserType.ADMIN) {
+    throw new ApiError(
+      StatusCodes.BAD_REQUEST,
+      'Admin roles can only be assigned to existing administrator accounts. Use Invite to create a hospital admin, or manage clinical staff from the Doctors/Patients pages.',
+    )
+  }
+
   if (data.role !== undefined) {
     if (!ADMIN_ROLES.includes(data.role)) throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid admin role')
     if (data.role === AdminRole.APP_ADMIN) requireAppAdmin(ctx)
@@ -1253,18 +1266,18 @@ export async function updateAdminUser(userId: string, data: any, actorUserId?: s
     : data.status ? data.status === 'active' : user.is_active
   const activating = !wasActive && requestedActive
   const resultingHospitalId = updates.hospital_id || getProfileHospitalId(user)
-  const resultingAdminRole = updates.admin_role || profile.admin_role
-  if (activating && !resultingHospitalId &&
+  const resultingAdminRole = updates.admin_role || profile?.admin_role
+  if (activating && user.user_type === UserType.ADMIN && !resultingHospitalId &&
       ![AdminRole.APP_ADMIN, AdminRole.AUDITOR].includes(resultingAdminRole)) {
     throw new ApiError(StatusCodes.CONFLICT, 'Tenant admin must belong to an active hospital before activation')
   }
-  const membershipGuards = (updates.hospital_id || (activating && resultingHospitalId))
+  const membershipGuards = (user.user_type === UserType.ADMIN && (updates.hospital_id || (activating && resultingHospitalId)))
     ? await acquireHospitalMembershipGuards([getProfileHospitalId(user), resultingHospitalId])
     : []
   let activationCommitted = false
   let expectedProfileAfterMutation: any
   try {
-    if (Object.keys(updates).length && user.user_type === UserType.ADMIN) {
+    if (Object.keys(updates).length) {
       for (const guard of membershipGuards) await guard.assertOwned()
       const changed = await AdminProfile.findOneAndUpdate(
         { _id: profile._id, ...(updates.hospital_id ? { hospital_id: getProfileHospitalId(user) } : {}) },

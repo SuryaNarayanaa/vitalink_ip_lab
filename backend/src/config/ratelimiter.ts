@@ -6,6 +6,8 @@ import { ensureRedisConnected, getRedisClient, isRedisConfigured } from '@alias/
 import logger from '@alias/utils/logger'
 
 const isTest = config.nodeEnv === 'test'
+/** Skip IP rate limits while actively developing / manually testing the app. */
+const isDevelopment = config.nodeEnv === 'development'
 
 type RateLimitWindow = { count: number; resetAt: number; windowMs: number }
 /** Process-local fallback only when Redis is unavailable (dev / degraded). */
@@ -142,7 +144,7 @@ function applyLocalLimit(
  * overflow bucket) when Redis is unavailable.
  */
 export const apiLimiter = async (req: Request, res: Response, next: NextFunction) => {
-  if (isTest) return next()
+  if (isTest || isDevelopment) return next()
 
   try {
     const systemConfig = await getCachedSystemConfig()
@@ -179,7 +181,7 @@ export const apiLimiter = async (req: Request, res: Response, next: NextFunction
 
 /** Login / auth endpoints: shared Redis counter when available; no overflow bucket. */
 export const authLimiter = async (req: Request, res: Response, next: NextFunction) => {
-  if (isTest) return next()
+  if (isTest || isDevelopment) return next()
 
   try {
     const maxRequests = config.authRateLimitMaxRequests
