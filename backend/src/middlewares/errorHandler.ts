@@ -6,6 +6,7 @@ import ApiResponse from "../utils/ApiResponse";
 import { StatusCodes } from "http-status-codes";
 import logger from "@alias/utils/logger";
 import { sanitizeLogText } from "@alias/utils/logger";
+import { isAdminCapability } from '@alias/constants/admin-capabilities';
 
 const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   if (err?.type === 'entity.too.large') {
@@ -59,7 +60,39 @@ const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response
   }
 
   const response = new ApiResponse(error.statusCode, error.message, error.data)
-  return res.status(error.statusCode).json(response);
+  const safeDetails: Record<string, unknown> = {}
+
+  if (error.statusCode === StatusCodes.FORBIDDEN) {
+    if (isAdminCapability(error.requiredCapability)) {
+      safeDetails.required_capability = error.requiredCapability
+    }
+    if (Array.isArray(error.requiredCapabilities)) {
+      const requiredCapabilities = error.requiredCapabilities.filter(isAdminCapability)
+      if (requiredCapabilities.length) safeDetails.required_capabilities = requiredCapabilities
+    }
+    if (req.adminAccess?.policyVersion !== undefined) {
+      safeDetails.policy_version = req.adminAccess.policyVersion
+    }
+  }
+
+  if (error.statusCode === StatusCodes.CONFLICT && error.currentPolicy) {
+    const current = error.currentPolicy
+    safeDetails.conflict = {
+      type: 'role_policy_version_conflict',
+      current_policy: {
+        schema_version: current.schemaVersion,
+        role_key: current.roleKey,
+        capabilities: current.capabilities,
+        protected: current.protected,
+        policy_version: current.policyVersion,
+        updated_by: current.updatedBy,
+        updated_at: current.updatedAt instanceof Date ? current.updatedAt.toISOString() : current.updatedAt,
+        change_reason: current.changeReason,
+      },
+    }
+  }
+
+  return res.status(error.statusCode).json({ ...response, ...safeDetails });
 }
 
 export default errorHandler

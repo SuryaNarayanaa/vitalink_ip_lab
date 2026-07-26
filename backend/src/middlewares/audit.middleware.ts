@@ -22,6 +22,10 @@ const AUDIT_BODY_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
   Hospital: new Set(['code', 'status']),
   Billing: new Set(['billing_period', 'plan', 'amount']),
   Role: new Set(['permissions']),
+  AdminAccount: new Set(['role', 'hospital_id', 'hospital', 'is_active', 'status']),
+  NotificationBroadcast: new Set(['target', 'priority']),
+  BatchOperation: new Set(['operation']),
+  PasswordReset: new Set(['target_user_id']),
   SystemConfig: new Set([
     'inr_thresholds',
     'session_timeout_minutes',
@@ -36,7 +40,6 @@ const AUDIT_BODY_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
     'is_active',
     'status',
     'operation',
-    'user_ids',
     'target_user_id',
     'target',
     'priority',
@@ -51,6 +54,10 @@ function resolveResourceType(url: string): string {
   if (url.includes('/patients') || url.includes('/reassign')) return 'Patient'
   if (url.includes('/hospitals')) return 'Hospital'
   if (url.includes('/billing')) return 'Billing'
+  if (url.includes('/admin-accounts')) return 'AdminAccount'
+  if (url.includes('/notifications/broadcast')) return 'NotificationBroadcast'
+  if (url.includes('/users/batch')) return 'BatchOperation'
+  if (url.includes('/reset-password')) return 'PasswordReset'
   if (url.includes('/roles')) return 'Role'
   if (url.includes('/config')) return 'SystemConfig'
   return 'System'
@@ -134,34 +141,55 @@ function minimizeErrorMessage(body: unknown): string | undefined {
     return undefined
   }
 
-  const minimized: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
-    if (!AUDIT_ERROR_ALLOWLIST.has(key)) continue
-    if (typeof value === 'string' && value.trim()) {
-      minimized[key] = sanitizeLogText(value).slice(0, 300)
+    if (AUDIT_ERROR_ALLOWLIST.has(key) && typeof value === 'string' && value.trim()) {
+      // Validation and service messages may echo request values. Record only a
+      // stable classification; request details remain in sanitized app logs.
+      return 'Request failed'
     }
   }
-
-  const message = minimized.message
-  return typeof message === 'string' && message.length > 0 ? message : undefined
+  return undefined
 }
 
 /**
  * Determines audit action from the request method and path
  */
-function inferAction(method: string, path: string): AuditAction | null {
+function inferAction(method: string, path: string, body?: Record<string, unknown>): AuditAction | null {
   const m = method.toUpperCase()
   const p = path.toLowerCase()
 
+  if (/\/doctors\/[^/]+\/credentials\/reset(?:$|\?)/.test(p) && m === 'POST') return AuditAction.PASSWORD_RESET
+  if (/\/doctors\/[^/]+\/status(?:$|\?)/.test(p) && m === 'PATCH') {
+    return body?.is_active === true ? AuditAction.USER_ACTIVATE : AuditAction.USER_DEACTIVATE
+  }
   if (p.includes('/doctors') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/doctors') && m === 'PUT') return AuditAction.USER_UPDATE
   if (p.includes('/doctors') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  if (/\/patients\/[^/]+\/credentials\/reset(?:$|\?)/.test(p) && m === 'POST') return AuditAction.PASSWORD_RESET
+  if (/\/patients\/[^/]+\/status(?:$|\?)/.test(p) && m === 'PATCH') {
+    return body?.is_active === true || body?.account_status === 'Active'
+      ? AuditAction.USER_ACTIVATE
+      : AuditAction.USER_DEACTIVATE
+  }
   if (p.includes('/patients') && m === 'POST') return AuditAction.USER_CREATE
+  if (/\/patients\/[^/]+\/assignment(?:$|\?)/.test(p) && m === 'PUT') return AuditAction.PATIENT_REASSIGN
   if (p.includes('/patients') && m === 'PUT') return AuditAction.USER_UPDATE
   if (p.includes('/patients') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
   if (p.includes('/hospitals') && m === 'POST') return AuditAction.USER_CREATE
   if (p.includes('/hospitals') && (m === 'PUT' || m === 'PATCH')) return AuditAction.USER_UPDATE
   if (p.includes('/hospitals') && m === 'DELETE') return AuditAction.USER_DEACTIVATE
+  // V2 role-policy writes persist their authoritative audit row in the same
+  // transaction as the policy and revision. Never add a generic CONFIG_UPDATE.
+  if (p.includes('/role-policies/')) return null
+  if (p.includes('/admin-accounts/') && p.endsWith('/mfa/reset') && m === 'POST') return AuditAction.MFA_RESET
+  if (p.endsWith('/admin-accounts') && m === 'POST') return AuditAction.ADMIN_ACCOUNT_CREATE
+  if (p.includes('/admin-accounts/') && m === 'PUT') {
+    if (body?.role !== undefined) return AuditAction.ADMIN_ROLE_ASSIGN
+    if (body?.hospital_id !== undefined || body?.hospital !== undefined) return AuditAction.ADMIN_SCOPE_CHANGE
+    if (body?.is_active === false || body?.status === 'inactive') return AuditAction.ADMIN_ACCOUNT_SUSPEND
+    if (body?.is_active === true || body?.status === 'active') return AuditAction.ADMIN_ACCOUNT_RESTORE
+    return AuditAction.USER_UPDATE
+  }
   if (p.includes('/roles') && m === 'PUT') return AuditAction.CONFIG_UPDATE
   if (p.includes('/billing/invoices') && m === 'POST') return AuditAction.BATCH_OPERATION
   if (p.match(/\/users\/[^/]+/) && m === 'PUT') return AuditAction.USER_UPDATE
@@ -197,7 +225,15 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
       return originalSend.call(this, body)
     }
 
-    const action = inferAction(req.method, req.originalUrl)
+    if ((req as any).transactionallyAuditedRolePolicyWrite === true) {
+      return originalSend.call(this, body)
+    }
+
+    const action = inferAction(
+      req.method,
+      req.originalUrl,
+      req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : undefined,
+    )
     if (!action) {
       return originalSend.call(this, body)
     }
@@ -219,7 +255,7 @@ export function auditLogger(req: Request, res: Response, next: NextFunction): vo
       action,
       description: `${req.method} ${req.originalUrl.split('?')[0]}`,
       resource_type: resourceType,
-      resource_id: req.params?.id || req.params?.op_num || undefined,
+      resource_id: res.locals?.auditResourceId || req.params?.id || req.params?.op_num || undefined,
       new_data: minimizeAuditBody(req.body, resourceType),
       ip_address: req.ip || req.socket?.remoteAddress,
       user_agent: req.headers['user-agent'],

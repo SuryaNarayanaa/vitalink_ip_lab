@@ -1,10 +1,7 @@
 import { z } from 'zod'
 import { MAX_SESSION_TIMEOUT_MINUTES } from '@alias/services/config.service'
 import { primaryPhoneNumberSchema, optionalPrimaryPhoneNumberSchema } from './phone.validator'
-import { calendarDateKeyInTimeZone, dateOnlyStringKey, parseStrictDateOnly } from '@alias/utils/dateOnly'
-import { config } from '@alias/config'
-
-const adminRoleSchema = z.enum(['app_admin', 'hospital_admin', 'auditor'])
+const adminRoleSchema = z.enum(['hospital_admin', 'auditor'])
 const roleKeySchema = z.enum(['app_admin', 'hospital_admin', 'doctor', 'patient', 'auditor'])
 const rolePermissionsSchema = z.object({
   manage_hospitals: z.boolean().optional(),
@@ -20,19 +17,6 @@ const rolePermissionsSchema = z.object({
   message: 'At least one permission is required',
 })
 
-const dateOnlySchema = z.string().transform((value, ctx) => {
-  const parsed = parseStrictDateOnly(value)
-  const key = dateOnlyStringKey(value)
-  if (!parsed || !key) {
-    ctx.addIssue({ code: 'custom', message: 'Date must be a valid calendar date in DD-MM-YYYY or YYYY-MM-DD format' })
-    return z.NEVER
-  }
-  return { parsed, key }
-}).refine(
-  value => value.key <= calendarDateKeyInTimeZone(new Date(), config.dosageReminderTimezone),
-  'Therapy start date cannot be in the future'
-).transform(value => value.parsed)
-
 // ─── Param Schemas ───
 
 export const userIdParamSchema = z.object({
@@ -41,18 +25,36 @@ export const userIdParamSchema = z.object({
   }),
 })
 
+export const doctorStatusSchema = z.object({
+  params: z.object({ id: z.string().min(1, 'Doctor ID is required') }),
+  body: z.object({ is_active: z.boolean() }).strict(),
+})
+
+export const patientStatusSchema = z.object({
+  params: z.object({ id: z.string().min(1, 'Patient ID is required') }),
+  body: z.object({
+    is_active: z.boolean().optional(),
+    account_status: z.enum(['Active', 'Discharged', 'Deceased']).optional(),
+  }).strict().refine(value => value.is_active !== undefined || value.account_status !== undefined, {
+    message: 'At least one Patient status field is required',
+  }),
+})
+
+export const operationalCredentialsResetSchema = z.object({
+  params: z.object({ id: z.string().min(1, 'User ID is required') }),
+  body: z.object({ new_password: z.string().min(8).optional() }).strict(),
+})
+
+export const patientAssignmentSchema = z.object({
+  params: z.object({ id: z.string().min(1, 'Patient ID is required') }),
+  body: z.object({ doctor_id: z.string().min(1, 'Doctor ID is required') }).strict(),
+})
+
 // ─── Doctor Schemas ───
 
 export const createDoctorSchema = z.object({
   body: z.object({
     login_id: z.string().min(3, 'Login ID must be at least 3 characters'),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-      .regex(/[0-9]/, 'Password must contain at least one digit')
-      .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
     name: z.string().min(1, 'Name is required'),
     department: z.string().optional(),
     contact_number: primaryPhoneNumberSchema,
@@ -69,8 +71,6 @@ export const updateDoctorSchema = z.object({
     name: z.string().min(1).optional(),
     department: z.string().optional(),
     contact_number: optionalPrimaryPhoneNumberSchema,
-    is_active: z.boolean().optional(),
-    password: z.string().min(8).optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
   }).strict(),
@@ -89,21 +89,27 @@ export const getDoctorsSchema = z.object({
 
 // ─── Patient Schemas ───
 
-const targetInrSchema = z.object({
-  min: z.number().finite().positive(),
-  max: z.number().finite().positive(),
-}).refine(value => value.min < value.max, 'Target INR minimum must be less than maximum')
+// Keep an explicit typed shape so older TypeScript callers still compile, but
+// always reject it: clinical configuration belongs to Doctor/clinical routes.
+const forbiddenAdminMedicalConfigSchema = z.object({
+  diagnosis: z.string().optional(),
+  therapy_drug: z.string().optional(),
+  therapy_start_date: z.coerce.date().optional(),
+  target_inr: z.object({ min: z.number(), max: z.number() }).optional(),
+  dosage: z.unknown().optional(),
+  instructions: z.unknown().optional(),
+  inr_data: z.unknown().optional(),
+  treatment_data: z.unknown().optional(),
+}).passthrough().superRefine((_value, ctx) => {
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: 'Clinical Patient fields are not allowed on administrative routes',
+  })
+})
 
 export const createPatientSchema = z.object({
   body: z.object({
     login_id: z.string().min(3, 'Login ID must be at least 3 characters'),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-      .regex(/[0-9]/, 'Password must contain at least one digit')
-      .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
     assigned_doctor_id: z.string().min(1, 'Assigned doctor ID is required'),
     demographics: z.object({
       name: z.string().min(1, 'Patient name is required'),
@@ -117,19 +123,13 @@ export const createPatientSchema = z.object({
           relationship: z.string().optional(),
           phone: optionalPrimaryPhoneNumberSchema,
         })
+        .strict()
         .optional(),
-    }),
-    medical_config: z
-      .object({
-        diagnosis: z.string().optional(),
-        therapy_drug: z.string().optional(),
-        therapy_start_date: dateOnlySchema.optional(),
-        target_inr: targetInrSchema.optional(),
-      })
-      .optional(),
+    }).strict(),
+    medical_config: forbiddenAdminMedicalConfigSchema.optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const updatePatientSchema = z.object({
@@ -141,7 +141,7 @@ export const updatePatientSchema = z.object({
       .object({
         name: z.string().optional(),
         age: z.number().int().positive().optional(),
-        gender: z.string().optional(),
+        gender: z.enum(['Male', 'Female', 'Other']).optional(),
         phone: optionalPrimaryPhoneNumberSchema,
         next_of_kin: z
           .object({
@@ -150,24 +150,15 @@ export const updatePatientSchema = z.object({
             relationship: z.string().optional(),
             phone: optionalPrimaryPhoneNumberSchema,
           })
+          .strict()
           .optional(),
       })
+      .strict()
       .optional(),
-    medical_config: z
-      .object({
-        diagnosis: z.string().optional(),
-        therapy_drug: z.string().optional(),
-        therapy_start_date: dateOnlySchema.optional(),
-        target_inr: targetInrSchema.optional(),
-      })
-      .optional(),
-    assigned_doctor_id: z.string().optional(),
-    account_status: z.enum(['Active', 'Discharged', 'Deceased']).optional(),
-    is_active: z.boolean().optional(),
-    password: z.string().min(8).optional(),
+    medical_config: forbiddenAdminMedicalConfigSchema.optional(),
     hospital_id: z.string().optional(),
     hospital: z.string().optional(),
-  }),
+  }).strict(),
 })
 
 export const getUsersSchema = z.object({
@@ -268,14 +259,30 @@ export const updateHospitalStatusSchema = z.object({
   body: z.object({ status: hospitalStatusSchema }).strict(),
 })
 
-export const inviteAdminUserSchema = z.object({
-  body: z.object({
-    name: z.string().min(1).max(200),
-    email: z.string().email(),
-    role: adminRoleSchema,
-    hospital_id: z.string().min(1).optional(),
-  }).strict(),
+const createAdminAccountBodySchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email(),
+  role: adminRoleSchema,
+  hospital_id: z.string().min(1).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.role === 'hospital_admin' && !value.hospital_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['hospital_id'],
+      message: 'Hospital Admin must be assigned to one active hospital',
+    })
+  }
+  if (value.role === 'auditor' && value.hospital_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['hospital_id'],
+      message: 'System Auditor must not be assigned to a hospital',
+    })
+  }
 })
+
+export const createAdminAccountSchema = z.object({ body: createAdminAccountBodySchema })
+export const inviteAdminUserSchema = createAdminAccountSchema
 
 export const generateInvoicesSchema = z.object({
   body: z.object({
@@ -287,7 +294,7 @@ export const generateInvoicesSchema = z.object({
 
 export const invoiceIdParamSchema = z.object({ params: z.object({ invoiceId: z.string().min(1) }) })
 
-export const updateAdminUserSchema = z.object({
+export const updateAdminAccountSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'User ID is required'),
   }),
@@ -298,8 +305,35 @@ export const updateAdminUserSchema = z.object({
     hospital: z.string().min(1).optional(),
     is_active: z.boolean().optional(),
     status: z.enum(['active', 'inactive']).optional(),
-  }).strict(),
+  }).strict().refine(value => Object.keys(value).length > 0, 'At least one field is required')
+    .superRefine((value, ctx) => {
+      const hospital = value.hospital_id || value.hospital
+      if (value.role === 'hospital_admin' && !hospital) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['hospital_id'],
+          message: 'Hospital Admin role changes require one active hospital',
+        })
+      }
+      if (value.role === 'auditor' && hospital) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['hospital_id'],
+          message: 'System Auditor must not be assigned to a hospital',
+        })
+      }
+      if (value.is_active !== undefined && value.status !== undefined &&
+          value.is_active !== (value.status === 'active')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['status'],
+          message: 'Conflicting administrator account status values',
+        })
+      }
+    }),
 })
+export const updateAdminUserSchema = updateAdminAccountSchema
+export const resetAdminAccountMfaSchema = userIdParamSchema
 
 export const updateRoleSchema = z.object({
   params: z.object({

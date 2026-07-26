@@ -10,7 +10,9 @@ info:
     - The canonical integration base path is `/api/v1`.
     - Legacy `/api/*` routes remain available for backward compatibility but are deprecated.
     - Authentication uses revocable bearer JWT sessions with opaque refresh tokens.
-    - Most application responses use `{ statusCode, message, data, success }`; a few authentication middleware and rate-limit responses use the older `{ success, message }` envelope.
+    - Most application responses use `{ statusCode, message, data, success }`; authentication, rate-limit, and direct authorization-guard failures may use the compatible `{ success, message }` subset.
+    - Administrative and statistics routes enforce persisted RBAC V2 capabilities. Capability names are namespaced as `platform.*` for global authority and `tenant.*` for one-hospital authority.
+    - Administrator roles are fixed: `app_admin` is global and protected, `hospital_admin` is limited to one active hospital, and `auditor` is global and hard read-only. Doctor and Patient authorization is not editable through administrator role policy.
     - Versioned responses expose `X-API-Version` and `X-API-Supported-Versions`. Legacy `/api/*` responses also expose `Deprecation`, `Sunset`, and `Link` headers.
     - Patient and doctor notification streams are Server-Sent Events (SSE). Browser EventSource clients that cannot set an Authorization header must first call `POST /notifications/stream-ticket` (authenticated) and open the stream with the short-lived single-use `ticket` query parameter (not a long-lived access JWT).
     - Multipart upload endpoints accept a single form field named `file`; validation failures such as unsupported MIME type or size limit return 400, while cloud storage failures return 507.
@@ -34,7 +36,7 @@ tags:
   - name: Doctor
     description: Doctor profile, patient management, report review, notifications, and SSE streams.
   - name: Admin
-    description: Administrative management for users, hospitals, roles, billing, audit logs, and configuration.
+    description: Administrative management protected by fixed-role, persisted RBAC V2 capability and scope checks.
   - name: Statistics
     description: Administrative analytics and aggregate operational metrics.
   - name: Devices
@@ -1166,10 +1168,218 @@ paths:
         "429":
           description: Per-user or per-IP stream connection limit exceeded
 
+  /admin/access/me:
+    get:
+      x-admin-self-service: true
+      x-admin-scope: self
+      x-admin-roles: [app_admin, hospital_admin, auditor]
+      tags: [Admin]
+      operationId: getCurrentAdminAccess
+      summary: Get effective administrator access
+      description: Returns the current persisted RBAC V2 snapshot for any authenticated administrator. This self-service read has no capability requirement.
+      responses:
+        "200":
+          description: Effective administrator access retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccessResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/role-policies:
+    get:
+      x-required-capability: platform.role_policy.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
+      tags: [Admin]
+      operationId: listAdminRolePolicies
+      summary: List fixed administrator role policies
+      description: Global read for app_admin, hospital_admin, and auditor. A configured System Auditor may read; Hospital Admin is denied by global scope.
+      responses:
+        "200":
+          description: Administrator role policies retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyListResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/role-policies/{roleKey}:
+    get:
+      x-required-capability: platform.role_policy.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
+      tags: [Admin]
+      operationId: getAdminRolePolicy
+      summary: Get a fixed administrator role policy
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+      responses:
+        "200":
+          description: Administrator role policy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      x-required-capability: platform.role_policy.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: updateAdminRolePolicy
+      summary: Update an editable administrator role policy
+      description: Application Admin-only compare-and-swap update. Only hospital_admin and auditor are editable; the body is a complete normalized map with expected_version and change_reason.
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRolePolicyUpdateRequest"
+      responses:
+        "200":
+          description: Administrator role policy updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/RolePolicyConflict" }
+
+  /admin/role-policies/{roleKey}/preview:
+    post:
+      x-required-capability: platform.role_policy.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: previewAdminRolePolicyUpdate
+      summary: Preview an administrator role-policy update
+      description: Application Admin-only preview for hospital_admin or auditor. expected_version is optional and no write occurs.
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRolePolicyPreviewRequest"
+      responses:
+        "200":
+          description: Policy update preview generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyPreviewResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/RolePolicyConflict" }
+
+  /admin/role-policies/{roleKey}/history:
+    get:
+      x-required-capability: platform.role_policy.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
+      tags: [Admin]
+      operationId: getAdminRolePolicyHistory
+      summary: Get administrator role-policy history
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: before_version
+          schema: { type: integer, minimum: 2 }
+          description: Return revisions whose new policy version is lower than this value.
+      responses:
+        "200":
+          description: Role-policy history retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyHistoryResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/role-policies/{roleKey}/restore-preview:
+    post:
+      x-required-capability: platform.role_policy.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: previewAdminRolePolicyRestore
+      summary: Preview restoring a prior role-policy revision
+      description: Application Admin-only preview. The revision must belong to the editable role and precede the current policy.
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRolePolicyRestorePreviewRequest"
+      responses:
+        "200":
+          description: Policy restore preview generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyRestorePreviewResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/RolePolicyConflict" }
+
+  /admin/role-policies/{roleKey}/restore:
+    post:
+      x-required-capability: platform.role_policy.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: restoreAdminRolePolicy
+      summary: Restore a prior role-policy revision as a new version
+      description: Application Admin-only audited restore. History is never rewound; the selected map is written as a new monotonic policy version.
+      parameters:
+        - $ref: "#/components/parameters/AdminRoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRolePolicyRestoreRequest"
+      responses:
+        "200":
+          description: Prior policy restored as a new version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRolePolicyResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/RolePolicyConflict" }
+
   /admin/roles:
     get:
+      x-required-capability: platform.role_policy.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
       tags: [Admin]
-      summary: List persisted role policy definitions
+      summary: List legacy persisted role definitions
+      deprecated: true
+      description: Compatibility read for legacy manage_* RoleDefinition records, including Doctor and Patient definitions. These are not authoritative RBAC V2 policies; use GET /admin/role-policies.
       responses:
         "200":
           description: Roles retrieved
@@ -1184,14 +1394,19 @@ paths:
 
   /admin/roles/{roleKey}:
     put:
+      x-required-capability: platform.role_policy.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: Update persisted role permissions
+      summary: Update a legacy persisted role definition
+      deprecated: true
+      description: Compatibility write for legacy manage_* data. It does not update authoritative RBAC V2 policy; use PUT /admin/role-policies/{roleKey}.
       parameters:
         - in: path
           name: roleKey
           required: true
           schema:
-            type: string
+            $ref: "#/components/schemas/LegacyAdminRoleKey"
       requestBody:
         required: true
         content:
@@ -1212,6 +1427,9 @@ paths:
 
   /admin/hospitals:
     get:
+      x-required-capability: platform.hospitals.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
       tags: [Admin]
       summary: List hospitals
       parameters:
@@ -1236,6 +1454,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
+      x-required-capability: platform.hospitals.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Create hospital
       requestBody:
@@ -1262,6 +1483,9 @@ paths:
 
   /admin/hospitals/{id}:
     get:
+      x-required-capability: platform.hospitals.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
       tags: [Admin]
       summary: Get hospital by ID
       parameters:
@@ -1280,6 +1504,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     put:
+      x-required-capability: platform.hospitals.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Update hospital
       parameters:
@@ -1304,6 +1531,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     delete:
+      x-required-capability: platform.hospitals.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Deactivate hospital
       parameters:
@@ -1322,6 +1552,9 @@ paths:
 
   /admin/hospitals/{id}/status:
     patch:
+      x-required-capability: platform.hospitals.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Update hospital status
       parameters:
@@ -1353,6 +1586,9 @@ paths:
 
   /admin/billing/invoices:
     get:
+      x-required-capabilities: [platform.billing.read, tenant.billing.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Admin]
       summary: List invoices
       responses:
@@ -1367,6 +1603,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
+      x-required-capability: platform.billing.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Generate invoices
       requestBody:
@@ -1391,6 +1630,9 @@ paths:
 
   /admin/billing/checkout/{invoiceId}:
     post:
+      x-required-capability: tenant.billing.checkout
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Create invoice checkout session
       parameters:
@@ -1419,38 +1661,145 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/admin-accounts:
+    get:
+      x-required-capability: platform.admin_accounts.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: listAdminAccounts
+      summary: List manageable administrator accounts
+      description: Application Admin-only. Returns Hospital Admin and System Auditor accounts; Application Admin accounts are excluded.
+      responses:
+        "200":
+          description: Administrator accounts retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccountListResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    post:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: createAdminAccount
+      summary: Create a Hospital Admin or System Auditor account
+      description: Application Admin-only. hospital_admin requires an active hospital; auditor forbids a hospital; app_admin cannot be created through the portal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAccountCreateRequest"
+      responses:
+        "201":
+          description: Administrator account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccountCreateResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/admin-accounts/{id}:
+    put:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: updateAdminAccount
+      summary: Update an administrator account
+      description: Application Admin-only. Role, hospital scope, or state changes bump security_version and revoke sessions. Application Admin targets are denied.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminAccountUpdateRequest"
+      responses:
+        "200":
+          description: Administrator account updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccountUpdateResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/admin-accounts/{id}/mfa/reset:
+    post:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
+      tags: [Admin]
+      operationId: resetAdminAccountMfa
+      summary: Reset an administrator authenticator factor
+      description: Application Admin-only supervised recovery for an active Hospital Admin or System Auditor. Returns the replacement TOTP setup secret once.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Administrator authenticator reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccountMfaResetResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /admin/users:
     get:
+      x-required-capability: platform.admin_accounts.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: List users
-      description: Returns the admin console user list. The current controller does not apply pagination or search query parameters on this route.
+      summary: List administrator accounts through the compatibility alias
+      deprecated: true
+      description: Compatibility alias for GET /admin/admin-accounts. Returns only Hospital Admin and System Auditor accounts and includes both admin_accounts and legacy users arrays.
       responses:
         "200":
           description: Users retrieved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminUserListResponse"
+                $ref: "#/components/schemas/CompatibilityAdminAccountListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: Invite or create user
+      summary: Create an administrator account through the compatibility alias
+      deprecated: true
+      description: Compatibility alias for POST /admin/admin-accounts; only hospital_admin and auditor are accepted.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AdminUserInviteRequest"
+              $ref: "#/components/schemas/AdminAccountCreateRequest"
       responses:
         "201":
-          description: User invited
+          description: Administrator account created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminUserResponse"
+                $ref: "#/components/schemas/CompatibilityAdminAccountCreateResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1462,8 +1811,13 @@ paths:
 
   /admin/users/{id}:
     put:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: Update user
+      summary: Update an administrator account through the compatibility alias
+      deprecated: true
+      description: Compatibility alias for PUT /admin/admin-accounts/{id}.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -1471,26 +1825,34 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AdminUserUpdateRequest"
+              $ref: "#/components/schemas/AdminAccountUpdateRequest"
       responses:
         "200":
-          description: User updated
+          description: Administrator account updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminUserResponse"
+                $ref: "#/components/schemas/CompatibilityAdminAccountUpdateResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /admin/users/reset-password:
     post:
+      x-required-capability: tenant.credentials.reset
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
-      summary: Reset user password
-      description: Resets the target user's password, marks it for change on next login, enforces password history, revokes active target-user sessions, and audits session-invalidation metadata.
+      summary: Reset a Doctor or Patient password
+      deprecated: true
+      description: Compatibility credential endpoint. Targets are limited to same-hospital Doctor or Patient accounts; administrator-class accounts are denied.
       requestBody:
         required: true
         content:
@@ -1510,11 +1872,20 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /admin/users/batch:
     post:
+      x-required-capabilities: [tenant.accounts.status.manage, tenant.credentials.reset]
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
-      summary: Perform batch user operation
+      summary: Perform a Doctor or Patient batch lifecycle operation
+      deprecated: true
+      description: Compatibility status/credential endpoint. activate/deactivate require tenant.accounts.status.manage; reset_password requires tenant.credentials.reset. Administrator targets are denied.
       requestBody:
         required: true
         content:
@@ -1537,6 +1908,9 @@ paths:
 
   /admin/doctors:
     get:
+      x-required-capability: tenant.doctors.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: List doctors
       parameters:
@@ -1570,6 +1944,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
+      x-required-capability: tenant.doctors.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Create doctor
       requestBody:
@@ -1584,7 +1961,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminUserEntityResponse"
+                $ref: "#/components/schemas/AdminOperationalUserCreateResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1596,6 +1973,9 @@ paths:
 
   /admin/doctors/{id}:
     put:
+      x-required-capability: tenant.doctors.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Update doctor
       parameters:
@@ -1621,9 +2001,15 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
     delete:
+      x-required-capability: tenant.accounts.status.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
-      summary: Deactivate doctor
+      summary: Deactivate a Doctor account
+      description: Dedicated Doctor status operation. Generic Doctor update rejects status and credential fields.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -1639,9 +2025,74 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /admin/doctors/{id}/status:
+    patch:
+      x-required-capability: tenant.accounts.status.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
+      tags: [Admin]
+      operationId: updateAdminDoctorStatus
+      summary: Suspend or restore a Doctor account
+      description: Dedicated same-hospital Doctor status operation. Generic Doctor update rejects status and credential fields.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDoctorStatusRequest"
+      responses:
+        "200":
+          description: Doctor status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminActionMessageResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/doctors/{id}/credentials/reset:
+    post:
+      x-required-capability: tenant.credentials.reset
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
+      tags: [Admin]
+      operationId: resetAdminDoctorCredentials
+      summary: Reset Doctor credentials
+      description: Resets credentials for a Doctor in the Hospital Admin hospital, bumps the security version, and invalidates active sessions. Administrator targets are denied.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminOperationalCredentialsResetRequest"
+      responses:
+        "200":
+          description: Doctor credentials reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResetPasswordResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /admin/patients:
     get:
+      x-required-capability: tenant.patients.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: List patients
       parameters:
@@ -1675,6 +2126,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
+      x-required-capability: tenant.patients.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Create patient
       requestBody:
@@ -1689,7 +2143,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AdminUserEntityResponse"
+                $ref: "#/components/schemas/AdminOperationalUserCreateResponse"
         "400":
           $ref: "#/components/responses/ValidationFailed"
         "401":
@@ -1701,6 +2155,9 @@ paths:
 
   /admin/patients/{id}:
     put:
+      x-required-capability: tenant.patients.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Update patient
       parameters:
@@ -1726,9 +2183,15 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
     delete:
+      x-required-capability: tenant.accounts.status.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
-      summary: Deactivate patient
+      summary: Deactivate a Patient account
+      description: Dedicated Patient status operation. Generic Patient update rejects status, assignment, credential, and clinical fields.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -1745,10 +2208,105 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /admin/patients/{id}/status:
+    patch:
+      x-required-capability: tenant.accounts.status.manage
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
+      tags: [Admin]
+      operationId: updateAdminPatientStatus
+      summary: Update Patient account status
+      description: Dedicated same-hospital Patient status operation. Generic Patient update rejects account and lifecycle status fields.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPatientStatusRequest"
+      responses:
+        "200":
+          description: Patient status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminActionMessageResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/patients/{id}/credentials/reset:
+    post:
+      x-required-capability: tenant.credentials.reset
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
+      tags: [Admin]
+      operationId: resetAdminPatientCredentials
+      summary: Reset Patient credentials
+      description: Resets credentials for a Patient in the Hospital Admin hospital, bumps the security version, and invalidates active sessions. Administrator targets are denied.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminOperationalCredentialsResetRequest"
+      responses:
+        "200":
+          description: Patient credentials reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResetPasswordResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /admin/patients/{id}/assignment:
+    put:
+      x-required-capability: tenant.patients.assign
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
+      tags: [Admin]
+      operationId: assignAdminPatient
+      summary: Assign or reassign a patient to a doctor
+      description: Dedicated Hospital Admin assignment endpoint. Patient and active Doctor must belong to the administrator's hospital; generic Patient update rejects assignment fields.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPatientAssignmentRequest"
+      responses:
+        "200":
+          description: Patient assignment updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminReassignPatientResponse"
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /admin/reassign/{op_num}:
     put:
+      x-required-capability: tenant.patients.assign
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
-      summary: Reassign patient by OP number
+      summary: Reassign patient through the compatibility alias
+      deprecated: true
+      description: Compatibility alias for PUT /admin/patients/{id}/assignment. This alias retains the legacy new_doctor_id request field.
       parameters:
         - $ref: "#/components/parameters/OpNumPath"
       requestBody:
@@ -1775,6 +2333,9 @@ paths:
 
   /admin/audit-logs:
     get:
+      x-required-capabilities: [platform.audit.read, tenant.audit.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Admin]
       summary: List audit logs
       parameters:
@@ -1822,6 +2383,9 @@ paths:
 
   /admin/config:
     get:
+      x-required-capability: platform.system_config.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Get system configuration
       responses:
@@ -1836,6 +2400,9 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     put:
+      x-required-capability: platform.system_config.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
       summary: Update system configuration
       requestBody:
@@ -1860,6 +2427,9 @@ paths:
 
   /admin/notifications/broadcast:
     post:
+      x-required-capabilities: [platform.notifications.broadcast, tenant.notifications.broadcast]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin]
       tags: [Admin]
       summary: Broadcast notification
       requestBody:
@@ -1884,26 +2454,36 @@ paths:
 
   /admin/users/{id}/mfa/reset:
     post:
+      x-required-capability: platform.admin_accounts.manage
+      x-admin-scope: global
+      x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: Reset a user's authenticator MFA
+      summary: Reset administrator MFA through the compatibility alias
+      deprecated: true
+      description: Compatibility alias for POST /admin/admin-accounts/{id}/mfa/reset.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
         "200":
-          description: Authenticator reset
+          description: Administrator authenticator reset
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageOnlyResponse"
+                $ref: "#/components/schemas/CompatibilityAdminAccountMfaResetResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /admin/system/health:
     get:
+      x-required-capability: platform.system_health.read
+      x-admin-scope: global
+      x-admin-roles: [app_admin, auditor]
       tags: [Admin]
       summary: Get system health
       responses:
@@ -1920,6 +2500,9 @@ paths:
 
   /admin/system/reminder-delivery-health:
     get:
+      x-required-capability: tenant.operations_health.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Reminder and push-delivery health
       responses:
@@ -1928,7 +2511,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MessageOnlyResponse"
+                $ref: "#/components/schemas/ReminderDeliveryHealthResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1975,6 +2558,9 @@ paths:
 
   /admin/legacy/patients:
     get:
+      x-required-capability: tenant.patients.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: List all patients using legacy admin shape
       deprecated: true
@@ -1993,6 +2579,9 @@ paths:
 
   /admin/legacy/patient/{op_num}:
     get:
+      x-required-capability: tenant.patients.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Get patient by OP number using legacy admin shape
       deprecated: true
@@ -2014,6 +2603,9 @@ paths:
 
   /admin/legacy/doctor/{id}:
     get:
+      x-required-capability: tenant.doctors.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Admin]
       summary: Get doctor by ID using legacy admin shape
       deprecated: true
@@ -2035,6 +2627,9 @@ paths:
 
   /statistics/admin:
     get:
+      x-required-capabilities: [platform.analytics.read, tenant.dashboard.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Statistics]
       summary: Get admin statistics
       responses:
@@ -2051,6 +2646,9 @@ paths:
 
   /statistics/trends:
     get:
+      x-required-capabilities: [platform.analytics.read, tenant.analytics.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Statistics]
       summary: Get trend statistics
       parameters:
@@ -2076,6 +2674,9 @@ paths:
 
   /statistics/compliance:
     get:
+      x-required-capability: tenant.analytics.read
+      x-admin-scope: tenant
+      x-admin-roles: [hospital_admin]
       tags: [Statistics]
       summary: Get compliance statistics
       responses:
@@ -2092,6 +2693,9 @@ paths:
 
   /statistics/workload:
     get:
+      x-required-capabilities: [platform.analytics.read, tenant.analytics.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Statistics]
       summary: Get workload statistics
       responses:
@@ -2108,6 +2712,9 @@ paths:
 
   /statistics/period:
     get:
+      x-required-capabilities: [platform.analytics.read, tenant.analytics.read]
+      x-admin-scope: either
+      x-admin-roles: [app_admin, hospital_admin, auditor]
       tags: [Statistics]
       summary: Get statistics for a date range
       parameters:
@@ -2194,8 +2801,8 @@ components:
       bearerFormat: JWT
       description: |
         JWT issued by `POST /auth/login`. Send as `Authorization: Bearer <token>`.
-        Route-level authorization is role-based: patient routes require PATIENT users,
-        doctor routes require DOCTOR users, and admin/statistics routes require ADMIN users.
+        Patient routes require PATIENT users and doctor routes require DOCTOR users.
+        Admin/statistics routes additionally resolve the current persisted RBAC V2 policy on every request, enforce a namespaced capability and global/tenant scope, and never authorize from mutable JWT permission claims.
 
   headers:
     XRequestId:
@@ -2211,6 +2818,13 @@ components:
       schema:
         type: string
       description: Resource identifier
+    AdminRoleKeyPath:
+      in: path
+      name: roleKey
+      required: true
+      schema:
+        $ref: "#/components/schemas/AdminRoleKey"
+      description: Fixed administrator role key.
     OpNumPath:
       in: path
       name: op_num
@@ -2314,11 +2928,11 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: Authenticated but not authorized
+      description: Authenticated but not authorized by role, capability, scope, or resource relationship
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: "#/components/schemas/ForbiddenErrorResponse"
     NotFound:
       description: Resource not found
       content:
@@ -2337,6 +2951,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    RolePolicyConflict:
+      description: Role-policy optimistic-concurrency conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RolePolicyConflictResponse"
     Locked:
       description: Account locked
       content:
@@ -2437,6 +3057,73 @@ components:
             message: Invalid credentials
             data: null
             success: false
+
+    ForbiddenErrorResponse:
+      type: object
+      required: [success, message]
+      properties:
+        statusCode:
+          type: integer
+          enum: [403]
+          description: Present when emitted through the common error handler.
+        message: { type: string }
+        data: { type: "null" }
+        success: { type: boolean, enum: [false] }
+        required_capability:
+          allOf:
+            - $ref: "#/components/schemas/AdminCapability"
+          description: Safe canonical capability when exactly one capability guards the route.
+        required_capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/AdminCapability" }
+          description: Safe alternatives when any one of several capabilities can authorize the route.
+        policy_version:
+          type: integer
+          minimum: 1
+          description: Safe persisted policy version used for the denied request, when resolved.
+      example:
+        statusCode: 403
+        message: Administrator role does not have the required capability.
+        data: null
+        success: false
+        required_capability: tenant.patients.assign
+        policy_version: 7
+
+    RolePolicyConflictResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          required: [conflict]
+          properties:
+            conflict:
+              type: object
+              required: [type, current_policy]
+              properties:
+                type: { type: string, enum: [role_policy_version_conflict] }
+                current_policy:
+                  $ref: "#/components/schemas/AdminRolePolicyConflictSnapshot"
+      example:
+        statusCode: 409
+        message: Role policy has changed. Refresh and retry with the current policy version.
+        data: null
+        success: false
+        conflict:
+          type: role_policy_version_conflict
+          current_policy:
+            schema_version: 2
+            role_key: auditor
+            capabilities:
+              platform.hospitals.read: true
+              platform.role_policy.read: true
+              platform.audit.read: true
+              platform.analytics.read: true
+              platform.billing.read: true
+              platform.system_health.read: true
+            protected: false
+            policy_version: 9
+            updated_by: "687000000000000000000001"
+            updated_at: "2026-07-26T10:00:00.000Z"
+            change_reason: Quarterly access review
 
     RateLimitResponse:
       type: object
@@ -3513,43 +4200,368 @@ components:
 
     AdminRoleKey:
       type: string
+      enum: [app_admin, hospital_admin, auditor]
+
+    EditableAdminRoleKey:
+      type: string
+      enum: [hospital_admin, auditor]
+
+    LegacyAdminRoleKey:
+      type: string
       enum: [app_admin, hospital_admin, doctor, patient, auditor]
+
+    AdminCapability:
+      type: string
+      enum:
+        - platform.hospitals.read
+        - platform.hospitals.manage
+        - platform.admin_accounts.read
+        - platform.admin_accounts.manage
+        - platform.role_policy.read
+        - platform.role_policy.manage
+        - platform.audit.read
+        - platform.analytics.read
+        - platform.billing.read
+        - platform.billing.manage
+        - platform.system_config.read
+        - platform.system_config.manage
+        - platform.system_health.read
+        - platform.notifications.broadcast
+        - tenant.dashboard.read
+        - tenant.doctors.read
+        - tenant.doctors.manage
+        - tenant.patients.read
+        - tenant.patients.manage
+        - tenant.patients.assign
+        - tenant.accounts.status.manage
+        - tenant.credentials.reset
+        - tenant.audit.read
+        - tenant.analytics.read
+        - tenant.billing.read
+        - tenant.billing.checkout
+        - tenant.notifications.broadcast
+        - tenant.operations_health.read
+
+    PlatformAdminCapabilityMap:
+      type: object
+      description: Complete protected Application Admin platform capability map.
+      required:
+        - platform.hospitals.read
+        - platform.hospitals.manage
+        - platform.admin_accounts.read
+        - platform.admin_accounts.manage
+        - platform.role_policy.read
+        - platform.role_policy.manage
+        - platform.audit.read
+        - platform.analytics.read
+        - platform.billing.read
+        - platform.billing.manage
+        - platform.system_config.read
+        - platform.system_config.manage
+        - platform.system_health.read
+        - platform.notifications.broadcast
+      properties:
+        platform.hospitals.read: { type: boolean, enum: [true] }
+        platform.hospitals.manage: { type: boolean, enum: [true] }
+        platform.admin_accounts.read: { type: boolean, enum: [true] }
+        platform.admin_accounts.manage: { type: boolean, enum: [true] }
+        platform.role_policy.read: { type: boolean, enum: [true] }
+        platform.role_policy.manage: { type: boolean, enum: [true], description: Immutable policy-recovery capability. }
+        platform.audit.read: { type: boolean, enum: [true] }
+        platform.analytics.read: { type: boolean, enum: [true] }
+        platform.billing.read: { type: boolean, enum: [true] }
+        platform.billing.manage: { type: boolean, enum: [true] }
+        platform.system_config.read: { type: boolean, enum: [true] }
+        platform.system_config.manage: { type: boolean, enum: [true] }
+        platform.system_health.read: { type: boolean, enum: [true] }
+        platform.notifications.broadcast: { type: boolean, enum: [true] }
+      additionalProperties: false
+
+    HospitalAdminCapabilityMap:
+      type: object
+      description: Complete Hospital Admin tenant capability map; platform capabilities are rejected.
+      required:
+        - tenant.dashboard.read
+        - tenant.doctors.read
+        - tenant.doctors.manage
+        - tenant.patients.read
+        - tenant.patients.manage
+        - tenant.patients.assign
+        - tenant.accounts.status.manage
+        - tenant.credentials.reset
+        - tenant.audit.read
+        - tenant.analytics.read
+        - tenant.billing.read
+        - tenant.billing.checkout
+        - tenant.notifications.broadcast
+        - tenant.operations_health.read
+      properties:
+        tenant.dashboard.read: { type: boolean }
+        tenant.doctors.read: { type: boolean }
+        tenant.doctors.manage: { type: boolean }
+        tenant.patients.read: { type: boolean }
+        tenant.patients.manage: { type: boolean }
+        tenant.patients.assign: { type: boolean }
+        tenant.accounts.status.manage: { type: boolean }
+        tenant.credentials.reset: { type: boolean }
+        tenant.audit.read: { type: boolean }
+        tenant.analytics.read: { type: boolean }
+        tenant.billing.read: { type: boolean }
+        tenant.billing.checkout: { type: boolean }
+        tenant.notifications.broadcast: { type: boolean }
+        tenant.operations_health.read: { type: boolean }
+      additionalProperties: false
+
+    AuditorCapabilityMap:
+      type: object
+      description: Complete System Auditor global read-only capability map; mutation capabilities are rejected.
+      required:
+        - platform.hospitals.read
+        - platform.role_policy.read
+        - platform.audit.read
+        - platform.analytics.read
+        - platform.billing.read
+        - platform.system_health.read
+      properties:
+        platform.hospitals.read: { type: boolean }
+        platform.role_policy.read: { type: boolean }
+        platform.audit.read: { type: boolean }
+        platform.analytics.read: { type: boolean }
+        platform.billing.read: { type: boolean }
+        platform.system_health.read: { type: boolean }
+      additionalProperties: false
+
+    AdminCapabilityMap:
+      oneOf:
+        - $ref: "#/components/schemas/PlatformAdminCapabilityMap"
+        - $ref: "#/components/schemas/HospitalAdminCapabilityMap"
+        - $ref: "#/components/schemas/AuditorCapabilityMap"
+
+    EditableAdminCapabilityMap:
+      oneOf:
+        - $ref: "#/components/schemas/HospitalAdminCapabilityMap"
+        - $ref: "#/components/schemas/AuditorCapabilityMap"
+
+    AdminAccessHospital:
+      type: object
+      required: [id, code]
+      properties:
+        id: { type: string }
+        code: { type: string }
+
+    AdminAccess:
+      type: object
+      required: [schema_version, user_id, role, scope, hospital, effective_capabilities, policy_version, read_only]
+      properties:
+        schema_version: { type: integer, enum: [2] }
+        user_id: { type: string }
+        role: { $ref: "#/components/schemas/AdminRoleKey" }
+        scope: { type: string, enum: [global, tenant] }
+        hospital:
+          oneOf:
+            - $ref: "#/components/schemas/AdminAccessHospital"
+            - type: "null"
+        effective_capabilities:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/AdminCapability" }
+        policy_version: { type: integer, minimum: 1 }
+        read_only:
+          type: boolean
+          description: Always true for System Auditor.
+
+    AdminAccessResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data: { $ref: "#/components/schemas/AdminAccess" }
+
+    AdminRolePolicyBase:
+      type: object
+      required: [schema_version, role_key, capabilities, protected, policy_version, updated_by, change_reason]
+      properties:
+        schema_version: { type: integer, enum: [2] }
+        role_key: { $ref: "#/components/schemas/AdminRoleKey" }
+        capabilities: { $ref: "#/components/schemas/AdminCapabilityMap" }
+        protected: { type: boolean }
+        policy_version: { type: integer, minimum: 1 }
+        updated_by: { type: string }
+        updated_at: { type: string, format: date-time }
+        change_reason: { type: string }
+
+    AdminRolePolicy:
+      allOf:
+        - $ref: "#/components/schemas/AdminRolePolicyBase"
+        - type: object
+          required: [label, description, active_account_count]
+          properties:
+            label: { type: string }
+            description: { type: string }
+            active_account_count: { type: integer, minimum: 0 }
+
+    AdminRolePolicyConflictSnapshot:
+      allOf:
+        - $ref: "#/components/schemas/AdminRolePolicyBase"
+
+    AdminRolePolicyListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [policies]
+              properties:
+                policies:
+                  type: array
+                  items: { $ref: "#/components/schemas/AdminRolePolicy" }
+
+    AdminRolePolicyResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data: { $ref: "#/components/schemas/AdminRolePolicy" }
+
+    AdminRolePolicyPreviewRequest:
+      type: object
+      required: [capabilities]
+      properties:
+        capabilities: { $ref: "#/components/schemas/EditableAdminCapabilityMap" }
+        expected_version: { type: integer, minimum: 1 }
+      additionalProperties: false
+
+    AdminRolePolicyUpdateRequest:
+      type: object
+      required: [capabilities, expected_version, change_reason]
+      properties:
+        capabilities: { $ref: "#/components/schemas/EditableAdminCapabilityMap" }
+        expected_version: { type: integer, minimum: 1 }
+        change_reason: { type: string, minLength: 3, maxLength: 500 }
+      additionalProperties: false
+
+    AdminRolePolicyRestorePreviewRequest:
+      type: object
+      required: [revision_id, expected_version]
+      properties:
+        revision_id: { type: string, pattern: "^[a-fA-F0-9]{24}$" }
+        expected_version: { type: integer, minimum: 1 }
+      additionalProperties: false
+
+    AdminRolePolicyRestoreRequest:
+      type: object
+      required: [revision_id, expected_version, change_reason]
+      properties:
+        revision_id: { type: string, pattern: "^[a-fA-F0-9]{24}$" }
+        expected_version: { type: integer, minimum: 1 }
+        change_reason: { type: string, minLength: 3, maxLength: 500 }
+      additionalProperties: false
+
+    AdminPolicyAreaImpact:
+      type: object
+      required: [capability, label, classification]
+      properties:
+        capability: { $ref: "#/components/schemas/AdminCapability" }
+        label: { type: string }
+        classification: { type: string, enum: [read, mutation] }
+
+    AdminRolePolicyPreview:
+      type: object
+      required: [role_key, current_version, affected_active_accounts, added_capabilities, removed_capabilities, unchanged_capabilities, impacted_portal_areas, warnings]
+      properties:
+        role_key: { $ref: "#/components/schemas/EditableAdminRoleKey" }
+        current_version: { type: integer, minimum: 1 }
+        affected_active_accounts: { type: integer, minimum: 0 }
+        added_capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/AdminCapability" }
+        removed_capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/AdminCapability" }
+        unchanged_capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/AdminCapability" }
+        impacted_portal_areas:
+          type: array
+          items: { $ref: "#/components/schemas/AdminPolicyAreaImpact" }
+        warnings:
+          type: array
+          items: { type: string }
+
+    AdminRolePolicyPreviewResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data: { $ref: "#/components/schemas/AdminRolePolicyPreview" }
+
+    AdminRolePolicyRestorePreviewResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: "#/components/schemas/AdminRolePolicyPreview"
+                - type: object
+                  required: [source_revision_id, source_policy_version]
+                  properties:
+                    source_revision_id: { type: string }
+                    source_policy_version: { type: integer, minimum: 1 }
+
+    AdminRolePolicyRevision:
+      type: object
+      required: [id, role_key, previous_capabilities, new_capabilities, previous_policy_version, new_policy_version, actor_user_id, actor_role, change_reason, affected_active_account_count, request_correlation_id, created_at]
+      properties:
+        id: { type: string }
+        role_key: { $ref: "#/components/schemas/AdminRoleKey" }
+        previous_capabilities: { $ref: "#/components/schemas/AdminCapabilityMap" }
+        new_capabilities: { $ref: "#/components/schemas/AdminCapabilityMap" }
+        previous_policy_version: { type: integer, minimum: 1 }
+        new_policy_version: { type: integer, minimum: 2 }
+        actor_user_id: { type: string }
+        actor_role: { $ref: "#/components/schemas/AdminRoleKey" }
+        change_reason: { type: string }
+        affected_active_account_count: { type: integer, minimum: 0 }
+        request_correlation_id: { type: string }
+        restored_from_revision_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    AdminRolePolicyHistoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [revisions]
+              properties:
+                revisions:
+                  type: array
+                  items: { $ref: "#/components/schemas/AdminRolePolicyRevision" }
 
     AdminRolePermissions:
       type: object
+      description: Deprecated legacy permission keys; not authoritative for RBAC V2 enforcement.
       properties:
-        manage_hospitals:
-          type: boolean
-        manage_users:
-          type: boolean
-        manage_roles:
-          type: boolean
-        view_audit:
-          type: boolean
-        manage_doctors:
-          type: boolean
-        manage_patients:
-          type: boolean
-        export_data:
-          type: boolean
-        manage_billing:
-          type: boolean
-        manage_system:
-          type: boolean
-      additionalProperties:
-        type: boolean
+        manage_hospitals: { type: boolean }
+        manage_users: { type: boolean }
+        manage_roles: { type: boolean }
+        view_audit: { type: boolean }
+        manage_doctors: { type: boolean }
+        manage_patients: { type: boolean }
+        export_data: { type: boolean, deprecated: true }
+        manage_billing: { type: boolean }
+        manage_system: { type: boolean }
+      additionalProperties: false
 
     AdminRoleDefinition:
       type: object
       properties:
-        label:
-          type: string
-          example: Hospital Admin
-        color:
-          type: string
-          example: doctor
-        permissions:
-          $ref: "#/components/schemas/AdminRolePermissions"
+        label: { type: string, example: Hospital Admin }
+        color: { type: string, example: doctor }
+        permissions: { $ref: "#/components/schemas/AdminRolePermissions" }
 
     RolesResponse:
       allOf:
@@ -3561,14 +4573,14 @@ components:
               properties:
                 roles:
                   type: object
-                  additionalProperties:
-                    $ref: "#/components/schemas/AdminRoleDefinition"
+                  additionalProperties: { $ref: "#/components/schemas/AdminRoleDefinition" }
 
     RoleUpdateRequest:
       type: object
+      required: [permissions]
       properties:
-        permissions:
-          $ref: "#/components/schemas/AdminRolePermissions"
+        permissions: { $ref: "#/components/schemas/AdminRolePermissions" }
+      additionalProperties: false
 
     RoleResponse:
       allOf:
@@ -3578,8 +4590,7 @@ components:
             data:
               type: object
               properties:
-                role:
-                  $ref: "#/components/schemas/AdminRoleDefinition"
+                role: { $ref: "#/components/schemas/AdminRoleDefinition" }
 
     AdminHospital:
       type: object
@@ -3732,100 +4743,204 @@ components:
                   type: string
                   example: configured_hosted_checkout
 
-    AdminConsoleUser:
+    AdminAccountHospital:
       type: object
+      required: [id, code]
       properties:
-        id:
-          type: string
-        name:
-          type: string
-        email:
-          type: string
+        id: { type: string }
+        code: { type: string }
+        name: { type: string }
+
+    AdminAccount:
+      type: object
+      required: [id, login_id, email, name, role, hospital, is_active, mfa_enabled]
+      properties:
+        id: { type: string }
+        login_id: { type: string, format: email }
         loginId:
           type: string
-        role:
-          $ref: "#/components/schemas/AdminRoleKey"
+          format: email
+          deprecated: true
+          description: Legacy camelCase alias; use login_id.
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/EditableAdminRoleKey" }
         hospital:
-          type: string
-          description: Hospital code/id or ALL.
-        status:
-          type: string
-          enum: [active, inactive]
-        lastLogin:
-          type: string
-          format: date-time
-          description: Currently backed by the user's updated timestamp.
+          oneOf:
+            - $ref: "#/components/schemas/AdminAccountHospital"
+            - type: "null"
+        is_active: { type: boolean }
+        mfa_enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
 
-    AdminUserListResponse:
-      allOf:
-        - $ref: "#/components/schemas/ApiResponseBase"
-        - type: object
-          properties:
-            data:
-              type: object
-              properties:
-                users:
-                  type: array
-                  items:
-                    $ref: "#/components/schemas/AdminConsoleUser"
-
-    AdminUserInviteRequest:
+    AdminAccountCreateRequest:
       type: object
-      required: [name]
+      required: [name, email, role]
       properties:
-        name:
-          type: string
+        name: { type: string, minLength: 1, maxLength: 200 }
         email:
           type: string
-          description: Used as login_id when provided.
-        login_id:
-          type: string
-        role:
-          type: string
-          enum: [app_admin, hospital_admin, auditor]
-          default: hospital_admin
+          format: email
+          description: Email is the administrator login ID.
+        role: { $ref: "#/components/schemas/EditableAdminRoleKey" }
         hospital_id:
           type: string
-        hospital:
-          type: string
-      anyOf:
-        - required: [email]
-        - required: [login_id]
+          description: Required for hospital_admin and forbidden for auditor; must identify an active hospital accepting members.
+      additionalProperties: false
 
-    AdminUserUpdateRequest:
+    AdminAccountUpdateRequest:
       type: object
+      minProperties: 1
       properties:
-        name:
-          type: string
-        role:
-          type: string
-          enum: [app_admin, hospital_admin, auditor]
-        hospital_id:
-          type: string
+        role: { $ref: "#/components/schemas/EditableAdminRoleKey" }
+        name: { type: string, minLength: 1 }
+        hospital_id: { type: string, minLength: 1 }
         hospital:
           type: string
-        is_active:
-          type: boolean
+          minLength: 1
+          description: Compatibility hospital code/id alias.
+        is_active: { type: boolean }
         status:
           type: string
           enum: [active, inactive]
+          description: Compatibility alias for is_active; conflicting values are rejected.
+      additionalProperties: false
 
-    AdminUserResponse:
+    AdminAccountListResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponseBase"
         - type: object
           properties:
             data:
               type: object
+              required: [admin_accounts]
               properties:
-                user:
-                  $ref: "#/components/schemas/AdminConsoleUser"
+                admin_accounts:
+                  type: array
+                  items: { $ref: "#/components/schemas/AdminAccount" }
+
+    AdminAccountCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, temporary_password, must_change_password]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
                 temporary_password:
                   type: string
-                  description: Generated per invite; share securely with the invited admin.
-                must_change_password:
-                  type: boolean
-                  description: Always true for invited admin accounts.
+                  description: One-time generated password returned only in this response.
+                must_change_password: { type: boolean, enum: [true] }
+
+    AdminAccountUpdateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, invalidated_sessions, revocation_cleanup_completed, security_version_bumped]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
+                invalidated_sessions: { type: integer, minimum: 0 }
+                revocation_cleanup_completed: { type: boolean }
+                security_version_bumped: { type: boolean }
+
+    AdminMfaRecoverySetup:
+      type: object
+      required: [secret, otpauth_url, challenge_cleanup_completed]
+      properties:
+        secret:
+          type: string
+          description: Plaintext replacement TOTP secret returned only in this supervised recovery response.
+        otpauth_url: { type: string, format: uri }
+        challenge_cleanup_completed: { type: boolean }
+
+    AdminAccountMfaResetResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, factor_type, setup, invalidated_sessions, revocation_cleanup_completed, challenge_cleanup_completed]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
+                factor_type: { type: string, enum: [AUTHENTICATOR_APP] }
+                setup: { $ref: "#/components/schemas/AdminMfaRecoverySetup" }
+                invalidated_sessions: { type: integer, minimum: 0 }
+                revocation_cleanup_completed: { type: boolean }
+                challenge_cleanup_completed: { type: boolean }
+
+    CompatibilityAdminAccountListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_accounts, users]
+              properties:
+                admin_accounts:
+                  type: array
+                  items: { $ref: "#/components/schemas/AdminAccount" }
+                users:
+                  type: array
+                  deprecated: true
+                  items: { $ref: "#/components/schemas/AdminAccount" }
+
+    CompatibilityAdminAccountCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, account, user, temporary_password, must_change_password]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
+                account: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                user: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                temporary_password: { type: string }
+                must_change_password: { type: boolean, enum: [true] }
+
+    CompatibilityAdminAccountUpdateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, account, user, invalidated_sessions, revocation_cleanup_completed, security_version_bumped]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
+                account: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                user: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                invalidated_sessions: { type: integer, minimum: 0 }
+                revocation_cleanup_completed: { type: boolean }
+                security_version_bumped: { type: boolean }
+
+    CompatibilityAdminAccountMfaResetResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [admin_account, account, user, factor_type, setup, invalidated_sessions, revocation_cleanup_completed, challenge_cleanup_completed]
+              properties:
+                admin_account: { $ref: "#/components/schemas/AdminAccount" }
+                account: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                user: { $ref: "#/components/schemas/AdminAccount", deprecated: true }
+                factor_type: { type: string, enum: [AUTHENTICATOR_APP] }
+                setup: { $ref: "#/components/schemas/AdminMfaRecoverySetup" }
+                invalidated_sessions: { type: integer, minimum: 0 }
+                revocation_cleanup_completed: { type: boolean }
+                challenge_cleanup_completed: { type: boolean }
+                audit_recorded: { type: boolean }
 
     AdminUserEntityResponse:
       allOf:
@@ -3834,9 +4949,23 @@ components:
           properties:
             data:
               type: object
+              required: [user]
               properties:
-                user:
-                  $ref: "#/components/schemas/User"
+                user: { $ref: "#/components/schemas/User" }
+
+    AdminOperationalUserCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/AdminUserEntityResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [temporary_password, must_change_password]
+              properties:
+                temporary_password:
+                  type: string
+                  description: One-time generated password returned only in this response.
+                must_change_password: { type: boolean, enum: [true] }
 
     AdminDoctorListResponse:
       allOf:
@@ -3878,6 +5007,9 @@ components:
               properties:
                 message:
                   type: string
+                invalidated_sessions:
+                  type: integer
+                  minimum: 0
 
     AdminReassignPatientResponse:
       allOf:
@@ -3902,15 +5034,20 @@ components:
             data:
               type: object
               properties:
+                message: { type: string }
+                user_id: { type: string }
+                login_id: { type: string }
                 temporary_password:
                   type: string
-                  description: Present when the service generated a password.
+                  description: Generated password, or the submitted replacement password.
                 must_change_password:
                   type: boolean
                 invalidated_sessions:
                   type: integer
                   minimum: 0
                   description: Number of active target-user sessions revoked by the reset.
+                audit_recorded: { type: boolean }
+                revocation_cleanup_completed: { type: boolean }
               additionalProperties: true
 
     BatchOperationResult:
@@ -4061,45 +5198,54 @@ components:
 
     SystemHealth:
       type: object
+      required: [status, uptime_seconds, dependencies, timestamp]
       properties:
-        status:
-          type: string
-          example: ok
-        uptime:
-          type: number
-        database:
+        status: { type: string, enum: [healthy, degraded] }
+        uptime_seconds: { type: integer, minimum: 0 }
+        dependencies:
           type: object
+          required: [database, notification_delivery]
           properties:
-            state:
-              type: string
-              enum: [disconnected, connected, connecting, disconnecting, unknown]
-            host:
-              type: string
-            name:
-              type: string
-        memory:
-          type: object
-          properties:
-            rss:
-              type: string
-              example: 82 MB
-            heapTotal:
-              type: string
-              example: 38 MB
-            heapUsed:
-              type: string
-              example: 24 MB
-        timestamp:
-          type: string
-          format: date-time
+            database:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [available, unavailable] }
+            notification_delivery:
+              type: object
+              required: [status, metrics]
+              properties:
+                status: { type: string, enum: [available] }
+                metrics: { type: object, additionalProperties: true }
+        timestamp: { type: string, format: date-time }
+      description: Redacted platform health; connection strings, hosts, database names, and credentials are not returned.
 
     SystemHealthResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponseBase"
         - type: object
           properties:
-            data:
-              $ref: "#/components/schemas/SystemHealth"
+            data: { $ref: "#/components/schemas/SystemHealth" }
+
+    ReminderDeliveryHealth:
+      type: object
+      required: [scope, hospital_id, reminders_last_24_hours, total_reminders, deliveries_by_status, overdue_deliveries]
+      properties:
+        scope: { type: string, enum: [tenant] }
+        hospital_id: { type: string }
+        reminders_last_24_hours: { type: integer, minimum: 0 }
+        total_reminders: { type: integer, minimum: 0 }
+        deliveries_by_status:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        overdue_deliveries: { type: integer, minimum: 0 }
+
+    ReminderDeliveryHealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponseBase"
+        - type: object
+          properties:
+            data: { $ref: "#/components/schemas/ReminderDeliveryHealth" }
 
     CountBreakdown:
       type: object
@@ -4234,7 +5380,7 @@ components:
 
     HospitalCreateRequest:
       type: object
-      required: [name, location]
+      required: [name, location, admin_email]
       properties:
         code:
           type: string
@@ -4246,10 +5392,6 @@ components:
         admin_email:
           type: string
           format: email
-        admin:
-          type: string
-          format: email
-          description: Alias accepted by the service for admin_email.
         status:
           type: string
           enum: [active, suspended, inactive]
@@ -4269,10 +5411,6 @@ components:
         admin_email:
           type: string
           format: email
-        admin:
-          type: string
-          format: email
-          description: Alias accepted by the service for admin_email.
         status:
           type: string
           enum: [active, suspended, inactive]
@@ -4282,111 +5420,120 @@ components:
 
     AdminCreateDoctorRequest:
       type: object
-      required: [login_id, password, name, contact_number]
+      required: [login_id, name, contact_number]
       properties:
-        login_id:
-          type: string
-          minLength: 3
-        password:
-          type: string
-          minLength: 8
-          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}$"
-        name:
-          type: string
-        department:
-          type: string
-        contact_number:
-          $ref: "#/components/schemas/PrimaryPhoneNumber"
-        hospital_id:
-          type: string
-        hospital:
-          type: string
+        login_id: { type: string, minLength: 3 }
+        name: { type: string, minLength: 1 }
+        department: { type: string }
+        contact_number: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+        hospital_id: { type: string }
+        hospital: { type: string, description: Compatibility hospital code/id alias. }
+      additionalProperties: false
+      description: Password, status, MFA, and other credential/security fields are rejected. The server generates a temporary password.
 
     AdminUpdateDoctorRequest:
       type: object
       properties:
-        name:
-          type: string
-        department:
-          type: string
-        contact_number:
-          $ref: "#/components/schemas/PrimaryPhoneNumber"
-        is_active:
-          type: boolean
-        password:
-          type: string
-          minLength: 8
-        hospital_id:
-          type: string
-        hospital:
-          type: string
+        name: { type: string, minLength: 1 }
+        department: { type: string }
+        contact_number: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+        hospital_id: { type: string }
+        hospital: { type: string }
+      additionalProperties: false
+      description: Password and account-status fields are rejected; use dedicated credential/status operations.
 
     AdminCreatePatientRequest:
       type: object
-      required: [login_id, password, assigned_doctor_id, demographics]
+      required: [login_id, assigned_doctor_id, demographics]
       properties:
-        login_id:
-          type: string
-          minLength: 3
-        password:
-          type: string
-          minLength: 8
-          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,}$"
+        login_id: { type: string, minLength: 3 }
         assigned_doctor_id:
           type: string
+          description: Active Doctor user ID or login ID in the Hospital Admin hospital.
         demographics:
-          $ref: "#/components/schemas/PatientDemographics"
-          description: Must include `phone` when creating a patient account.
-        medical_config:
           type: object
+          required: [name, phone]
           properties:
-            diagnosis:
-              type: string
-            therapy_drug:
-              type: string
-            therapy_start_date:
-              type: string
-            target_inr:
-              $ref: "#/components/schemas/TargetInr"
-        hospital_id:
-          type: string
-        hospital:
-          type: string
+            name: { type: string, minLength: 1 }
+            age: { type: integer, minimum: 1 }
+            gender: { type: string, enum: [Male, Female, Other] }
+            phone: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+            next_of_kin:
+              type: object
+              properties:
+                name: { type: string }
+                relation: { type: string }
+                relationship: { type: string }
+                phone: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+              additionalProperties: false
+          additionalProperties: false
+        hospital_id: { type: string }
+        hospital: { type: string }
+      additionalProperties: false
+      description: Clinical, password, status, MFA, and other security fields are rejected. The server generates a temporary password.
 
     AdminUpdatePatientRequest:
       type: object
-      description: >-
-        Patient profile update. A change to assigned_doctor_id must be submitted
-        separately from password or is_active changes so assignment and security
-        lifecycle results cannot be reported inconsistently.
       properties:
         demographics:
-          $ref: "#/components/schemas/PatientDemographics"
-        medical_config:
           type: object
           properties:
-            diagnosis:
-              type: string
-            therapy_drug:
-              type: string
-            therapy_start_date:
-              type: string
-            target_inr:
-              $ref: "#/components/schemas/TargetInr"
-        assigned_doctor_id:
-          type: string
+            name: { type: string }
+            age: { type: integer, minimum: 1 }
+            gender: { type: string, enum: [Male, Female, Other] }
+            phone: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+            next_of_kin:
+              type: object
+              properties:
+                name: { type: string }
+                relation: { type: string }
+                relationship: { type: string }
+                phone: { $ref: "#/components/schemas/PrimaryPhoneNumber" }
+              additionalProperties: false
+          additionalProperties: false
+        hospital_id: { type: string }
+        hospital: { type: string }
+      additionalProperties: false
+      description: Clinical fields, Doctor assignment, passwords, status, MFA, and other security fields are rejected. Use dedicated assignment, status, and credential routes.
+
+    AdminDoctorStatusRequest:
+      type: object
+      required: [is_active]
+      properties:
+        is_active:
+          type: boolean
+      additionalProperties: false
+
+    AdminPatientStatusRequest:
+      type: object
+      minProperties: 1
+      properties:
+        is_active:
+          type: boolean
         account_status:
           type: string
           enum: [Active, Discharged, Deceased]
-        is_active:
-          type: boolean
-        password:
+      additionalProperties: false
+      description: When both fields are supplied they must describe the same active/inactive state.
+
+    AdminOperationalCredentialsResetRequest:
+      type: object
+      properties:
+        new_password:
           type: string
           minLength: 8
-        hospital_id:
+          description: Optional replacement. When omitted, the server generates a temporary password.
+      additionalProperties: false
+
+    AdminPatientAssignmentRequest:
+      type: object
+      required: [doctor_id]
+      properties:
+        doctor_id:
           type: string
-        hospital:
-          type: string
+          minLength: 1
+          description: Active same-hospital Doctor user ID or canonical login ID.
+      additionalProperties: false
 
     AdminResetPasswordRequest:
       type: object

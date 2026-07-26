@@ -1,6 +1,9 @@
 import { AuthSession, SystemConfig } from '@alias/models'
 import { ApiError } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
+import type { AdminAccessContext } from '@alias/types/admin-access'
+import { hasAdminCapability } from '@alias/types/admin-access'
+import type { AdminCapability } from '@alias/constants/admin-capabilities'
 
 export const DEFAULT_FEATURE_FLAGS = {
   maintenance_mode: false,
@@ -11,6 +14,13 @@ export const DEFAULT_FEATURE_FLAGS = {
 export const MAX_SESSION_TIMEOUT_MINUTES = 1440
 
 export const SYSTEM_CONFIG_CACHE_TTL_MS = 5_000
+
+export type SystemConfigUpdates = {
+  inr_thresholds?: { critical_low?: number; critical_high?: number }
+  session_timeout_minutes?: number
+  rate_limit?: { max_requests?: number; window_minutes?: number }
+  feature_flags?: Record<string, boolean>
+}
 
 type CachedSystemConfig = {
   value: Awaited<ReturnType<typeof loadSystemConfig>>
@@ -70,6 +80,37 @@ export async function getSystemConfig() {
   return loadSystemConfig()
 }
 
+function requireGlobalAppAdminConfigAccess(
+  access: AdminAccessContext,
+  capability: AdminCapability,
+): void {
+  if (
+    access.role !== 'app_admin'
+    || access.scope !== 'global'
+    || access.readOnly
+    || !hasAdminCapability(access, capability)
+  ) {
+    const error = new ApiError(StatusCodes.FORBIDDEN, 'Application Admin platform configuration access is required.')
+    Object.assign(error, { requiredCapability: capability })
+    throw error
+  }
+}
+
+/** Global administrative configuration read, separate from internal runtime reads. */
+export async function getAdminSystemConfig(access: AdminAccessContext) {
+  requireGlobalAppAdminConfigAccess(access, 'platform.system_config.read')
+  return getSystemConfig()
+}
+
+/** Global administrative configuration mutation, separate from internal runtime writes. */
+export async function updateAdminSystemConfig(
+  access: AdminAccessContext,
+  updates: SystemConfigUpdates,
+) {
+  requireGlobalAppAdminConfigAccess(access, 'platform.system_config.manage')
+  return updateSystemConfig(updates)
+}
+
 /**
  * Returns a short-lived process-local snapshot for the rate limiter's
  * high-volume lookup. Feature flags and session policy deliberately do not use
@@ -101,12 +142,7 @@ export async function getCachedSystemConfig() {
   }
 }
 
-export async function updateSystemConfig(updates: {
-  inr_thresholds?: { critical_low?: number; critical_high?: number }
-  session_timeout_minutes?: number
-  rate_limit?: { max_requests?: number; window_minutes?: number }
-  feature_flags?: Record<string, boolean>
-}) {
+export async function updateSystemConfig(updates: SystemConfigUpdates) {
   let config = await SystemConfig.findOne({ is_active: true })
 
   if (!config) {
