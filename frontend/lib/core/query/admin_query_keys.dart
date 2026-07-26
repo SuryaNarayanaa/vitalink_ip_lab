@@ -5,6 +5,14 @@ class AdminQueryKeys {
 
   static List<Object> all() => ['admin', _scope];
 
+  static List<Object> accessMe() => [...all(), 'access', 'me'];
+
+  static List<Object> effectiveAccess() => accessMe();
+
+  static List<Object> rolePolicies() => [...all(), 'role-policies'];
+
+  static List<Object> adminAccounts() => [...all(), 'admin-accounts'];
+
   static List<Object> stats() => [...all(), 'stats'];
 
   static List<Object> analyticsDashboard(String period) =>

@@ -66,6 +66,10 @@ class AppStrings {
 
   /// Admin endpoints.
   static const String adminBasePath = '$apiPathPrefix/admin';
+  static const String adminAccessMePath = '$apiPathPrefix/admin/access/me';
+  static const String adminRolePoliciesPath =
+      '$apiPathPrefix/admin/role-policies';
+  static const String adminAccountsPath = '$apiPathPrefix/admin/admin-accounts';
   static const String adminDoctorsPath = '$apiPathPrefix/admin/doctors';
   static const String adminPatientsPath = '$apiPathPrefix/admin/patients';
   static const String adminHospitalsPath = '$apiPathPrefix/admin/hospitals';

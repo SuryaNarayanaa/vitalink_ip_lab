@@ -1,6 +1,10 @@
 import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/network/api_client.dart';
+import 'package:frontend/features/admin/models/admin_access_model.dart';
+import 'package:frontend/features/admin/models/admin_account_model.dart';
 import 'package:frontend/features/admin/models/admin_mfa_model.dart';
+import 'package:frontend/features/admin/models/admin_policy_ui_models.dart';
+import 'package:frontend/features/admin/models/admin_role_policy_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
 class AdminRepository {
@@ -165,9 +169,143 @@ class AdminRepository {
   Future<Map<String, dynamic>> updateRole(
     String roleKey,
     Map<String, dynamic> permissions,
-  ) =>
-      _apiClient.put('${AppStrings.adminRolesPath}/$roleKey',
-          data: {'permissions': permissions});
+  ) => _apiClient.put(
+    '${AppStrings.adminRolesPath}/$roleKey',
+    data: {'permissions': permissions},
+  );
+
+  // ─── V2 Administrator Accounts ───
+
+  Future<List<AdminAccountModel>> getAdminAccounts() async {
+    final response = await _apiClient.get(AppStrings.adminAccountsPath);
+    return _extractItems(response, const [
+          'admin_accounts',
+          'accounts',
+          'items',
+        ])
+        .map(_normalizeAdminAccount)
+        .map(AdminAccountModel.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<AdminAccountMutationResult> createAdminAccount(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await _apiClient.post(
+      AppStrings.adminAccountsPath,
+      data: data,
+    );
+    return AdminAccountMutationResult.fromJson(response);
+  }
+
+  Future<AdminAccountMutationResult> updateAdminAccount(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await _apiClient.put(
+      '${AppStrings.adminAccountsPath}/$id',
+      data: data,
+    );
+    return AdminAccountMutationResult.fromJson(response);
+  }
+
+  Future<Map<String, dynamic>> resetAdminAccountMfa(String id) {
+    return _apiClient.post('${AppStrings.adminAccountsPath}/$id/mfa/reset');
+  }
+
+  // ─── V2 Administrator Role Policies ───
+
+  Future<List<AdminRolePolicyModel>> getRolePolicies() async {
+    final response = await _apiClient.get(AppStrings.adminRolePoliciesPath);
+    return _extractItems(response, const ['policies', 'items'])
+        .map(_normalizePolicy)
+        .map(AdminRolePolicyModel.fromJson)
+        .toList(growable: false);
+  }
+
+  Future<AdminRolePolicyModel> getRolePolicy(AdminRole role) async {
+    final response = await _apiClient.get(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}',
+    );
+    return AdminRolePolicyModel.fromJson(_normalizePolicy(response));
+  }
+
+  Future<AdminRolePolicyPreviewModel> previewRolePolicy({
+    required AdminRole role,
+    required Map<String, bool> capabilities,
+    required int expectedVersion,
+  }) async {
+    final response = await _apiClient.post(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}/preview',
+      data: {'capabilities': capabilities, 'expected_version': expectedVersion},
+    );
+    return AdminRolePolicyPreviewModel.fromJson(response);
+  }
+
+  Future<AdminRolePolicyModel> updateRolePolicyV2({
+    required AdminRole role,
+    required Map<String, bool> capabilities,
+    required int expectedVersion,
+    required String changeReason,
+  }) async {
+    final response = await _apiClient.put(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}',
+      data: {
+        'capabilities': capabilities,
+        'expected_version': expectedVersion,
+        'change_reason': changeReason,
+      },
+    );
+    return AdminRolePolicyModel.fromJson(_normalizePolicy(response));
+  }
+
+  Future<List<AdminRolePolicyRevisionModel>> getRolePolicyHistory(
+    AdminRole role, {
+    int limit = 50,
+    int? beforeVersion,
+  }) async {
+    final response = await _apiClient.get(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}/history',
+      queryParameters: {
+        'limit': limit,
+        if (beforeVersion != null) 'before_version': beforeVersion,
+      },
+    );
+    return _extractItems(response, const [
+      'history',
+      'revisions',
+      'items',
+    ]).map(AdminRolePolicyRevisionModel.fromJson).toList(growable: false);
+  }
+
+  Future<AdminRolePolicyPreviewModel> previewRolePolicyRestore({
+    required AdminRole role,
+    required String revisionId,
+    required int expectedVersion,
+  }) async {
+    final response = await _apiClient.post(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}/restore-preview',
+      data: {'revision_id': revisionId, 'expected_version': expectedVersion},
+    );
+    return AdminRolePolicyPreviewModel.fromJson(response);
+  }
+
+  Future<AdminRolePolicyModel> restoreRolePolicy({
+    required AdminRole role,
+    required String revisionId,
+    required int expectedVersion,
+    required String changeReason,
+  }) async {
+    final response = await _apiClient.post(
+      '${AppStrings.adminRolePoliciesPath}/${role.wireValue}/restore',
+      data: {
+        'revision_id': revisionId,
+        'expected_version': expectedVersion,
+        'change_reason': changeReason,
+      },
+    );
+    return AdminRolePolicyModel.fromJson(_normalizePolicy(response));
+  }
 
   Future<Map<String, dynamic>> getInvoices() async {
     final response = await _apiClient.getRaw(AppStrings.adminInvoicesPath);
@@ -343,5 +481,96 @@ class AdminRepository {
     return items
         .map((e) => DoctorWorkload.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Iterable<Map<String, dynamic>> _extractItems(
+    Map<String, dynamic> response,
+    List<String> keys,
+  ) sync* {
+    Object? raw;
+    for (final key in keys) {
+      if (response[key] is List) {
+        raw = response[key];
+        break;
+      }
+    }
+    raw ??= response['data'];
+    if (raw is Map) {
+      final rawMap = raw;
+      for (final key in keys) {
+        if (rawMap[key] is List) {
+          raw = rawMap[key];
+          break;
+        }
+      }
+    }
+    if (raw is! List) return;
+    for (final item in raw) {
+      if (item is Map<String, dynamic>) {
+        yield item;
+      } else if (item is Map) {
+        yield Map<String, dynamic>.from(item);
+      }
+    }
+  }
+
+  Map<String, dynamic> _normalizeAdminAccount(Map<String, dynamic> source) {
+    final hospitalValue = source['hospital'];
+    final hospitalId = source['hospital_id'] ?? source['hospitalId'];
+    final normalizedHospital = hospitalValue is Map
+        ? Map<String, dynamic>.from(hospitalValue)
+        : hospitalId == null
+        ? null
+        : {
+            'id': hospitalId.toString(),
+            'code':
+                (source['hospital_code'] ??
+                        source['hospitalCode'] ??
+                        hospitalId)
+                    .toString(),
+            'name': source['hospital_name'] ?? source['hospitalName'],
+          };
+    final active = source['is_active'] ?? source['isActive'];
+    return {
+      'id': (source['id'] ?? source['_id']).toString(),
+      'login_id': source['login_id'] ?? source['loginId'] ?? source['email'],
+      'name': source['name'] ?? source['full_name'] ?? source['email'],
+      'email': source['email'],
+      'role': source['role'] ?? source['admin_role'] ?? source['adminRole'],
+      'hospital': normalizedHospital,
+      'is_active': active ?? source['status'] == 'active',
+      'mfa_enabled': source['mfa_enabled'] ?? source['mfaEnabled'] ?? false,
+      'created_at': source['created_at'] ?? source['createdAt'],
+      'updated_at': source['updated_at'] ?? source['updatedAt'],
+    };
+  }
+
+  Map<String, dynamic> _normalizePolicy(Map<String, dynamic> source) {
+    final nested = source['policy'];
+    final json = nested is Map
+        ? Map<String, dynamic>.from(nested)
+        : Map<String, dynamic>.from(source);
+    final roleValue = json['role_key'] ?? json['roleKey'];
+    final role = AdminRole.parse(roleValue);
+    return {
+      'schema_version': json['schema_version'] ?? json['schemaVersion'] ?? 2,
+      'role_key': role.wireValue,
+      'label':
+          json['label'] ??
+          switch (role) {
+            AdminRole.appAdmin => 'Application Admin',
+            AdminRole.hospitalAdmin => 'Hospital Admin',
+            AdminRole.auditor => 'System Auditor',
+          },
+      'description': json['description'] ?? '',
+      'protected': json['protected'] ?? json['is_protected'] ?? false,
+      'capabilities': json['capabilities'] ?? const <String, bool>{},
+      'policy_version': json['policy_version'] ?? json['policyVersion'],
+      'active_account_count':
+          json['active_account_count'] ?? json['activeAccountCount'] ?? 0,
+      'updated_at': json['updated_at'] ?? json['updatedAt'],
+      'updated_by': json['updated_by'] ?? json['updatedBy'],
+      'change_reason': json['change_reason'] ?? json['changeReason'],
+    };
   }
 }

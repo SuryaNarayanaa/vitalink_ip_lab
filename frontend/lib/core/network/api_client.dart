@@ -31,7 +31,11 @@ class ApiException implements Exception {
     this.sunset,
     this.apiVersion,
     this.supportedVersions,
-  }) : title = title ?? _defaultTitle(kind);
+    Map<String, dynamic>? details,
+  }) : details = details == null
+           ? null
+           : Map<String, dynamic>.unmodifiable(details),
+       title = title ?? _defaultTitle(kind);
 
   final String message;
   final int? statusCode;
@@ -42,6 +46,11 @@ class ApiException implements Exception {
   final String? sunset;
   final String? apiVersion;
   final String? supportedVersions;
+  final Map<String, dynamic>? details;
+
+  bool get isConflict => statusCode == 409;
+
+  Map<String, dynamic>? get conflictDetails => isConflict ? details : null;
 
   bool get canRetry =>
       kind == ApiErrorKind.network ||
@@ -93,6 +102,16 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+class ApiConflictException extends ApiException {
+  ApiConflictException(
+    super.message, {
+    required super.statusCode,
+    super.apiVersion,
+    super.supportedVersions,
+    super.details,
+  }) : super(kind: ApiErrorKind.unknown, title: 'Changes are out of date');
+}
+
 class _RefreshRejected implements Exception {
   const _RefreshRejected(this.cause);
 
@@ -124,6 +143,21 @@ class ApiClient {
   static const String _skipAuthRefreshExtra = 'skipAuthRefresh';
   static const String _hasRetriedAfterRefreshExtra = 'hasRetriedAfterRefresh';
   Future<String>? _pendingRefresh;
+  VoidCallback? _authorizationDeniedHandler;
+
+  void setAuthorizationDeniedHandler(VoidCallback? handler) {
+    _authorizationDeniedHandler = handler;
+  }
+
+  void _notifyAuthorizationDenied() {
+    final handler = _authorizationDeniedHandler;
+    if (handler == null) return;
+    try {
+      handler();
+    } catch (error) {
+      _logDebug('Authorization-denied handler failed: $error');
+    }
+  }
 
   void _logDebug(String message) {
     if (kDebugMode) debugPrint(message);
@@ -627,7 +661,7 @@ class ApiClient {
           supportedVersions: supportedVersions,
         );
       case 403:
-        return ApiException(
+        final exception = ApiException(
           _sanitizeServerMessage(
             serverMessage ?? 'You do not have access to this action.',
           ),
@@ -635,6 +669,19 @@ class ApiClient {
           kind: ApiErrorKind.forbidden,
           apiVersion: apiVersion,
           supportedVersions: supportedVersions,
+        );
+        _notifyAuthorizationDenied();
+        return exception;
+      case 409:
+        return ApiConflictException(
+          _sanitizeServerMessage(
+            serverMessage ??
+                'This record changed after you opened it. Review the latest version and try again.',
+          ),
+          statusCode: statusCode,
+          apiVersion: apiVersion,
+          supportedVersions: supportedVersions,
+          details: _safeStructuredDetails(body),
         );
       case 404:
         return ApiException(
@@ -706,6 +753,55 @@ class ApiClient {
           supportedVersions: supportedVersions,
         );
     }
+  }
+
+  Map<String, dynamic>? _safeStructuredDetails(Map<String, dynamic> body) {
+    final raw = body['details'] ?? body['data'];
+    if (raw is! Map) return null;
+
+    final safe = _copySafeMap(raw, depth: 0);
+    return safe.isEmpty ? null : safe;
+  }
+
+  Map<String, dynamic> _copySafeMap(
+    Map<dynamic, dynamic> source, {
+    required int depth,
+  }) {
+    if (depth >= 5) return <String, dynamic>{};
+    final result = <String, dynamic>{};
+    for (final entry in source.entries) {
+      final key = entry.key.toString();
+      if (_isSensitiveDetailKey(key)) continue;
+      final value = _copySafeValue(entry.value, depth: depth + 1);
+      if (value != null) result[key] = value;
+    }
+    return result;
+  }
+
+  Object? _copySafeValue(Object? value, {required int depth}) {
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    if (depth >= 5) return null;
+    if (value is Map) return _copySafeMap(value, depth: depth);
+    if (value is List) {
+      return value
+          .take(100)
+          .map((item) => _copySafeValue(item, depth: depth + 1))
+          .where((item) => item != null)
+          .toList(growable: false);
+    }
+    return null;
+  }
+
+  bool _isSensitiveDetailKey(String key) {
+    final normalized = key.toLowerCase();
+    return normalized.contains('password') ||
+        normalized.contains('token') ||
+        normalized.contains('secret') ||
+        normalized == 'stack' ||
+        normalized == 'stack_trace' ||
+        normalized == 'stacktrace';
   }
 
   String _extractMessage(DioException e) {
