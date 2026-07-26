@@ -14,7 +14,6 @@ describe('phone verification groundwork', () => {
     await expect(createDoctorSchema.parseAsync({
       body: {
         login_id: 'doctor_phone',
-        password: 'Doctor@123',
         name: 'Dr. Phone',
       },
     })).rejects.toBeDefined()
@@ -22,7 +21,6 @@ describe('phone verification groundwork', () => {
     await expect(createDoctorSchema.parseAsync({
       body: {
         login_id: 'doctor_phone',
-        password: 'Doctor@123',
         name: 'Dr. Phone',
         contact_number: '9000000001',
       },
@@ -33,7 +31,6 @@ describe('phone verification groundwork', () => {
     await expect(createPatientSchema.parseAsync({
       body: {
         login_id: 'PAT_PHONE',
-        password: 'Patient@123',
         assigned_doctor_id: 'doctor_phone',
         demographics: {
           name: 'Patient Phone',
@@ -45,7 +42,6 @@ describe('phone verification groundwork', () => {
     await expect(createPatientSchema.parseAsync({
       body: {
         login_id: 'PAT_PHONE',
-        password: 'Patient@123',
         assigned_doctor_id: 'doctor_phone',
         demographics: {
           name: 'Patient Phone',
@@ -53,6 +49,43 @@ describe('phone verification groundwork', () => {
         },
       },
     })).resolves.toBeDefined()
+  })
+
+  test('rejects passwords on generic admin doctor and patient schemas', async () => {
+    const doctorResult = await createDoctorSchema.safeParseAsync({
+      body: {
+        login_id: 'doctor_phone',
+        password: 'Doctor@123',
+        name: 'Dr. Phone',
+        contact_number: '9000000001',
+      },
+    })
+    expect(doctorResult.success).toBe(false)
+    if (!doctorResult.success) {
+      expect(doctorResult.error.issues).toContainEqual(expect.objectContaining({
+        code: 'unrecognized_keys',
+        keys: expect.arrayContaining(['password']),
+      }))
+    }
+
+    const patientResult = await createPatientSchema.safeParseAsync({
+      body: {
+        login_id: 'PAT_PHONE',
+        password: 'Patient@123',
+        assigned_doctor_id: 'doctor_phone',
+        demographics: {
+          name: 'Patient Phone',
+          phone: '9888888888',
+        },
+      },
+    })
+    expect(patientResult.success).toBe(false)
+    if (!patientResult.success) {
+      expect(patientResult.error.issues).toContainEqual(expect.objectContaining({
+        code: 'unrecognized_keys',
+        keys: expect.arrayContaining(['password']),
+      }))
+    }
   })
 
   test('validates doctor-added patient and patient self-update phone numbers', async () => {
@@ -96,11 +129,13 @@ describe('phone verification groundwork', () => {
     // the suite-level afterEach restore this spy even when the test fails.
     jest.spyOn(rolePolicyService, 'getRolePermissions').mockResolvedValue({} as any)
     const profileId = 'patient-profile-id'
+    const hospitalId = 'hospital-id'
     const patientUser: any = {
       _id: 'patient-user-id',
       user_type: 'PATIENT',
       profile_id: {
         _id: profileId,
+        hospital_id: hospitalId,
         demographics: {
           name: 'Existing Patient',
           phone: '9888888888',
@@ -111,6 +146,7 @@ describe('phone verification groundwork', () => {
         },
         toObject: jest.fn().mockReturnValue({
           _id: profileId,
+          hospital_id: hospitalId,
           demographics: {
             name: 'Existing Patient',
             phone: '9888888888',
@@ -133,7 +169,15 @@ describe('phone verification groundwork', () => {
     const adminUser: any = {
       _id: 'admin-user-id',
       user_type: 'ADMIN',
-      profile_id: { admin_role: 'app_admin' },
+      is_active: true,
+      profile_id: {
+        admin_role: 'hospital_admin',
+        hospital_id: {
+          _id: hospitalId,
+          code: 'PHONE_TEST',
+          status: 'active',
+        },
+      },
     }
 
     const findByIdMock = jest.spyOn(User, 'findById' as any) as jest.Mock

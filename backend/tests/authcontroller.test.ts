@@ -2,8 +2,10 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminMfaChallenge, AdminProfile, AuditLog, AuthSession, DoctorProfile, Hospital, OtpChallenge, PatientProfile, User } from '@alias/models';
+import { AdminMfaChallenge, AdminProfile, AdminRolePolicy, AuditLog, AuthSession, DoctorProfile, Hospital, OtpChallenge, PatientProfile, User } from '@alias/models';
 import { Server } from 'http';
+import { AdminRole } from '@alias/models/adminprofile.model';
+import { DEFAULT_ADMIN_ROLE_POLICIES } from '@alias/constants/admin-capabilities';
 import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
 import { createAdminTotpEnrollment, generateTotpCode, replaceAdminTotpForRecovery } from '@alias/services/admin-totp.service';
@@ -147,8 +149,19 @@ describe('Auth Routes', () => {
             is_active: true
         });
 
+        await AdminRolePolicy.create(Object.values(AdminRole).map(role => ({
+            role_key: role,
+            capabilities: DEFAULT_ADMIN_ROLE_POLICIES[role],
+            protected: role === AdminRole.APP_ADMIN,
+            schema_version: 2,
+            policy_version: 1,
+            updated_by: adminUser._id,
+            change_reason: 'Auth controller RBAC V2 test fixture',
+        })));
+
         const mfaAdminProfile = await AdminProfile.create({
             name: 'MFA Admin',
+            admin_role: AdminRole.AUDITOR,
         }) as any;
 
         mfaAdminUser = await User.create({

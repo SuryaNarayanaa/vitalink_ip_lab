@@ -35,8 +35,8 @@ describe('validation and error hardening', () => {
     expect(result.success).toBe(false)
   })
 
-  test('admin patient onboarding parses a valid date-only value', async () => {
-    const result = await adminCreatePatientSchema.parseAsync({
+  test('admin patient onboarding rejects password and clinical configuration', async () => {
+    const result = await adminCreatePatientSchema.safeParseAsync({
       body: {
         login_id: 'PAT-1',
         password: 'StrongPass1!',
@@ -49,12 +49,16 @@ describe('validation and error hardening', () => {
       },
     })
 
-    expect(result.body.medical_config?.therapy_start_date).toBeInstanceOf(Date)
-    expect(result.body.medical_config?.therapy_start_date?.toISOString()).toBe('2025-06-20T00:00:00.000Z')
+    expect(result.success).toBe(false)
+    if (result.success) throw new Error('Expected strict administrative Patient validation to fail')
+    expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['body', 'medical_config'], message: expect.stringMatching(/clinical patient fields/i) }),
+      expect.objectContaining({ path: ['body'], code: 'unrecognized_keys', keys: ['password'] }),
+    ]))
     expect(parseStrictDateOnly('20-06-2025')?.toISOString()).toBe('2025-06-20T00:00:00.000Z')
   })
 
-  test('clinical today is not treated as future before UTC reaches local midnight', async () => {
+  test('date-only helpers retain local-day semantics while admin clinical fields remain forbidden', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-13T19:00:00.000Z'))
     try {
       expect(calendarDateKeyInTimeZone(new Date(), 'Asia/Kolkata')).toBe('2026-07-14')
@@ -63,25 +67,17 @@ describe('validation and error hardening', () => {
       const result = await adminCreatePatientSchema.safeParseAsync({
         body: {
           login_id: 'PAT-TZ',
-          password: 'StrongPass1!',
           assigned_doctor_id: 'DOC-1',
           demographics: { name: 'Patient', phone: '+919000000001' },
           medical_config: { therapy_start_date: '2026-07-14' },
         },
       })
 
-      expect(result.success).toBe(true)
-
-      const futureResult = await adminCreatePatientSchema.safeParseAsync({
-        body: {
-          login_id: 'PAT-TZ-FUTURE',
-          password: 'StrongPass1!',
-          assigned_doctor_id: 'DOC-1',
-          demographics: { name: 'Patient', phone: '+919000000001' },
-          medical_config: { therapy_start_date: '2026-07-15' },
-        },
-      })
-      expect(futureResult.success).toBe(false)
+      expect(result.success).toBe(false)
+      if (result.success) throw new Error('Expected clinical configuration to remain forbidden')
+      expect(result.error.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: ['body', 'medical_config'], message: expect.stringMatching(/clinical patient fields/i) }),
+      ]))
     } finally {
       jest.useRealTimers()
     }
