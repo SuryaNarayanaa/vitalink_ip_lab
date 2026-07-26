@@ -641,7 +641,10 @@ class _UserLifecyclePageState extends State<UserLifecyclePage> {
                         controller: email,
                         keyboardType: TextInputType.emailAddress,
                         decoration: const InputDecoration(
-                            labelText: 'Email / login ID'),
+                          labelText: 'Email',
+                          helperText:
+                              'This email is also used as their sign-in ID.',
+                        ),
                         validator: (value) => value == null ||
                                 !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                                     .hasMatch(value.trim())
