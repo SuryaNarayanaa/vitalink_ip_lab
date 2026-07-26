@@ -51,6 +51,21 @@ class _LoginPageState extends State<LoginPage> {
     await QueryCache.instance.clear();
     if (!mounted) return;
 
+    // Temporary / expired passwords must be replaced before any clinical UI.
+    if (response.user.mustChangePassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please set a new password to continue'),
+        ),
+      );
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        AppRoutes.changePassword,
+        (previous) => false,
+        arguments: true,
+      );
+      return;
+    }
+
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Login successful')));

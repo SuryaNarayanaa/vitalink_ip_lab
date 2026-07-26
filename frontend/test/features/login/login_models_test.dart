@@ -97,5 +97,49 @@ void main() {
       expect(session.sessionId, 'session-123');
       expect(session.refreshExpiresAt, isNotNull);
     });
+
+    test('parses must_change_password and password_expired on user', () {
+      final forced = UserModel.fromJson({
+        '_id': 'user-1',
+        'login_id': 'patient@example.test',
+        'user_type': 'PATIENT',
+        'is_active': true,
+        'must_change_password': true,
+        'password_expired': false,
+      });
+      final expired = UserModel.fromJson({
+        '_id': 'user-2',
+        'login_id': 'patient2@example.test',
+        'user_type': 'PATIENT',
+        'is_active': true,
+        'must_change_password': false,
+        'password_expired': true,
+      });
+      final normal = UserModel.fromJson({
+        '_id': 'user-3',
+        'login_id': 'patient3@example.test',
+        'user_type': 'PATIENT',
+        'is_active': true,
+      });
+
+      expect(forced.mustChangePassword, isTrue);
+      expect(forced.passwordExpired, isFalse);
+      expect(expired.mustChangePassword, isTrue);
+      expect(expired.passwordExpired, isTrue);
+      expect(normal.mustChangePassword, isFalse);
+    });
+
+    test('builds change-password request for backend endpoint', () {
+      final request = ChangePasswordRequest(
+        currentPassword: 'TempPass!1',
+        newPassword: 'NewStrong!2',
+      );
+
+      expect(request.path, AppStrings.changePasswordPath);
+      expect(request.toJson(), {
+        'current_password': 'TempPass!1',
+        'new_password': 'NewStrong!2',
+      });
+    });
   });
 }

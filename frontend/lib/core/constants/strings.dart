@@ -38,6 +38,7 @@ class AppStrings {
   static const String authRefreshPath = '$apiPathPrefix/auth/refresh';
   static const String authRevokePath = '$apiPathPrefix/auth/revoke';
   static const String logoutPath = '$apiPathPrefix/auth/logout';
+  static const String changePasswordPath = '$apiPathPrefix/auth/change-password';
   static const String deviceRegisterPath = '$apiPathPrefix/devices/register';
   static const String adminTotpSetupPath =
       '$apiPathPrefix/auth/admin/mfa/totp/setup';

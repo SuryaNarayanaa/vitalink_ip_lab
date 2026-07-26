@@ -561,6 +561,25 @@ class PatientActionButtons extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).pushNamed(
+              AppRoutes.changePassword,
+              arguments: false,
+            );
+          },
+          icon: const Icon(Icons.lock_outline, size: 20),
+          label: const Text('Change password'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF4338CA),
+            side: const BorderSide(color: Color(0xFFC7D2FE), width: 1.5),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
           onPressed: () => _showLogoutConfirmation(context),
           icon: const Icon(Icons.logout, size: 20),
           label: const Text('Logout'),

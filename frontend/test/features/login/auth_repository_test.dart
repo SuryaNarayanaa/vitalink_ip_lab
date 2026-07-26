@@ -166,5 +166,72 @@ void main() {
         expect(await storage.readAuthSession(), isNull);
       },
     );
+
+    test(
+      'changePassword posts credentials and clears local session on success',
+      () async {
+        await storage.saveToken('access-token');
+        await storage.saveRefreshToken('refresh-token');
+        await storage.saveUser({
+          'login_id': 'patient@example.test',
+          'must_change_password': true,
+        });
+        await storage.saveAuthSession({'session_id': 'session-123'});
+
+        final apiClient = _FakeApiClient({
+          AppStrings.changePasswordPath: {
+            'must_change_password': false,
+            'password_expired': false,
+            'invalidated_sessions': 1,
+          },
+        });
+        final repository = AuthRepository(
+          apiClient: apiClient,
+          secureStorage: storage,
+        );
+
+        final result = await repository.changePassword(
+          ChangePasswordRequest(
+            currentPassword: 'TempPass!1',
+            newPassword: 'NewStrong!2',
+          ),
+        );
+
+        expect(apiClient.calls.single.path, AppStrings.changePasswordPath);
+        expect(apiClient.calls.single.authenticated, isTrue);
+        expect(apiClient.calls.single.data, {
+          'current_password': 'TempPass!1',
+          'new_password': 'NewStrong!2',
+        });
+        expect(result.mustChangePassword, isFalse);
+        expect(result.invalidatedSessions, 1);
+        expect(await storage.readToken(), isNull);
+        expect(await storage.readRefreshToken(), isNull);
+        expect(await storage.readUser(), isNull);
+        expect(await storage.readAuthSession(), isNull);
+      },
+    );
+
+    test('login surfaces must_change_password on the user model', () async {
+      final payload = sessionPayload(
+        token: 'access-token',
+        refreshToken: 'refresh-token',
+      );
+      payload['user'] = {
+        ...payload['user'] as Map<String, dynamic>,
+        'must_change_password': true,
+      };
+      final apiClient = _FakeApiClient({AppStrings.loginPath: payload});
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final result = await repository.login(
+        LoginRequest(loginId: 'patient@example.test', password: 'TempPass!1'),
+      );
+
+      expect(result.response?.user.mustChangePassword, isTrue);
+    });
   });
 }

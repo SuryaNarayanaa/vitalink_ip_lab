@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/core/auth/session_bootstrap_page.dart';
 import 'package:frontend/core/auth/session_route_guard.dart';
+import 'package:frontend/features/login/change_password_page.dart';
 import 'package:frontend/features/login/login_page.dart';
 import 'package:frontend/features/patient/patient_dashboard_shell_page.dart';
 import 'package:frontend/features/patient/patient_records_page.dart';
@@ -14,6 +15,7 @@ import 'package:frontend/features/admin/admin_dashboard_page.dart';
 class AppRoutes {
   static const String sessionBootstrap = '/session-bootstrap';
   static const String login = '/login';
+  static const String changePassword = '/change-password';
   static const String onboarding = '/onboarding';
   static const String patient = '/patient';
   static const String patientRecords = '/patient-records';
@@ -38,6 +40,14 @@ class AppRouter {
     '/': (_) => const SessionBootstrapPage(),
     AppRoutes.sessionBootstrap: (_) => const SessionBootstrapPage(),
     AppRoutes.login: (_) => const LoginPage(),
+    AppRoutes.changePassword: (context) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      final forced = args is bool ? args : null;
+      return SessionRouteGuard(
+        access: RouteAccess.authenticated,
+        child: ChangePasswordPage(forced: forced),
+      );
+    },
     AppRoutes.onboarding: (_) => const SessionRouteGuard(
           access: RouteAccess.patientOrDoctor,
           child: OnboardingPage(),

@@ -63,6 +63,43 @@ class RevokeSessionRequest {
   Map<String, dynamic> toJson() => {'refresh_token': refreshToken};
 }
 
+class ChangePasswordRequest {
+  ChangePasswordRequest({
+    required this.currentPassword,
+    required this.newPassword,
+  });
+
+  final String currentPassword;
+  final String newPassword;
+
+  String get path => AppStrings.changePasswordPath;
+
+  Map<String, dynamic> toJson() => {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      };
+}
+
+class ChangePasswordResult {
+  ChangePasswordResult({
+    required this.mustChangePassword,
+    required this.passwordExpired,
+    this.invalidatedSessions,
+  });
+
+  factory ChangePasswordResult.fromJson(Map<String, dynamic> json) {
+    return ChangePasswordResult(
+      mustChangePassword: _readBool(json['must_change_password'], fallback: false),
+      passwordExpired: _readBool(json['password_expired'], fallback: false),
+      invalidatedSessions: _readInt(json['invalidated_sessions']),
+    );
+  }
+
+  final bool mustChangePassword;
+  final bool passwordExpired;
+  final int? invalidatedSessions;
+}
+
 class UserModel {
   UserModel({
     required this.id,
@@ -71,6 +108,8 @@ class UserModel {
     required this.isActive,
     this.profileId,
     this.userTypeModel,
+    this.mustChangePassword = false,
+    this.passwordExpired = false,
   });
 
   static String _readString(dynamic value) {
@@ -108,6 +147,9 @@ class UserModel {
     final roleFromRole = _readString(json['role']);
     final roleFromProfile = _readString(profileMap?['user_type']);
     final roleModelFromProfile = _readString(profileMap?['user_type_model']);
+    final passwordExpired = _readBool(json['password_expired'], fallback: false);
+    final mustChange = _readBool(json['must_change_password'], fallback: false) ||
+        passwordExpired;
 
     return UserModel(
       id: _readString(json['_id']).isNotEmpty
@@ -126,6 +168,8 @@ class UserModel {
           : roleModelFromProfile.isNotEmpty
           ? roleModelFromProfile
           : null,
+      mustChangePassword: mustChange,
+      passwordExpired: passwordExpired,
     );
   }
 
@@ -135,6 +179,8 @@ class UserModel {
   final bool isActive;
   final String? profileId;
   final String? userTypeModel;
+  final bool mustChangePassword;
+  final bool passwordExpired;
 
   String _normalize(String? raw) =>
       raw?.trim().toUpperCase().replaceAll(' ', '_').replaceAll('-', '_') ?? '';
@@ -315,6 +361,11 @@ int? _readInt(dynamic value) {
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value);
   return null;
+}
+
+bool _readBool(dynamic value, {required bool fallback}) {
+  if (value is bool) return value;
+  return fallback;
 }
 
 DateTime? _readDateTime(dynamic value) {

@@ -158,13 +158,34 @@ class AuthRepository {
       }
     }
 
+    await clearLocalSession();
+  }
+
+  /// Changes the authenticated user's password.
+  ///
+  /// On success the backend revokes all sessions for the user, so local
+  /// credentials are cleared and the client must require a fresh login.
+  Future<ChangePasswordResult> changePassword(
+    ChangePasswordRequest request,
+  ) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+    );
+
+    await clearLocalSession();
+    return ChangePasswordResult.fromJson(body);
+  }
+
+  /// Clears persisted auth credentials and feature session caches.
+  Future<void> clearLocalSession() async {
     try {
       await _secureStorage.clearAuthData();
     } finally {
       try {
         _onLocalSessionCleared?.call();
       } catch (_) {
-        // Feature cache cleanup must not block logout.
+        // Feature cache cleanup must not block session teardown.
       }
     }
   }

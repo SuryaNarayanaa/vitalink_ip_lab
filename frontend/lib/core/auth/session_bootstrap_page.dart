@@ -22,36 +22,55 @@ class _SessionBootstrapPageState extends State<SessionBootstrapPage> {
   }
 
   Future<void> _resolveAndNavigate() async {
-    final route = await _resolveRoute();
+    final destination = await _resolveDestination();
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      destination.route,
+      (_) => false,
+      arguments: destination.arguments,
+    );
   }
 
-  Future<String> _resolveRoute() async {
+  Future<_BootstrapDestination> _resolveDestination() async {
     try {
       final token = await _storage.readToken();
       final userJson = await _storage.readUser();
 
       if (token == null || token.isEmpty || userJson == null) {
         await _cleanupSession();
-        return AppRoutes.login;
+        return const _BootstrapDestination(AppRoutes.login);
       }
 
       final user = UserModel.fromJson(userJson);
       if (!user.isActive) {
         await _cleanupSession();
-        return AppRoutes.login;
+        return const _BootstrapDestination(AppRoutes.login);
       }
 
-      if (user.isAdmin) return AppRoutes.adminDashboard;
-      if (user.isDoctor) return AppRoutes.doctorDashboard;
-      if (user.isPatient) return AppRoutes.patient;
+      // Password policy gate: only /auth/change-password is usable until
+      // the temporary or expired password is replaced.
+      if (user.mustChangePassword) {
+        return const _BootstrapDestination(
+          AppRoutes.changePassword,
+          arguments: true,
+        );
+      }
+
+      if (user.isAdmin) {
+        return const _BootstrapDestination(AppRoutes.adminDashboard);
+      }
+      if (user.isDoctor) {
+        return const _BootstrapDestination(AppRoutes.doctorDashboard);
+      }
+      if (user.isPatient) {
+        return const _BootstrapDestination(AppRoutes.patient);
+      }
 
       await _cleanupSession();
-      return AppRoutes.login;
+      return const _BootstrapDestination(AppRoutes.login);
     } catch (_) {
       await _cleanupSession();
-      return AppRoutes.login;
+      return const _BootstrapDestination(AppRoutes.login);
     }
   }
 
@@ -74,4 +93,11 @@ class _SessionBootstrapPageState extends State<SessionBootstrapPage> {
       body: Center(child: CircularProgressIndicator()),
     );
   }
+}
+
+class _BootstrapDestination {
+  const _BootstrapDestination(this.route, {this.arguments});
+
+  final String route;
+  final Object? arguments;
 }
