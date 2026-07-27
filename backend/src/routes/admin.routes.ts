@@ -31,7 +31,7 @@ import {
   reassignPatientSchema, patientAssignmentSchema, doctorStatusSchema, patientStatusSchema,
   operationalCredentialsResetSchema, userIdParamSchema, updateSystemConfigSchema,
   broadcastNotificationSchema, batchOperationSchema, resetPasswordSchema,
-  updateAdminUserSchema, updateRoleSchema, createHospitalSchema, updateHospitalSchema,
+  updateAdminUserSchema, createHospitalSchema, updateHospitalSchema,
   updateHospitalStatusSchema, inviteAdminUserSchema, generateInvoicesSchema, invoiceIdParamSchema,
   auditLogsQuerySchema, hospitalListQuerySchema,
   createAdminAccountSchema, updateAdminAccountSchema, resetAdminAccountMfaSchema,
@@ -89,9 +89,12 @@ registerAdminRoute(router, {
 registerAdminRoute(router, {
   method: 'get', path: '/roles', capability: 'platform.role_policy.read', scope: 'global', mutation: false, surface: 'admin',
 }, getRoles)
+// No body validation: this compatibility write is retired and must return 410
+// for any payload (including malformed legacy permissions) so clients migrate
+// to /admin/role-policies instead of debugging Zod 400s.
 registerAdminRoute(router, {
   method: 'put', path: '/roles/:roleKey', capability: 'platform.role_policy.manage', scope: 'global', mutation: true, surface: 'admin',
-}, validate(updateRoleSchema), updateRole)
+}, updateRole)
 
 // ─── Hospitals ───
 registerAdminRoute(router, {

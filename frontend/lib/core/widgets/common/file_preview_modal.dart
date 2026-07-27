@@ -49,6 +49,10 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
   final PdfViewerController _pdfController = PdfViewerController();
   Timer? _imageLoadingTimer;
   bool _imageLoadingTimedOut = false;
+  Timer? _pdfLoadingTimer;
+  bool _pdfLoadingTimedOut = false;
+
+  static const _previewLoadTimeout = Duration(seconds: 45);
 
   @override
   void initState() {
@@ -59,7 +63,22 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
   @override
   void dispose() {
     _imageLoadingTimer?.cancel();
+    _pdfLoadingTimer?.cancel();
     super.dispose();
+  }
+
+  void _ensurePdfLoadTimeout() {
+    if (_pdfLoadingTimer != null || _pdfLoadingTimedOut) return;
+    // pdfrx 2.1.x has no PdfViewer.uri timeout; enforce the same 45s budget as images.
+    _pdfLoadingTimer = Timer(_previewLoadTimeout, () {
+      if (!mounted || _pdfController.isReady) return;
+      setState(() => _pdfLoadingTimedOut = true);
+    });
+  }
+
+  void _cancelPdfLoadTimeout() {
+    _pdfLoadingTimer?.cancel();
+    _pdfLoadingTimer = null;
   }
 
   String _resolveFileType() {
@@ -212,6 +231,22 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
       );
     }
 
+    if (_pdfLoadingTimedOut) {
+      return _ErrorPane(
+        message:
+            'Could not load this PDF in the app. The link may have expired, or the file is unavailable.',
+        detail: 'Loading timed out after 45 seconds.',
+        onDark: true,
+        onRetryExternal: _openExternally,
+      );
+    }
+
+    if (_pdfController.isReady) {
+      _cancelPdfLoadTimeout();
+    } else {
+      _ensurePdfLoadTimeout();
+    }
+
     // pdfrx 2.1.x (Flutter 3.32 / Dart 3.8 compatible) has no PdfViewer.uri timeout.
     return PdfViewer.uri(
       uri,
@@ -220,6 +255,7 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
         backgroundColor: const Color(0xFF1F2937),
         margin: 10,
         loadingBannerBuilder: (context, bytesDownloaded, totalBytes) {
+          _ensurePdfLoadTimeout();
           final progress = totalBytes != null && totalBytes > 0
               ? bytesDownloaded / totalBytes
               : null;
@@ -252,6 +288,7 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
           );
         },
         errorBannerBuilder: (context, error, stackTrace, documentRef) {
+          _cancelPdfLoadTimeout();
           return _ErrorPane(
             message:
                 'Could not load this PDF in the app. The link may have expired, or the file is unavailable.',
@@ -330,7 +367,7 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
               }
               // Start timeout timer on first loading frame.
               if (_imageLoadingTimer == null && !_imageLoadingTimedOut) {
-                _imageLoadingTimer = Timer(const Duration(seconds: 45), () {
+                _imageLoadingTimer = Timer(_previewLoadTimeout, () {
                   if (mounted) {
                     setState(() => _imageLoadingTimedOut = true);
                   }

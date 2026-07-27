@@ -48,8 +48,9 @@ export type PolicyRestoreInput = Omit<PolicyMutationInput, 'capabilities'> & {
  * fleet-wide: other backend instances may keep serving a previously loaded
  * snapshot (including revoked capabilities) for up to this TTL unless a shared
  * invalidation mechanism (pub/sub, policy-version stamp check, etc.) is added.
+ * Kept aggressively short (5s) to limit post-revoke privilege retention in
+ * multi-instance deploys.
  */
-/** Aggressive TTL limits post-revoke privilege retention in multi-instance deploys. */
 export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 5_000
 
 type CachedAdminRolePolicy = {

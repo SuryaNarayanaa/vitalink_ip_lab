@@ -442,6 +442,8 @@ describe('dedicated administrator account lifecycle', () => {
       modifiedCount: 0,
     } as any)
     // User restore CAS misses because a concurrent request already advanced the account.
+    // Version N+1 with the same is_active must NOT be force-disabled — that state can
+    // belong to the concurrent winner (discussion_r3658443887).
     const userUpdateOne = jest.spyOn(User, 'updateOne').mockResolvedValue({
       matchedCount: 0,
       modifiedCount: 0,
@@ -449,7 +451,8 @@ describe('dedicated administrator account lifecycle', () => {
     jest.spyOn(User, 'findById').mockReturnValue(queryResult({
       _id: userId,
       is_active: true,
-      security_version: 12,
+      // Concurrent winner advanced by exactly one from the post-write version.
+      security_version: 11,
     }) as any)
     jest.spyOn(authSessionService, 'bestEffortRevokeSessionsAfterSecurityVersionBump')
       .mockResolvedValue({ modifiedCount: 0, cleanupCompleted: true })
@@ -457,12 +460,18 @@ describe('dedicated administrator account lifecycle', () => {
     await expect(updateAdminAccount(userId.toString(), { role: 'auditor' }, appAdminContext))
       .rejects.toThrow(/membership lease lost/)
 
-    // Restore attempted once; force-disable CAS must not run for concurrent ownership.
+    // Restore attempted once only; never a second force-disable CAS.
     expect(userUpdateOne).toHaveBeenCalledTimes(1)
     expect(userUpdateOne.mock.calls[0][1]).toEqual(expect.objectContaining({
       $set: { is_active: true },
       $inc: { security_version: 1 },
     }))
+    // No disable payload on any User.updateOne call.
+    for (const call of userUpdateOne.mock.calls) {
+      expect(call[1]).not.toEqual(expect.objectContaining({
+        $set: expect.objectContaining({ is_active: false }),
+      }))
+    }
   })
 })
 

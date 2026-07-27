@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
+import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
 import 'package:frontend/core/widgets/admin/admin_access_gate.dart';
 import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
@@ -64,14 +65,13 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
   ) async {
     try {
       return _AuthLoadResult.ok(await loader());
-    } catch (error) {
-      final message = error.toString().toLowerCase();
-      final denied = message.contains('403') ||
-          message.contains('forbidden') ||
-          message.contains('capability') ||
-          message.contains('not permitted') ||
-          message.contains('access');
-      return _AuthLoadResult.failed(denied: denied);
+    } on ApiException catch (error) {
+      // Only capability denials are swallowed as section-level empty states.
+      // Network/server/validation failures rethrow so UseQuery can surface them.
+      if (error.statusCode == 403 || error.kind == ApiErrorKind.forbidden) {
+        return _AuthLoadResult<T>.failed(denied: true);
+      }
+      rethrow;
     }
   }
 

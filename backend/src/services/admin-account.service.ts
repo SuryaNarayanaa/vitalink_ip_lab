@@ -520,8 +520,11 @@ export async function updateAdminAccount(
 
   /**
    * Non-transactional fallback: CAS both sides and compensate if a later step fails.
-   * Never force-disable an account another concurrent request already successfully updated
-   * (matchedCount-gated force-disable).
+   *
+   * Never force-disable on compensation failure. A restore CAS miss usually means
+   * another concurrent request already advanced the account; treating version N+1
+   * + matching is_active as "ours" can lock out that valid administrator
+   * (see greptile discussion_r3658443887). Log loudly and rethrow instead.
    */
   const applyMutationsStandalone = async () => {
     const tracking: MutationTracking = {
@@ -531,7 +534,8 @@ export async function updateAdminAccount(
     try {
       return await applyMutations(undefined, tracking)
     } catch (error) {
-      let compensationFailed = false
+      let profileCompensationFailed = false
+      let securityCompensationFailed = false
       if (tracking.profileMutated) {
         try {
           const restored = await compensateProfileMutation(profile._id, profile, {
@@ -539,9 +543,9 @@ export async function updateAdminAccount(
             name: resultingName,
             hospitalId: hospital?._id,
           })
-          compensationFailed = !restored
+          profileCompensationFailed = !restored
         } catch {
-          compensationFailed = true
+          profileCompensationFailed = true
         }
       }
       if (tracking.securityBoundaryCommitted) {
@@ -559,10 +563,12 @@ export async function updateAdminAccount(
               $inc: { security_version: 1 },
             },
           )
-          compensationFailed = compensationFailed || restoredUser.matchedCount !== 1
+          securityCompensationFailed = restoredUser.matchedCount !== 1
         } catch {
-          compensationFailed = true
+          securityCompensationFailed = true
         }
+        // Best-effort revoke for the version we may have published, even when
+        // reverse-CAS missed (concurrent owner will have its own version bump).
         await bestEffortRevokeSessionsAfterSecurityVersionBump(
           String(user._id),
           user.is_active
@@ -570,64 +576,30 @@ export async function updateAdminAccount(
             : AuthSessionRevocationReason.ACCOUNT_DISABLED,
         )
       }
-      if (compensationFailed) {
-        // A compensation CAS miss usually means another concurrent request already
-        // advanced the account successfully. Force-disabling that account would lock
-        // out a valid administrator. Only disable when our security-boundary write is
-        // still the current document state and could not be reversed.
-        let forceDisabled = false
-        if (tracking.securityBoundaryCommitted) {
-          try {
-            const current = await User.findById(user._id)
-              .select('_id is_active security_version')
-              .lean() as any
-            const stillOwnedByThisAttempt = Boolean(current)
-              && Boolean(current.is_active) === requestedActive
-              && Number(current.security_version || 0) === Number(user.security_version || 0) + 1
-            if (stillOwnedByThisAttempt) {
-              const forceDisableResult = await User.updateOne(
-                {
-                  _id: user._id,
-                  is_active: requestedActive,
-                  security_version: Number(user.security_version || 0) + 1,
-                },
-                { $set: { is_active: false }, $inc: { security_version: 1 } },
-              )
-              // Only report force-disable when the CAS write actually matched; a
-              // concurrent update can invalidate the filter between the freshness
-              // read and this update.
-              forceDisabled = forceDisableResult.matchedCount === 1
-              if (forceDisabled) {
-                await bestEffortRevokeSessionsAfterSecurityVersionBump(
-                  String(user._id),
-                  AuthSessionRevocationReason.ACCOUNT_DISABLED,
-                )
-              }
-            }
-          } catch {
-            forceDisabled = false
-          }
-        }
-        if (forceDisabled) {
-          logger.error('admin_account.update_compensation_failed', {
-            user_id: String(user._id),
-            force_disabled: true,
-          })
-        } else if (!tracking.securityBoundaryCommitted && tracking.profileMutated) {
-          // Profile-only compensation failed without a concurrent security-boundary
-          // write: log as an error, not a concurrency skip.
-          logger.error('admin_account.profile_compensation_failed', {
-            user_id: String(user._id),
-            profile_mutated: true,
-            security_boundary_committed: false,
-          })
-        } else {
-          logger.warn('admin_account.update_compensation_skipped_concurrent', {
-            user_id: String(user._id),
-            profile_mutated: tracking.profileMutated,
-            security_boundary_committed: tracking.securityBoundaryCommitted,
-          })
-        }
+
+      if (profileCompensationFailed && !tracking.securityBoundaryCommitted) {
+        logger.error('admin_account.profile_compensation_failed', {
+          user_id: String(user._id),
+          profile_mutated: true,
+          security_boundary_committed: false,
+        })
+      } else if (profileCompensationFailed || securityCompensationFailed) {
+        // Do not force-disable: concurrent CAS progress is indistinguishable from
+        // exclusive ownership of version N+1 with the same is_active.
+        logger.error('admin_account.update_compensation_failed', {
+          user_id: String(user._id),
+          profile_mutated: tracking.profileMutated,
+          profile_compensation_failed: profileCompensationFailed,
+          security_boundary_committed: tracking.securityBoundaryCommitted,
+          security_compensation_failed: securityCompensationFailed,
+          force_disabled: false,
+        })
+      } else if (tracking.profileMutated || tracking.securityBoundaryCommitted) {
+        logger.warn('admin_account.update_compensation_restored', {
+          user_id: String(user._id),
+          profile_mutated: tracking.profileMutated,
+          security_boundary_committed: tracking.securityBoundaryCommitted,
+        })
       }
       throw error
     }
