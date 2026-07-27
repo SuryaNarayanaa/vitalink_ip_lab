@@ -57,6 +57,26 @@ function queryResult<T>(value: T) {
   return query
 }
 
+function mockSupportedTransactionSession() {
+  const session = {
+    withTransaction: jest.fn(async (work: () => Promise<void>) => work()),
+    endSession: jest.fn(async () => undefined),
+  }
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(session as any)
+  return session
+}
+
+function mockUnsupportedTransactionSession() {
+  const session = {
+    withTransaction: jest.fn().mockRejectedValue(
+      new Error('Transaction numbers are only allowed on a replica set member'),
+    ),
+    endSession: jest.fn(async () => undefined),
+  }
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(session as any)
+  return session
+}
+
 describe('strict Doctor and Patient administrative payloads', () => {
   test.each([
     ['Doctor create password', createDoctorSchema, {
@@ -217,6 +237,7 @@ describe('dedicated administrator account lifecycle', () => {
       admin_role: 'hospital_admin',
       hospital_id: hospitalId,
     }
+    const session = mockSupportedTransactionSession()
     jest.spyOn(User, 'findOne').mockReturnValue(queryResult(currentUser) as any)
     jest.spyOn(AdminProfile, 'findById').mockReturnValue(queryResult(currentProfile) as any)
     const profileUpdate = jest.spyOn(AdminProfile, 'findOneAndUpdate').mockReturnValue(queryResult({
@@ -237,6 +258,8 @@ describe('dedicated administrator account lifecycle', () => {
 
     const result = await updateAdminAccount(userId.toString(), { role: 'auditor' }, appAdminContext)
 
+    expect(session.withTransaction).toHaveBeenCalledTimes(1)
+    expect(session.endSession).toHaveBeenCalledTimes(1)
     expect(profileUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: profileId,
@@ -247,12 +270,12 @@ describe('dedicated administrator account lifecycle', () => {
         $set: expect.objectContaining({ admin_role: 'auditor' }),
         $unset: { hospital_id: 1 },
       }),
-      { new: true, runValidators: true },
+      expect.objectContaining({ new: true, runValidators: true, session }),
     )
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ _id: userId, security_version: 5 }),
       { $set: { is_active: true }, $inc: { security_version: 1 } },
-      { new: true, runValidators: true },
+      expect.objectContaining({ new: true, runValidators: true, session }),
     )
     expect(revoke).toHaveBeenCalledWith(userId.toString(), 'USER_REVOKED')
     expect(result).toMatchObject({
@@ -275,6 +298,7 @@ describe('dedicated administrator account lifecycle', () => {
       admin_mfa: { totp: { status: 'DISABLED' } },
     }
     const updatedUser = { ...currentUser, is_active: false, security_version: 8 }
+    const session = mockSupportedTransactionSession()
     jest.spyOn(User, 'findOne').mockReturnValue(queryResult(currentUser) as any)
     jest.spyOn(AdminProfile, 'findById').mockReturnValue(queryResult({
       _id: profileId,
@@ -288,6 +312,7 @@ describe('dedicated administrator account lifecycle', () => {
 
     const result = await updateAdminAccount(userId.toString(), { status: 'inactive' }, appAdminContext)
 
+    expect(session.withTransaction).toHaveBeenCalledTimes(1)
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: userId,
@@ -298,7 +323,7 @@ describe('dedicated administrator account lifecycle', () => {
         $set: { is_active: false },
         $inc: { security_version: 1 },
       },
-      { new: true, runValidators: true },
+      expect.objectContaining({ new: true, runValidators: true, session }),
     )
     expect(revoke).toHaveBeenCalledWith(userId.toString(), 'ACCOUNT_DISABLED')
     expect(result).toMatchObject({
@@ -307,6 +332,133 @@ describe('dedicated administrator account lifecycle', () => {
       security_version_bumped: true,
       admin_account: { role: 'auditor', is_active: false },
     })
+  })
+
+  test('falls back to non-transactional CAS when MongoDB rejects transactions', async () => {
+    const userId = new mongoose.Types.ObjectId()
+    const profileId = new mongoose.Types.ObjectId()
+    const hospitalId = new mongoose.Types.ObjectId()
+    const currentUser = {
+      _id: userId,
+      login_id: 'hospital-admin@example.com',
+      user_type: 'ADMIN',
+      profile_id: profileId,
+      is_active: true,
+      security_version: 3,
+      admin_mfa: { totp: { status: 'DISABLED' } },
+    }
+    const currentProfile = {
+      _id: profileId,
+      name: 'Hospital Admin',
+      admin_role: 'hospital_admin',
+      hospital_id: hospitalId,
+    }
+    const session = mockUnsupportedTransactionSession()
+    jest.spyOn(User, 'findOne').mockReturnValue(queryResult(currentUser) as any)
+    jest.spyOn(AdminProfile, 'findById').mockReturnValue(queryResult(currentProfile) as any)
+    const profileUpdate = jest.spyOn(AdminProfile, 'findOneAndUpdate').mockReturnValue(queryResult({
+      ...currentProfile,
+      admin_role: 'auditor',
+      hospital_id: undefined,
+    }) as any)
+    const userUpdate = jest.spyOn(User, 'findOneAndUpdate').mockReturnValue(queryResult({
+      ...currentUser,
+      security_version: 4,
+    }) as any)
+    jest.spyOn(authSessionService, 'bestEffortRevokeSessionsAfterSecurityVersionBump')
+      .mockResolvedValue({ modifiedCount: 1, cleanupCompleted: true })
+    jest.spyOn(doctorAssignmentService, 'acquireHospitalMembershipGuards').mockResolvedValue([{
+      assertOwned: jest.fn(async () => undefined),
+      release: jest.fn(async () => undefined),
+    }] as any)
+
+    const result = await updateAdminAccount(userId.toString(), { role: 'auditor' }, appAdminContext)
+
+    expect(session.withTransaction).toHaveBeenCalledTimes(1)
+    expect(session.endSession).toHaveBeenCalledTimes(1)
+    // Fallback path must not attach a session option.
+    expect(profileUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: profileId }),
+      expect.objectContaining({ $set: expect.objectContaining({ admin_role: 'auditor' }) }),
+      { new: true, runValidators: true },
+    )
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: userId, security_version: 3 }),
+      { $set: { is_active: true }, $inc: { security_version: 1 } },
+      { new: true, runValidators: true },
+    )
+    expect(result).toMatchObject({
+      security_version_bumped: true,
+      admin_account: { role: 'auditor', hospital: null },
+    })
+  })
+
+  test('standalone compensation never force-disables when concurrent CAS already advanced the account', async () => {
+    const userId = new mongoose.Types.ObjectId()
+    const profileId = new mongoose.Types.ObjectId()
+    const hospitalId = new mongoose.Types.ObjectId()
+    const currentUser = {
+      _id: userId,
+      login_id: 'hospital-admin@example.com',
+      user_type: 'ADMIN',
+      profile_id: profileId,
+      is_active: true,
+      security_version: 9,
+      admin_mfa: { totp: { status: 'DISABLED' } },
+    }
+    const currentProfile = {
+      _id: profileId,
+      name: 'Hospital Admin',
+      admin_role: 'hospital_admin',
+      hospital_id: hospitalId,
+    }
+    mockUnsupportedTransactionSession()
+    jest.spyOn(User, 'findOne').mockReturnValue(queryResult(currentUser) as any)
+    jest.spyOn(AdminProfile, 'findById').mockReturnValue(queryResult(currentProfile) as any)
+    jest.spyOn(AdminProfile, 'findOneAndUpdate').mockReturnValue(queryResult({
+      ...currentProfile,
+      admin_role: 'auditor',
+      hospital_id: undefined,
+    }) as any)
+    // Both CAS writes succeed; post-commit membership re-check fails so compensation runs.
+    jest.spyOn(User, 'findOneAndUpdate').mockReturnValue(queryResult({
+      ...currentUser,
+      security_version: 10,
+    }) as any)
+    const assertOwned = jest.fn()
+      .mockResolvedValueOnce(undefined) // outer preflight
+      .mockResolvedValueOnce(undefined) // pre user-write
+      .mockRejectedValueOnce(new Error('membership lease lost'))
+    jest.spyOn(doctorAssignmentService, 'acquireHospitalMembershipGuards').mockResolvedValue([{
+      assertOwned,
+      release: jest.fn(async () => undefined),
+    }] as any)
+    jest.spyOn(AdminProfile, 'updateOne').mockResolvedValue({
+      matchedCount: 0,
+      modifiedCount: 0,
+    } as any)
+    // User restore CAS misses because a concurrent request already advanced the account.
+    const userUpdateOne = jest.spyOn(User, 'updateOne').mockResolvedValue({
+      matchedCount: 0,
+      modifiedCount: 0,
+    } as any)
+    jest.spyOn(User, 'findById').mockReturnValue(queryResult({
+      _id: userId,
+      is_active: true,
+      security_version: 12,
+    }) as any)
+    jest.spyOn(authSessionService, 'bestEffortRevokeSessionsAfterSecurityVersionBump')
+      .mockResolvedValue({ modifiedCount: 0, cleanupCompleted: true })
+
+    await expect(updateAdminAccount(userId.toString(), { role: 'auditor' }, appAdminContext))
+      .rejects.toThrow(/membership lease lost/)
+
+    // Restore attempted once; force-disable CAS must not run for concurrent ownership.
+    expect(userUpdateOne).toHaveBeenCalledTimes(1)
+    expect(userUpdateOne.mock.calls[0][1]).toEqual(expect.objectContaining({
+      $set: { is_active: true },
+      $inc: { security_version: 1 },
+    }))
   })
 })
 

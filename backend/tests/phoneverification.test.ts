@@ -183,9 +183,7 @@ describe('phone verification groundwork', () => {
     const findByIdMock = jest.spyOn(User, 'findById' as any) as jest.Mock
     findByIdMock
       .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(adminUser) })
-      .mockReturnValueOnce({
-        select: jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(patientUser) }),
-      })
+      .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(patientUser) })
       .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(updatedUser) })
     jest.spyOn(User, 'findOne').mockReturnValue({ populate: jest.fn() } as any)
     const updateSpy = jest

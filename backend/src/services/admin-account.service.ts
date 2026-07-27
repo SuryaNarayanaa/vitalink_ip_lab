@@ -436,16 +436,25 @@ export async function updateAdminAccount(
   const securityBoundaryChanged = roleChanged || scopeChanged || statusChanged
   const resultingName = data.name?.trim() || profile.name
   if (!resultingName) throw new ApiError(StatusCodes.BAD_REQUEST, 'Administrator name is required')
+  const needsProfileMutation = roleChanged || scopeChanged || resultingName !== profile.name
 
   const membershipGuards = await acquireHospitalMembershipGuards([
     profile.hospital_id,
     hospital?._id,
   ])
-  let profileMutated = false
-  let securityBoundaryCommitted = false
-  try {
-    for (const guard of membershipGuards) await guard.assertOwned()
-    if (roleChanged || scopeChanged || resultingName !== profile.name) {
+
+  type MutationTracking = {
+    profileMutated: boolean
+    securityBoundaryCommitted: boolean
+  }
+
+  const applyMutations = async (
+    session?: mongoose.ClientSession,
+    tracking?: MutationTracking,
+  ) => {
+    let updatedUser = user
+
+    if (needsProfileMutation) {
       const profileUpdate: any = {
         $set: {
           admin_role: resultingRole,
@@ -462,15 +471,18 @@ export async function updateAdminAccount(
           ...exactOptional('hospital_id', profile.hospital_id),
         },
         profileUpdate,
-        { new: true, runValidators: true },
+        {
+          new: true,
+          runValidators: true,
+          ...(session ? { session } : {}),
+        },
       ) as any
       if (!changedProfile) {
         throw new ApiError(StatusCodes.CONFLICT, 'Administrator profile changed concurrently')
       }
-      profileMutated = true
+      if (tracking) tracking.profileMutated = true
     }
 
-    let updatedUser = user
     if (securityBoundaryChanged) {
       for (const guard of membershipGuards) await guard.assertOwned()
       updatedUser = await User.findOneAndUpdate(
@@ -485,15 +497,153 @@ export async function updateAdminAccount(
           $set: { is_active: requestedActive },
           $inc: { security_version: 1 },
         },
-        { new: true, runValidators: true },
+        {
+          new: true,
+          runValidators: true,
+          ...(session ? { session } : {}),
+        },
       ).select('_id login_id profile_id is_active security_version admin_mfa createdAt updatedAt').lean() as any
       if (!updatedUser) {
         throw new ApiError(StatusCodes.CONFLICT, 'Administrator account changed concurrently')
       }
-      securityBoundaryCommitted = true
+      if (tracking) tracking.securityBoundaryCommitted = true
       for (const guard of membershipGuards) await guard.assertOwned()
     }
 
+    return { updatedUser }
+  }
+
+  /**
+   * Non-transactional fallback: CAS both sides and compensate if a later step fails.
+   * Never force-disable an account another concurrent request already successfully updated
+   * (matchedCount-gated force-disable).
+   */
+  const applyMutationsStandalone = async () => {
+    const tracking: MutationTracking = {
+      profileMutated: false,
+      securityBoundaryCommitted: false,
+    }
+    try {
+      return await applyMutations(undefined, tracking)
+    } catch (error) {
+      let compensationFailed = false
+      if (tracking.profileMutated) {
+        try {
+          const restored = await compensateProfileMutation(profile._id, profile, {
+            role: resultingRole,
+            name: resultingName,
+            hospitalId: hospital?._id,
+          })
+          compensationFailed = !restored
+        } catch {
+          compensationFailed = true
+        }
+      }
+      if (tracking.securityBoundaryCommitted) {
+        try {
+          const restoredUser = await User.updateOne(
+            {
+              _id: user._id,
+              user_type: UserType.ADMIN,
+              profile_id: user.profile_id,
+              is_active: requestedActive,
+              security_version: Number(user.security_version || 0) + 1,
+            },
+            {
+              $set: { is_active: Boolean(user.is_active) },
+              $inc: { security_version: 1 },
+            },
+          )
+          compensationFailed = compensationFailed || restoredUser.matchedCount !== 1
+        } catch {
+          compensationFailed = true
+        }
+        await bestEffortRevokeSessionsAfterSecurityVersionBump(
+          String(user._id),
+          user.is_active
+            ? AuthSessionRevocationReason.USER_REVOKED
+            : AuthSessionRevocationReason.ACCOUNT_DISABLED,
+        )
+      }
+      if (compensationFailed) {
+        // A compensation CAS miss usually means another concurrent request already
+        // advanced the account successfully. Force-disabling that account would lock
+        // out a valid administrator. Only disable when our security-boundary write is
+        // still the current document state and could not be reversed.
+        let forceDisabled = false
+        if (tracking.securityBoundaryCommitted) {
+          try {
+            const current = await User.findById(user._id)
+              .select('_id is_active security_version')
+              .lean() as any
+            const stillOwnedByThisAttempt = Boolean(current)
+              && Boolean(current.is_active) === requestedActive
+              && Number(current.security_version || 0) === Number(user.security_version || 0) + 1
+            if (stillOwnedByThisAttempt) {
+              const forceDisableResult = await User.updateOne(
+                {
+                  _id: user._id,
+                  is_active: requestedActive,
+                  security_version: Number(user.security_version || 0) + 1,
+                },
+                { $set: { is_active: false }, $inc: { security_version: 1 } },
+              )
+              // Only report force-disable when the CAS write actually matched; a
+              // concurrent update can invalidate the filter between the freshness
+              // read and this update.
+              forceDisabled = forceDisableResult.matchedCount === 1
+              if (forceDisabled) {
+                await bestEffortRevokeSessionsAfterSecurityVersionBump(
+                  String(user._id),
+                  AuthSessionRevocationReason.ACCOUNT_DISABLED,
+                )
+              }
+            }
+          } catch {
+            forceDisabled = false
+          }
+        }
+        if (forceDisabled) {
+          logger.error('admin_account.update_compensation_failed', {
+            user_id: String(user._id),
+            force_disabled: true,
+          })
+        } else {
+          logger.warn('admin_account.update_compensation_skipped_concurrent', {
+            user_id: String(user._id),
+            profile_mutated: tracking.profileMutated,
+            security_boundary_committed: tracking.securityBoundaryCommitted,
+          })
+        }
+      }
+      throw error
+    }
+  }
+
+  try {
+    for (const guard of membershipGuards) await guard.assertOwned()
+
+    let updatedUser = user
+    if (needsProfileMutation || securityBoundaryChanged) {
+      // Prefer a single transaction for profile CAS + user security-boundary CAS
+      // (same pattern as createAdminPair). Fall back to compensated multi-step writes
+      // only when the environment lacks transaction support.
+      const session = await mongoose.startSession()
+      try {
+        let applied: Awaited<ReturnType<typeof applyMutations>> | undefined
+        await session.withTransaction(async () => {
+          applied = await applyMutations(session)
+        })
+        updatedUser = applied!.updatedUser
+      } catch (error) {
+        if (!unsupportedTransaction(error)) throw error
+        updatedUser = (await applyMutationsStandalone()).updatedUser
+      } finally {
+        await session.endSession()
+      }
+    }
+
+    // Session revocation is a post-commit side effect (best-effort).
     const revocation = securityBoundaryChanged
       ? await bestEffortRevokeSessionsAfterSecurityVersionBump(
         String(user._id),
@@ -515,98 +665,6 @@ export async function updateAdminAccount(
       revocation_cleanup_completed: revocation.cleanupCompleted,
       security_version_bumped: securityBoundaryChanged,
     }
-  } catch (error) {
-    let compensationFailed = false
-    if (profileMutated) {
-      try {
-        const restored = await compensateProfileMutation(profile._id, profile, {
-          role: resultingRole,
-          name: resultingName,
-          hospitalId: hospital?._id,
-        })
-        compensationFailed = !restored
-      } catch {
-        compensationFailed = true
-      }
-    }
-    if (securityBoundaryCommitted) {
-      try {
-        const restoredUser = await User.updateOne(
-          {
-            _id: user._id,
-            user_type: UserType.ADMIN,
-            profile_id: user.profile_id,
-            is_active: requestedActive,
-            security_version: Number(user.security_version || 0) + 1,
-          },
-          {
-            $set: { is_active: Boolean(user.is_active) },
-            $inc: { security_version: 1 },
-          },
-        )
-        compensationFailed = compensationFailed || restoredUser.matchedCount !== 1
-      } catch {
-        compensationFailed = true
-      }
-      await bestEffortRevokeSessionsAfterSecurityVersionBump(
-        String(user._id),
-        user.is_active
-          ? AuthSessionRevocationReason.USER_REVOKED
-          : AuthSessionRevocationReason.ACCOUNT_DISABLED,
-      )
-    }
-    if (compensationFailed) {
-      // A compensation CAS miss usually means another concurrent request already
-      // advanced the account successfully. Force-disabling that account would lock
-      // out a valid administrator. Only disable when our security-boundary write is
-      // still the current document state and could not be reversed.
-      let forceDisabled = false
-      if (securityBoundaryCommitted) {
-        try {
-          const current = await User.findById(user._id)
-            .select('_id is_active security_version')
-            .lean() as any
-          const stillOwnedByThisAttempt = Boolean(current)
-            && Boolean(current.is_active) === requestedActive
-            && Number(current.security_version || 0) === Number(user.security_version || 0) + 1
-          if (stillOwnedByThisAttempt) {
-            const forceDisableResult = await User.updateOne(
-              {
-                _id: user._id,
-                is_active: requestedActive,
-                security_version: Number(user.security_version || 0) + 1,
-              },
-              { $set: { is_active: false }, $inc: { security_version: 1 } },
-            )
-            // Only report force-disable when the CAS write actually matched; a
-            // concurrent update can invalidate the filter between the freshness
-            // read and this update.
-            forceDisabled = forceDisableResult.matchedCount === 1
-            if (forceDisabled) {
-              await bestEffortRevokeSessionsAfterSecurityVersionBump(
-                String(user._id),
-                AuthSessionRevocationReason.ACCOUNT_DISABLED,
-              )
-            }
-          }
-        } catch {
-          forceDisabled = false
-        }
-      }
-      if (forceDisabled) {
-        logger.error('admin_account.update_compensation_failed', {
-          user_id: String(user._id),
-          force_disabled: true,
-        })
-      } else {
-        logger.warn('admin_account.update_compensation_skipped_concurrent', {
-          user_id: String(user._id),
-          profile_mutated: profileMutated,
-          security_boundary_committed: securityBoundaryCommitted,
-        })
-      }
-    }
-    throw error
   } finally {
     for (const guard of membershipGuards.reverse()) await guard.release()
   }

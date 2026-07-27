@@ -10,6 +10,7 @@ import AuditLog from '@alias/models/auditlog.model'
 import User from '@alias/models/user.model'
 import {
   AdminRolePolicyConflictError,
+  clearAdminRolePolicyCacheForTests,
   diffAdminCapabilityMaps,
   getAdminRolePolicy,
   updateAdminRolePolicy,
@@ -146,7 +147,10 @@ describe('role-policy validation and diffs', () => {
 })
 
 describe('transactional policy update foundation', () => {
-  afterEach(() => jest.restoreAllMocks())
+  afterEach(() => {
+    clearAdminRolePolicyCacheForTests()
+    jest.restoreAllMocks()
+  })
 
   test('writes policy, revision, and authoritative audit event in one transaction', async () => {
     const current = policyDocument()

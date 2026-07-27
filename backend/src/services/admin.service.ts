@@ -3,10 +3,9 @@ import { StatusCodes } from 'http-status-codes'
 import { User, DoctorProfile, PatientProfile, AuditLog, AdminProfile, Hospital, Invoice } from '@alias/models'
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
-import { adminResetPassword, generateTemporaryPassword, setUserPasswordWithPolicy, validatePasswordChangeForUser } from './password.service'
+import { adminResetPassword, generateTemporaryPassword, setUserPasswordWithPolicy } from './password.service'
 import { bestEffortRevokeSessionsAfterSecurityVersionBump, revokeActiveAuthSessionsForUsers } from './auth-session.service'
 import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
-import { AuditAction } from '@alias/models/auditlog.model'
 import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
@@ -1401,21 +1400,21 @@ export async function updateDoctor(
     name?: string
     department?: string
     contact_number?: string
-    is_active?: boolean
-    password?: string
     hospital_id?: string
     hospital?: string
   },
   actorUserId?: string
 ) {
+  // Status/password lifecycle mutations are rejected here and must use dedicated
+  // status + credentials endpoints (setDoctorAccountStatus / reset credentials).
   assertOperationalAccountPayloadSafe(data)
   const ctx = await getAdminContext(actorUserId)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   // Find user by _id or login_id
-  let user = await User.findById(userId).select('+password_history').populate('profile_id')
+  let user = await User.findById(userId).populate('profile_id')
   if (!user) {
-    user = await User.findOne({ login_id: userId }).select('+password_history').populate('profile_id')
+    user = await User.findOne({ login_id: userId }).populate('profile_id')
   }
   if (!user) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
@@ -1425,11 +1424,10 @@ export async function updateDoctor(
   }
   ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
   const doctorProfile = user.profile_id as any
-  const originalUser = user.toObject({ depopulate: true })
   const originalProfile = doctorProfile.toObject()
   let requestedDoctorHospitalMove: string | undefined
 
-  // Update profile fields
+  // Update non-security profile fields only
   const profileUpdate: any = {}
   if (data.name) profileUpdate.name = data.name
   if (data.department) profileUpdate.department = data.department
@@ -1448,30 +1446,17 @@ export async function updateDoctor(
     }
   }
 
-  const wasActive = user.is_active
-  if (data.password) {
-    await validatePasswordChangeForUser(user, data.password)
-  }
-
   let mutationStarted = false
-  let expectedUserAfterMutation: any
   let expectedProfileAfterMutation: any
-  let preserveCommittedPasswordAfterMembershipLoss = false
-  let deactivationCommitted = false
-  let passwordCommitted = false
-  const changedUserPaths: string[] = []
   const changedProfilePaths = Object.keys(profileUpdate)
   let moveGuard: Awaited<ReturnType<typeof acquireDoctorMoveGuard>> | undefined
   let membershipGuards: Awaited<ReturnType<typeof acquireHospitalMembershipGuards>> = []
   try {
-    const activating = !wasActive && data.is_active === true
-    if (requestedDoctorHospitalMove || activating) {
+    if (requestedDoctorHospitalMove) {
       membershipGuards = await acquireHospitalMembershipGuards([
         doctorProfile?.hospital_id,
-        requestedDoctorHospitalMove || doctorProfile?.hospital_id,
+        requestedDoctorHospitalMove,
       ])
-    }
-    if (requestedDoctorHospitalMove) {
       moveGuard = await acquireDoctorMoveGuard(user._id)
       const freshProfile = await DoctorProfile.findById(doctorProfile._id).select('hospital_id doctor_operation_fence')
       if (String(freshProfile?.hospital_id || '') !== String(doctorProfile?.hospital_id || '')) {
@@ -1507,79 +1492,33 @@ export async function updateDoctor(
       if (moveGuard) await moveGuard.assertOwned()
       for (const guard of membershipGuards) await guard.assertOwned()
     }
-
-    const deactivating = wasActive && data.is_active === false
-    if (deactivating) {
-      await deactivateDoctorWithAssignmentGuard(user, moveGuard)
-      user.is_active = false
-      changedUserPaths.push('is_active')
-      expectedUserAfterMutation = user.toObject({ depopulate: true })
-      mutationStarted = true
-      deactivationCommitted = true
-    } else if (typeof data.is_active === 'boolean') {
-      user.is_active = data.is_active
-      changedUserPaths.push('is_active')
-    }
-
-    if (data.password) {
-      if (moveGuard) await moveGuard.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-      await setUserPasswordWithPolicy(user, data.password, { mustChangePassword: true })
-      changedUserPaths.push('password', 'salt', 'password_history', 'password_changed_at', 'must_change_password', 'security_version')
-      expectedUserAfterMutation = user.toObject({ depopulate: true })
-      mutationStarted = true
-      passwordCommitted = true
-      preserveCommittedPasswordAfterMembershipLoss = true
-      if (moveGuard) await moveGuard.assertOwned()
-      try {
-        for (const guard of membershipGuards) await guard.assertOwned()
-      } catch (membershipError) {
-        preserveCommittedPasswordAfterMembershipLoss = true
-        await User.updateOne(
-          { _id: user._id, security_version: user.security_version, is_active: true },
-          { $set: { is_active: false } },
-        )
-        user.is_active = false
-        await bestEffortRevokeSessionsAfterSecurityVersionBump(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
-        throw membershipError
-      }
-      await bestEffortRevokeSessionsAfterSecurityVersionBump(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
-    } else if (!deactivating) {
-      if (moveGuard) await moveGuard.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-      await user.save()
-      expectedUserAfterMutation = user.toObject({ depopulate: true })
-      mutationStarted = true
-      if (moveGuard) await moveGuard.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-    }
-    await revokeSessionsIfAccountDisabled(user, wasActive)
   } catch (error) {
     if (mutationStarted) {
       let moveOwnershipLost = false
       if (moveGuard) {
         try { await moveGuard.assertOwned() } catch { moveOwnershipLost = true }
       }
-      const irreversibleSecurityMutation = deactivationCommitted || passwordCommitted
-      if (irreversibleSecurityMutation || moveOwnershipLost) {
-        await User.updateOne({ _id: originalUser._id }, { $set: { is_active: false } })
+      // Fail closed if the hospital-move lease is lost after a profile write:
+      // deactivate the doctor so a half-applied move cannot remain operable.
+      if (moveOwnershipLost) {
+        await User.updateOne({ _id: user._id }, { $set: { is_active: false } })
         await bestEffortRevokeSessionsAfterSecurityVersionBump(
-          String(originalUser._id),
-          passwordCommitted ? AuthSessionRevocationReason.PASSWORD_RESET : AuthSessionRevocationReason.ACCOUNT_DISABLED,
+          String(user._id),
+          AuthSessionRevocationReason.ACCOUNT_DISABLED,
         )
       }
       const safeProfilePaths = moveOwnershipLost
         ? changedProfilePaths.filter(path => path !== 'hospital_id' && path !== 'doctor_operation_fence')
         : changedProfilePaths
-      await Promise.all([
-        expectedUserAfterMutation && changedUserPaths.length &&
-          !preserveCommittedPasswordAfterMembershipLoss && !deactivationCommitted && !moveOwnershipLost
-          ? restoreFieldsWithCas(User, originalUser._id, originalUser, expectedUserAfterMutation, compensationGroups(changedUserPaths))
-          : Promise.resolve(),
-        expectedProfileAfterMutation && safeProfilePaths.length
-          ? restoreFieldsWithCas(DoctorProfile, originalProfile._id, originalProfile, expectedProfileAfterMutation, compensationGroups(safeProfilePaths))
-          : Promise.resolve(),
-      ])
+      if (expectedProfileAfterMutation && safeProfilePaths.length) {
+        await restoreFieldsWithCas(
+          DoctorProfile,
+          originalProfile._id,
+          originalProfile,
+          expectedProfileAfterMutation,
+          compensationGroups(safeProfilePaths),
+        )
+      }
     }
     throw error
   } finally {
@@ -1827,23 +1766,20 @@ export async function updatePatient(
   userId: string,
   data: {
     demographics?: any
-    medical_config?: any
-    assigned_doctor_id?: string
-    account_status?: string
-    is_active?: boolean
-    password?: string
     hospital_id?: string
     hospital?: string
   },
   actorUserId?: string
 ) {
+  // Clinical config, assignment, status, and credentials are rejected here and
+  // must use dedicated clinical / reassignment / status / credentials surfaces.
   assertOperationalAccountPayloadSafe(data, { patient: true, forbidAssignment: true })
   const ctx = await getAdminContext(actorUserId)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
-  let user = await User.findById(userId).select('+password_history').populate('profile_id')
+  let user = await User.findById(userId).populate('profile_id')
   if (!user) {
-    user = await User.findOne({ login_id: userId }).select('+password_history').populate('profile_id')
+    user = await User.findOne({ login_id: userId }).populate('profile_id')
   }
   if (!user) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
@@ -1853,11 +1789,7 @@ export async function updatePatient(
   }
   ensureTenantAccess(ctx, (user.profile_id as any)?.hospital_id)
   const patientProfile = user.profile_id as any
-  const originalUser = user.toObject({ depopulate: true })
   const originalProfile = patientProfile.toObject()
-  let therapyStartGuard: Date | undefined
-  let assignmentDoctorUserId: unknown
-  const previousAssignedDoctorId = patientProfile?.assigned_doctor_id
 
   const profileUpdate: any = {}
   if (data.demographics) {
@@ -1884,41 +1816,6 @@ export async function updatePatient(
       }
     }
   }
-  if (data.medical_config) {
-    // Medical config contains historical adherence and clinician-maintained
-    // fields. Replacing the whole subdocument from a partial PATCH silently
-    // erased taken doses, instructions, and review state.
-    if (data.medical_config.diagnosis !== undefined) {
-      profileUpdate['medical_config.diagnosis'] = data.medical_config.diagnosis
-    }
-    if (data.medical_config.therapy_drug !== undefined) {
-      profileUpdate['medical_config.therapy_drug'] = data.medical_config.therapy_drug
-    }
-    if (data.medical_config.therapy_start_date !== undefined) {
-      const proposedStart = new Date(data.medical_config.therapy_start_date)
-      const takenDoses = patientProfile?.medical_config?.taken_doses ?? []
-      if (takenDoses.some((dose: Date) => new Date(dose).getTime() < proposedStart.getTime())) {
-        throw new ApiError(StatusCodes.CONFLICT, 'Therapy start date cannot be moved after an already recorded dose')
-      }
-      const nextReview = patientProfile?.medical_config?.next_review_date
-      if (nextReview && new Date(nextReview).getTime() < proposedStart.getTime()) {
-        throw new ApiError(StatusCodes.CONFLICT, 'Therapy start date cannot be moved after the scheduled review date')
-      }
-      profileUpdate['medical_config.therapy_start_date'] = data.medical_config.therapy_start_date
-      therapyStartGuard = proposedStart
-    }
-    if (data.medical_config.target_inr !== undefined) {
-      profileUpdate['medical_config.target_inr'] = data.medical_config.target_inr
-    }
-  }
-  if (data.account_status) profileUpdate.account_status = data.account_status
-  const transitioningToActive = data.account_status === 'Active' && patientProfile?.account_status !== 'Active'
-  const wasActive = user.is_active
-  const activatingUser = !wasActive && data.is_active === true
-  const requiresPatientPurgeFence = transitioningToActive || activatingUser
-  if (activatingUser && profileUpdate.account_status === undefined) {
-    profileUpdate.account_status = patientProfile.account_status
-  }
 
   let requestedHospitalId: string | undefined
   if (data.hospital_id || data.hospital) {
@@ -1926,24 +1823,8 @@ export async function updatePatient(
     ensureTenantAccess(ctx, requestedHospitalId)
   }
 
-  if (data.assigned_doctor_id) {
-    const doctorUser = await findDoctorByIdentifier(data.assigned_doctor_id)
-    if (!doctorUser || doctorUser.user_type !== UserType.DOCTOR || !doctorUser.is_active) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid or inactive doctor ID')
-    }
-    const doctorProfile: any = await DoctorProfile.findById(doctorUser.profile_id)
-    const doctorHospitalId = doctorProfile?.hospital_id ? String(doctorProfile.hospital_id) : undefined
-    if (!doctorHospitalId) {
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Assigned doctor must be assigned to a hospital')
-    }
-    ensureTenantAccess(ctx, doctorHospitalId)
-    if (requestedHospitalId && requestedHospitalId !== doctorHospitalId) {
-      throw new ApiError(StatusCodes.FORBIDDEN, 'Assigned doctor must belong to the same hospital as the patient')
-    }
-    profileUpdate.assigned_doctor_id = doctorUser._id
-    profileUpdate.hospital_id = doctorHospitalId
-    assignmentDoctorUserId = doctorUser._id
-  } else if (requestedHospitalId) {
+  if (requestedHospitalId) {
+    // Hospital moves keep the existing assignment; reassignment is a dedicated endpoint.
     const retainedDoctor = await findDoctorByAssignment(patientProfile?.assigned_doctor_id)
     if (retainedDoctor) {
       const retainedDoctorProfile: any = await DoctorProfile.findById(retainedDoctor.profile_id)
@@ -1959,265 +1840,47 @@ export async function updatePatient(
     profileUpdate.hospital_id = requestedHospitalId
   }
 
-  if (data.assigned_doctor_id !== undefined &&
-      (data.password !== undefined || data.is_active !== undefined)) {
-    throw new ApiError(
-      StatusCodes.CONFLICT,
-      'Doctor assignment cannot be combined with password or account activation changes; submit them separately',
-    )
-  }
-
-  if (transitioningToActive && !assignmentDoctorUserId) {
-    const retainedDoctor = await findDoctorByAssignment(patientProfile?.assigned_doctor_id)
-    if (!retainedDoctor || retainedDoctor.user_type !== UserType.DOCTOR || !retainedDoctor.is_active) {
-      throw new ApiError(StatusCodes.CONFLICT, 'An active doctor must be assigned before reactivating this patient')
-    }
-    assignmentDoctorUserId = retainedDoctor._id
-  }
-
-  if (data.password) {
-    await validatePasswordChangeForUser(user, data.password)
-  }
-
-  let releaseAssignmentGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
-  let releasePreviousDoctorGuard: Awaited<ReturnType<typeof acquireDoctorAssignmentGuard>> | undefined
-  let patientLifecycleLease: Awaited<ReturnType<typeof acquirePatientFileOperationLease>> | undefined
   const resultingHospitalMove = profileUpdate.hospital_id
-  const needsMembershipGuard = (resultingHospitalMove && String(resultingHospitalMove) !== String(patientProfile?.hospital_id || '')) || activatingUser
+  const needsMembershipGuard = Boolean(
+    resultingHospitalMove && String(resultingHospitalMove) !== String(patientProfile?.hospital_id || ''),
+  )
   const membershipGuards = needsMembershipGuard
-    ? await acquireHospitalMembershipGuards([patientProfile?.hospital_id, resultingHospitalMove || patientProfile?.hospital_id])
+    ? await acquireHospitalMembershipGuards([patientProfile?.hospital_id, resultingHospitalMove])
     : []
   let mutationStarted = false
-  let committedAssignmentAfterLeaseLoss = false
-  let assignmentTerminalFailure: 'QUARANTINED' | 'SUPERSEDED' | undefined
-  let expectedUserAfterMutation: any
   let expectedProfileAfterMutation: any
-  let preserveCommittedPasswordAfterMembershipLoss = false
-  const changedUserPaths: string[] = []
   const changedProfilePaths = Object.keys(profileUpdate)
   try {
-    if (requiresPatientPurgeFence) {
-      patientLifecycleLease = await acquirePatientFileOperationLease(patientProfile._id, { requireActive: false })
-      await patientLifecycleLease.assertOwned()
-    }
     for (const guard of membershipGuards) await guard.assertOwned()
-    if (assignmentDoctorUserId) {
-      releaseAssignmentGuard = await acquireDoctorAssignmentGuard(assignmentDoctorUserId)
-      if (
-        profileUpdate.assigned_doctor_id &&
-        patientProfile.assigned_doctor_id &&
-        String(profileUpdate.assigned_doctor_id) !== String(patientProfile.assigned_doctor_id)
-      ) {
-        const previousDoctor = await findDoctorByAssignment(patientProfile.assigned_doctor_id)
-        if (previousDoctor?.is_active) {
-          releasePreviousDoctorGuard = await acquireDoctorAssignmentGuard(previousDoctor._id)
-          await stampDoctorProfileFence(previousDoctor.profile_id, {
-            fenceToken: releasePreviousDoctorGuard.fenceToken,
-            assertOwned: releasePreviousDoctorGuard.assertOwned,
-          })
-        }
-      }
-      const guardedDoctor = await User.findById(assignmentDoctorUserId).select('is_active profile_id')
-      const guardedDoctorProfile = guardedDoctor
-        ? await DoctorProfile.findById(guardedDoctor.profile_id).select('hospital_id doctor_operation_fence')
-        : null
-      const resultingHospitalId = String(profileUpdate.hospital_id || patientProfile.hospital_id || '')
-      if (
-        !guardedDoctor?.is_active ||
-        !guardedDoctorProfile?.hospital_id ||
-        String(guardedDoctorProfile.hospital_id) !== resultingHospitalId
-      ) {
-        throw new ApiError(StatusCodes.CONFLICT, 'Assigned doctor is inactive or belongs to a different hospital')
-      }
-      await stampDoctorProfileFence(guardedDoctor.profile_id, {
-        fenceToken: releaseAssignmentGuard.fenceToken,
-        assertOwned: releaseAssignmentGuard.assertOwned,
-      })
-      profileUpdate.assigned_doctor_fence = releaseAssignmentGuard.fenceToken
-      if (!changedProfilePaths.includes('assigned_doctor_fence')) changedProfilePaths.push('assigned_doctor_fence')
-    }
     if (Object.keys(profileUpdate).length > 0) {
       for (const guard of membershipGuards) await guard.assertOwned()
-      if (releaseAssignmentGuard) await releaseAssignmentGuard.assertOwned()
-      if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-      const profileFilter: any = { _id: patientProfile._id }
-      if (requiresPatientPurgeFence) {
-        await patientLifecycleLease?.assertOwned()
-        profileFilter['file_purge.state'] = { $nin: ['PURGING', 'COMPLETE'] }
-      }
-      if (therapyStartGuard) {
-        profileFilter['medical_config.taken_doses'] = {
-          $not: { $elemMatch: { $lt: therapyStartGuard } },
-        }
-        profileFilter.$or = [
-          { 'medical_config.next_review_date': { $exists: false } },
-          { 'medical_config.next_review_date': null },
-          { 'medical_config.next_review_date': { $gte: therapyStartGuard } },
-        ]
-      }
       const updatedProfile = await PatientProfile.findOneAndUpdate(
-        profileFilter,
-        {
-          $set: profileUpdate,
-          ...(data.account_status === 'Active' && assignmentDoctorUserId
-            ? { $unset: { assignment_conflict: 1 } }
-            : {}),
-        },
+        { _id: patientProfile._id },
+        { $set: profileUpdate },
         { runValidators: true, new: true },
       )
       if (!updatedProfile) {
-        if (therapyStartGuard && await PatientProfile.exists({ _id: patientProfile._id })) {
-          throw new ApiError(StatusCodes.CONFLICT, 'Therapy state changed while the update was being applied')
-        }
         throw new ApiError(StatusCodes.NOT_FOUND, 'Patient profile not found')
       }
       expectedProfileAfterMutation = typeof (updatedProfile as any).toObject === 'function'
         ? (updatedProfile as any).toObject()
         : updatedProfile
       mutationStarted = true
-      if (releaseAssignmentGuard) await releaseAssignmentGuard.assertOwned()
-      if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
       for (const guard of membershipGuards) await guard.assertOwned()
     }
-
-    if (typeof data.is_active === 'boolean') {
-      user.is_active = data.is_active
-      changedUserPaths.push('is_active')
-    }
-    if (data.password) {
-      await patientLifecycleLease?.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-      await setUserPasswordWithPolicy(user, data.password, { mustChangePassword: true })
-      changedUserPaths.push('password', 'salt', 'password_history', 'password_changed_at', 'must_change_password', 'security_version')
-      expectedUserAfterMutation = user.toObject({ depopulate: true })
-      mutationStarted = true
-      try {
-        for (const guard of membershipGuards) await guard.assertOwned()
-      } catch (membershipError) {
-        preserveCommittedPasswordAfterMembershipLoss = true
-        await User.updateOne(
-          { _id: user._id, security_version: user.security_version, is_active: true },
-          { $set: { is_active: false } },
-        )
-        user.is_active = false
-        await bestEffortRevokeSessionsAfterSecurityVersionBump(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
-        throw membershipError
-      }
-      await bestEffortRevokeSessionsAfterSecurityVersionBump(user._id.toString(), AuthSessionRevocationReason.PASSWORD_RESET)
-    } else {
-      await patientLifecycleLease?.assertOwned()
-      for (const guard of membershipGuards) await guard.assertOwned()
-      await user.save()
-      expectedUserAfterMutation = user.toObject({ depopulate: true })
-      mutationStarted = true
-      for (const guard of membershipGuards) await guard.assertOwned()
-    }
-    await revokeSessionsIfAccountDisabled(user, wasActive)
   } catch (error) {
-    if (mutationStarted) {
-      let safeProfilePaths = changedProfilePaths
-      if (changedProfilePaths.includes('assigned_doctor_id')) {
-        try {
-          if (releaseAssignmentGuard) await releaseAssignmentGuard.assertOwned()
-          if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard.assertOwned()
-        } catch {
-          safeProfilePaths = changedProfilePaths.filter(path =>
-            path !== 'assigned_doctor_id' && path !== 'assigned_doctor_fence' && path !== 'hospital_id')
-          if (releaseAssignmentGuard && assignmentDoctorUserId) {
-            const terminal = await terminalizePatientAssignment({
-              patientProfileId: patientProfile._id,
-              targetDoctorUserId: assignmentDoctorUserId,
-              targetFence: releaseAssignmentGuard.fenceToken,
-              patientHospitalId: profileUpdate.hospital_id || patientProfile.hospital_id,
-              previousDoctorId: previousAssignedDoctorId,
-              reason: 'Target doctor lifecycle changed after patient update committed',
-              targetGuard: releaseAssignmentGuard,
-            })
-            if (terminal.state === 'COMMITTED') {
-              committedAssignmentAfterLeaseLoss = true
-            } else if (terminal.state === 'QUARANTINED') {
-              assignmentTerminalFailure = terminal.state
-              logger.error('patient_update.assignment_conflict', {
-                patient_id: String(patientProfile._id),
-                attempted_doctor_id: String(assignmentDoctorUserId),
-              })
-            } else {
-              assignmentTerminalFailure = terminal.state
-            }
-          }
-        }
-      }
-      if (!committedAssignmentAfterLeaseLoss) {
-        await Promise.all([
-          expectedUserAfterMutation && changedUserPaths.length && !preserveCommittedPasswordAfterMembershipLoss
-            ? restoreFieldsWithCas(User, originalUser._id, originalUser, expectedUserAfterMutation, compensationGroups(changedUserPaths))
-            : Promise.resolve(),
-          expectedProfileAfterMutation && safeProfilePaths.length
-            ? restoreFieldsWithCas(PatientProfile, originalProfile._id, originalProfile, expectedProfileAfterMutation, compensationGroups(safeProfilePaths))
-            : Promise.resolve(),
-        ])
-      }
+    if (mutationStarted && expectedProfileAfterMutation && changedProfilePaths.length) {
+      await restoreFieldsWithCas(
+        PatientProfile,
+        originalProfile._id,
+        originalProfile,
+        expectedProfileAfterMutation,
+        compensationGroups(changedProfilePaths),
+      )
     }
-    if (assignmentTerminalFailure) {
-      try {
-        await AuditLog.create({
-          user_id: actorUserId,
-          user_type: UserType.ADMIN,
-          action: AuditAction.PATIENT_REASSIGN,
-          description: assignmentTerminalFailure === 'QUARANTINED'
-            ? 'Admin patient update entered assignment-conflict review'
-            : 'Admin patient reassignment was superseded',
-          resource_type: 'Patient', resource_id: String(patientProfile._id), success: false,
-          error_message: assignmentTerminalFailure.toLowerCase(),
-          metadata: {
-            patient_user_id: String(user._id),
-            previous_doctor_id: previousAssignedDoctorId ? String(previousAssignedDoctorId) : undefined,
-            attempted_doctor_id: assignmentDoctorUserId ? String(assignmentDoctorUserId) : undefined,
-          },
-        })
-      } catch {
-        logger.error('patient_update.assignment_conflict_audit_failed', { patient_id: String(patientProfile._id) })
-      }
-    }
-    if (!committedAssignmentAfterLeaseLoss) throw error
+    throw error
   } finally {
-    await patientLifecycleLease?.release()
-    if (releasePreviousDoctorGuard) await releasePreviousDoctorGuard()
-    if (releaseAssignmentGuard) await releaseAssignmentGuard()
     for (const guard of membershipGuards.reverse()) await guard.release()
-  }
-
-  if (profileUpdate.assigned_doctor_id) {
-    await createDoctorUpdateNotification({
-      patientUserId: user._id,
-      changedByDoctorId: actorUserId || assignmentDoctorUserId,
-      changeType: 'DOCTOR_REASSIGNED',
-      title: 'Doctor assignment changed',
-      message: 'Your assigned care team has changed.',
-      changedFields: ['assigned_doctor_id'],
-    })
-    try {
-      await AuditLog.create({
-        user_id: actorUserId,
-        user_type: UserType.ADMIN,
-        action: AuditAction.PATIENT_REASSIGN,
-        description: 'Admin patient update changed doctor assignment',
-        resource_type: 'Patient',
-        resource_id: String(patientProfile._id),
-        success: true,
-        metadata: {
-          patient_user_id: String(user._id),
-          previous_doctor_id: previousAssignedDoctorId ? String(previousAssignedDoctorId) : undefined,
-          assigned_doctor_id: String(assignmentDoctorUserId),
-          terminalized_after_lease_loss: committedAssignmentAfterLeaseLoss,
-        },
-      })
-    } catch (auditError) {
-      logger.error('patient_update.reassignment_audit_failed', {
-        patient_id: String(patientProfile._id),
-      })
-    }
   }
 
   return await User.findById(user._id).populate('profile_id')

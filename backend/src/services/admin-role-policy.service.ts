@@ -42,6 +42,19 @@ export type PolicyRestoreInput = Omit<PolicyMutationInput, 'capabilities'> & {
   revisionId: string
 }
 
+/** Short process-local TTL; mutations invalidate immediately so writes stay visible. */
+export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 15_000
+
+type CachedAdminRolePolicy = {
+  snapshot: AdminRolePolicySnapshot
+  expiresAt: number
+}
+
+const policyCache = new Map<AdminRoleKey, CachedAdminRolePolicy>()
+const policyLoads = new Map<AdminRoleKey, Promise<AdminRolePolicySnapshot>>()
+/** Bumped on invalidate so an in-flight load cannot repopulate a stale snapshot. */
+const policyCacheGeneration = new Map<AdminRoleKey, number>()
+
 export class AdminRolePolicyConflictError extends ApiError {
   currentPolicy: AdminRolePolicySnapshot
 
@@ -53,6 +66,73 @@ export class AdminRolePolicyConflictError extends ApiError {
 
 function policyUnavailable(): ApiError {
   return new ApiError(StatusCodes.FORBIDDEN, 'Administrative role policy is unavailable')
+}
+
+function currentPolicyCacheGeneration(roleKey: AdminRoleKey): number {
+  return policyCacheGeneration.get(roleKey) ?? 0
+}
+
+/**
+ * Clears the process-local role-policy cache (all roles or one). Used by tests
+ * and after policy mutations so updates/restores are immediately visible.
+ */
+export function clearAdminRolePolicyCacheForTests(roleKey?: AdminRoleKey): void {
+  if (roleKey) {
+    invalidateAdminRolePolicyCache(roleKey)
+    return
+  }
+  for (const key of ADMIN_ROLE_KEYS) {
+    policyCacheGeneration.set(key, currentPolicyCacheGeneration(key) + 1)
+  }
+  policyCache.clear()
+  policyLoads.clear()
+}
+
+function invalidateAdminRolePolicyCache(roleKey: AdminRoleKey): void {
+  policyCacheGeneration.set(roleKey, currentPolicyCacheGeneration(roleKey) + 1)
+  policyCache.delete(roleKey)
+  policyLoads.delete(roleKey)
+}
+
+/**
+ * Re-validates a cached snapshot before serving. Fail closed on any mismatch
+ * with the expected role, schema, or version shape.
+ */
+function snapshotFromCache(roleKey: AdminRoleKey, snapshot: AdminRolePolicySnapshot): AdminRolePolicySnapshot {
+  try {
+    if (snapshot.roleKey !== roleKey) throw new Error('Role key mismatch')
+    if (snapshot.schemaVersion !== ADMIN_POLICY_SCHEMA_VERSION) throw new Error('Unsupported schema version')
+    if (!Number.isSafeInteger(snapshot.policyVersion) || snapshot.policyVersion < 1) {
+      throw new Error('Invalid policy version')
+    }
+    if (typeof snapshot.protected !== 'boolean') throw new Error('Invalid protected flag')
+    if (roleKey === 'app_admin' && snapshot.protected !== true) {
+      throw new Error('Application Admin policy is not protected')
+    }
+    if (!snapshot.updatedBy) throw new Error('Missing policy actor')
+    if (typeof snapshot.changeReason !== 'string' || !snapshot.changeReason.trim()) {
+      throw new Error('Missing change reason')
+    }
+    return {
+      roleKey,
+      capabilities: normalizeAdminCapabilityMap(roleKey, snapshot.capabilities),
+      protected: snapshot.protected,
+      schemaVersion: ADMIN_POLICY_SCHEMA_VERSION,
+      policyVersion: snapshot.policyVersion,
+      updatedBy: String(snapshot.updatedBy),
+      changeReason: snapshot.changeReason,
+      updatedAt: snapshot.updatedAt ? new Date(snapshot.updatedAt) : undefined,
+    }
+  } catch {
+    throw policyUnavailable()
+  }
+}
+
+function cachePolicySnapshot(roleKey: AdminRoleKey, snapshot: AdminRolePolicySnapshot): void {
+  policyCache.set(roleKey, {
+    snapshot,
+    expiresAt: Date.now() + ADMIN_ROLE_POLICY_CACHE_TTL_MS,
+  })
 }
 
 function assertEditableRole(role: AdminRoleKey): asserts role is 'hospital_admin' | 'auditor' {
@@ -177,7 +257,38 @@ function impactedPolicyAreas(diff: AdminRolePolicyDiff) {
 }
 
 export async function getAdminRolePolicy(roleKey: AdminRoleKey): Promise<AdminRolePolicySnapshot> {
-  return toSnapshot(await loadPolicyDocument(roleKey))
+  if (!ADMIN_ROLE_KEYS.includes(roleKey)) throw policyUnavailable()
+
+  const cached = policyCache.get(roleKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    try {
+      return snapshotFromCache(roleKey, cached.snapshot)
+    } catch {
+      // Stale or corrupted entry — drop and reload from the store.
+      invalidateAdminRolePolicyCache(roleKey)
+    }
+  }
+
+  const inflight = policyLoads.get(roleKey)
+  if (inflight) return inflight
+
+  const generation = currentPolicyCacheGeneration(roleKey)
+  const load = (async () => {
+    try {
+      const snapshot = toSnapshot(await loadPolicyDocument(roleKey))
+      // A mutation may have completed while this read was in flight. Never let
+      // the older snapshot replace the post-write cache entry.
+      if (currentPolicyCacheGeneration(roleKey) === generation) {
+        cachePolicySnapshot(roleKey, snapshot)
+      }
+      return snapshot
+    } finally {
+      if (policyLoads.get(roleKey) === load) policyLoads.delete(roleKey)
+    }
+  })()
+
+  policyLoads.set(roleKey, load)
+  return load
 }
 
 export async function listAdminRolePolicies(): Promise<AdminRolePolicySnapshot[]> {
@@ -300,6 +411,9 @@ async function performPolicyMutation(
     await session.endSession()
   }
   if (!result) throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, 'Role policy update did not complete')
+  // Mutations must be visible on the next authorization check in this process.
+  invalidateAdminRolePolicyCache(input.roleKey)
+  cachePolicySnapshot(input.roleKey, result)
   return result
 }
 

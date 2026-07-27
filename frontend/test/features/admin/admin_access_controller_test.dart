@@ -163,17 +163,63 @@ void main() {
   });
 
   test(
-    'authorization denial refreshes active access without replaying actions',
+    'authorization denial refreshes when outside the throttle window',
     () async {
       final repository = _FakeAdminAccessRepository()
         ..enqueue(() async => _access(policyVersion: 1))
         ..enqueue(() async => _access(policyVersion: 2));
-      final controller = AdminAccessController(repository: repository);
+      final controller = AdminAccessController(
+        repository: repository,
+        denialRefreshMinInterval: Duration.zero,
+      );
       addTearDown(controller.dispose);
 
       await controller.refresh();
       await controller.handleAuthorizationDenied();
 
+      expect(repository.calls, 2);
+      expect(controller.access?.policyVersion, 2);
+    },
+  );
+
+  test(
+    'authorization denial is throttled after a recent refresh attempt',
+    () async {
+      final repository = _FakeAdminAccessRepository()
+        ..enqueue(() async => _access(policyVersion: 1))
+        ..enqueue(() async => _access(policyVersion: 2));
+      final controller = AdminAccessController(
+        repository: repository,
+        denialRefreshMinInterval: const Duration(seconds: 30),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+      await controller.handleAuthorizationDenied();
+      await controller.handleAuthorizationDenied();
+
+      expect(repository.calls, 1);
+      expect(controller.access?.policyVersion, 1);
+    },
+  );
+
+  test(
+    'forced refresh bypasses denial throttle for explicit retry',
+    () async {
+      final repository = _FakeAdminAccessRepository()
+        ..enqueue(() async => _access(policyVersion: 1))
+        ..enqueue(() async => _access(policyVersion: 2));
+      final controller = AdminAccessController(
+        repository: repository,
+        denialRefreshMinInterval: const Duration(seconds: 30),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refresh();
+      await controller.handleAuthorizationDenied();
+      expect(repository.calls, 1);
+
+      await controller.refresh(force: true);
       expect(repository.calls, 2);
       expect(controller.access?.policyVersion, 2);
     },

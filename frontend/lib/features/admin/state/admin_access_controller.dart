@@ -8,15 +8,21 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
   AdminAccessController({
     required AdminAccessRepository repository,
     this.refreshInterval = const Duration(minutes: 5),
+    /// Minimum gap between denial-driven refreshes so a burst of 403s does not
+    /// each hit `/access/me`. Periodic, lifecycle, and explicit refreshes use
+    /// [refresh] with `force: true` and are not throttled by this interval.
+    this.denialRefreshMinInterval = const Duration(seconds: 15),
   }) : _repository = repository;
 
   final AdminAccessRepository _repository;
   final Duration refreshInterval;
+  final Duration denialRefreshMinInterval;
 
   AdminAccessModel? _access;
   Object? _error;
   StackTrace? _errorStackTrace;
   DateTime? _lastUpdatedAt;
+  DateTime? _lastRefreshAttemptAt;
   Future<void>? _refreshFuture;
   Timer? _periodicTimer;
   bool _isRefreshing = false;
@@ -44,11 +50,11 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
       if (refreshInterval > Duration.zero) {
         _periodicTimer = Timer.periodic(refreshInterval, (_) {
-          unawaited(refresh());
+          unawaited(refresh(force: true));
         });
       }
     }
-    if (refreshImmediately) await refresh();
+    if (refreshImmediately) await refresh(force: true);
   }
 
   void stop() {
@@ -59,11 +65,22 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
     _periodicTimer = null;
   }
 
-  Future<void> refresh() {
+  /// Reloads `/access/me`. Concurrent calls coalesce on one in-flight request.
+  ///
+  /// When [force] is false, a refresh is skipped if another attempt ran within
+  /// [denialRefreshMinInterval] (used by denial-driven refresh). Explicit user
+  /// retries, periodic refresh, lifecycle resume, and policy-update refresh
+  /// should pass `force: true` (the default).
+  Future<void> refresh({bool force = true}) {
     final pending = _refreshFuture;
     if (pending != null) return pending;
 
+    if (!force && _isDenialRefreshThrottled()) {
+      return Future<void>.value();
+    }
+
     final generation = _sessionGeneration;
+    _lastRefreshAttemptAt = DateTime.now().toUtc();
     _isRefreshing = true;
     _error = null;
     _errorStackTrace = null;
@@ -79,6 +96,13 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
     });
     _refreshFuture = operation;
     return operation;
+  }
+
+  bool _isDenialRefreshThrottled() {
+    final last = _lastRefreshAttemptAt;
+    if (last == null) return false;
+    if (denialRefreshMinInterval <= Duration.zero) return false;
+    return DateTime.now().toUtc().difference(last) < denialRefreshMinInterval;
   }
 
   Future<void> _loadAccess(int generation) async {
@@ -97,13 +121,14 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Refreshes the access snapshot after a backend denial without retrying the
-  /// denied request itself.
+  /// denied request itself. Throttled so sequential 403 bursts do not each hit
+  /// `/access/me`; use [refresh] with `force: true` for an explicit retry.
   Future<void> handleAuthorizationDenied() {
     if (!_isStarted && _access == null) return Future<void>.value();
-    return refresh();
+    return refresh(force: false);
   }
 
-  Future<void> refreshAfterPolicyUpdate() => refresh();
+  Future<void> refreshAfterPolicyUpdate() => refresh(force: true);
 
   /// Removes all capability state when the authenticated session changes.
   /// Nothing is written to secure storage or another persistent cache.
@@ -113,6 +138,7 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
     _error = null;
     _errorStackTrace = null;
     _lastUpdatedAt = null;
+    _lastRefreshAttemptAt = null;
     _refreshFuture = null;
     _isRefreshing = false;
     _notifyListenersSafely();
@@ -121,7 +147,7 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isStarted && state == AppLifecycleState.resumed) {
-      unawaited(refresh());
+      unawaited(refresh(force: true));
     }
   }
 
