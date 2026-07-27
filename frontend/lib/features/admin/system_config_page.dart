@@ -7,6 +7,7 @@ import 'package:frontend/features/admin/data/admin_repository.dart';
 /// V2 intentionally separates personal MFA from platform configuration and
 /// health. The administrator shell exposes those global/tenant surfaces as
 /// independent capability-gated destinations.
+@Deprecated('Use AccountSecurityPage, PlatformConfigurationPage, or PlatformHealthPage')
 class SystemConfigPage extends StatelessWidget {
   const SystemConfigPage({super.key, this.repository});
 

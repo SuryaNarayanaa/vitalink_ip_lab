@@ -1195,7 +1195,7 @@ paths:
       tags: [Admin]
       operationId: listAdminRolePolicies
       summary: List fixed administrator role policies
-      description: Global read for app_admin, hospital_admin, and auditor. A configured System Auditor may read; Hospital Admin is denied by global scope.
+      description: Global read for app_admin and auditor. A configured System Auditor may read; Hospital Admin is denied by global scope.
       responses:
         "200":
           description: Administrator role policies retrieved

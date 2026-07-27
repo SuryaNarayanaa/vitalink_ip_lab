@@ -1,5 +1,6 @@
 import { StatusCodes } from 'http-status-codes'
 import {
+  ADMIN_POLICY_SCHEMA_VERSION,
   type AdminRoleKey,
   isAdminRoleKey,
   normalizeAdminCapabilityMap,
@@ -47,8 +48,11 @@ function objectIdString(value: unknown): string | undefined {
       return objectIdString(objectIdLike._id)
     }
   }
+  if (typeof value === 'object') return undefined
   const result = String(value)
-  return result && result !== 'undefined' && result !== 'null' ? result : undefined
+  return result && result !== 'undefined' && result !== 'null' && result !== '[object Object]'
+    ? result
+    : undefined
 }
 
 export function buildAdminAccessContext(input: {
@@ -62,7 +66,12 @@ export function buildAdminAccessContext(input: {
   if (!profile || !isAdminRoleKey(profile.admin_role)) throw forbidden()
 
   const role = profile.admin_role as AdminRoleKey
-  if (policy.roleKey !== role || policy.schemaVersion !== 2 || !Number.isSafeInteger(policy.policyVersion) || policy.policyVersion < 1) {
+  if (
+    policy.roleKey !== role
+    || policy.schemaVersion !== ADMIN_POLICY_SCHEMA_VERSION
+    || !Number.isSafeInteger(policy.policyVersion)
+    || policy.policyVersion < 1
+  ) {
     throw forbidden('Administrative role policy is unavailable')
   }
 

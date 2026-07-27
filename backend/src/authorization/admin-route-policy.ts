@@ -43,11 +43,17 @@ function validateRoutePolicy(policy: AdminRoutePolicy): void {
   if (policy.anyOfCapabilities && new Set(policy.anyOfCapabilities).size !== policy.anyOfCapabilities.length) {
     throw new Error('Admin route policy anyOfCapabilities must not contain duplicates')
   }
+  const declared = hasSingle
+    ? [policy.capability as AdminCapability]
+    : [...(policy.anyOfCapabilities || [])]
   if (!policy.mutation) {
-    const declared = hasSingle ? [policy.capability as AdminCapability] : [...(policy.anyOfCapabilities || [])]
     if (declared.some(isMutationAdminCapability)) {
       throw new Error('Read route policy cannot require a mutation capability')
     }
+  } else if (declared.length && !declared.some(isMutationAdminCapability)) {
+    // Mutation routes must require at least one mutation-classified capability so
+    // a pure-read capability cannot authorize write handlers.
+    throw new Error('Mutation route policy must require at least one mutation capability')
   }
 }
 

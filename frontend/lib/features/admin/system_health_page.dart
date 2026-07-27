@@ -45,12 +45,20 @@ class _PlatformHealthPageState extends State<PlatformHealthPage> {
         _error = null;
         _hasLoaded = true;
       });
-      _timer ??= Timer.periodic(const Duration(seconds: 30), (_) => _load());
+      // Only poll while this page is the active route. IndexedStack keeps visited
+      // destinations mounted, so a permanent timer would leak background traffic.
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+        _load();
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error;
-        _hasLoaded = true;
+        // Keep hasLoaded false on first failure so the error surface is shown
+        // instead of an empty/default health card.
+        if (_health != null) _hasLoaded = true;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -59,6 +67,20 @@ class _PlatformHealthPageState extends State<PlatformHealthPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Cancel polling when this destination is offstage in the admin shell.
+    final isActive = TickerMode.valuesOf(context).enabled;
+    if (!isActive) {
+      _timer?.cancel();
+      _timer = null;
+    } else if (_hasLoaded && _timer == null && !_isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !TickerMode.valuesOf(context).enabled || _timer != null) return;
+        _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+          _load();
+        });
+      });
+    }
     return AdminAccessGate(
       anyCapabilities: const [AdminCapabilities.platformSystemHealthRead],
       roles: const {AdminRole.appAdmin, AdminRole.auditor},
@@ -66,7 +88,7 @@ class _PlatformHealthPageState extends State<PlatformHealthPage> {
       deniedMessage:
           'Platform health is available only to an Application Admin or a configured read-only System Auditor.',
       builder: (context) {
-        if (!_hasLoaded && !_isLoading) {
+        if (!_hasLoaded && !_isLoading && _error == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _load());
         }
         final body = ListView(
@@ -96,8 +118,10 @@ class _PlatformHealthPageState extends State<PlatformHealthPage> {
               ],
             ),
             const SizedBox(height: 16),
-            if (_isLoading && !_hasLoaded)
+            if (_isLoading && !_hasLoaded && _error == null)
               const Center(child: CircularProgressIndicator())
+            else if (_error != null && _health == null)
+              _HealthLoadError(error: _error!, onRetry: _load)
             else
               SystemHealthSection(
                 health: _health,
@@ -148,12 +172,16 @@ class _HospitalOperationsHealthPageState
         _error = null;
         _hasLoaded = true;
       });
-      _timer ??= Timer.periodic(const Duration(seconds: 30), (_) => _load());
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+        _load();
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error;
-        _hasLoaded = true;
+        if (_health != null) _hasLoaded = true;
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -162,6 +190,19 @@ class _HospitalOperationsHealthPageState
 
   @override
   Widget build(BuildContext context) {
+    final isActive = TickerMode.valuesOf(context).enabled;
+    if (!isActive) {
+      _timer?.cancel();
+      _timer = null;
+    } else if (_hasLoaded && _timer == null && !_isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !TickerMode.valuesOf(context).enabled || _timer != null) return;
+        _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (!mounted || !TickerMode.valuesOf(context).enabled) return;
+          _load();
+        });
+      });
+    }
     return AdminAccessGate(
       anyCapabilities: const [AdminCapabilities.tenantOperationsHealthRead],
       roles: const {AdminRole.hospitalAdmin},
@@ -169,7 +210,7 @@ class _HospitalOperationsHealthPageState
       deniedMessage:
           'Hospital operations health is available only to a Hospital Admin with reminder and delivery health access.',
       builder: (context) {
-        if (!_hasLoaded && !_isLoading) {
+        if (!_hasLoaded && !_isLoading && _error == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _load());
         }
         final data = _health ?? const <String, dynamic>{};
@@ -203,7 +244,7 @@ class _HospitalOperationsHealthPageState
               ],
             ),
             const SizedBox(height: 16),
-            if (_isLoading && !_hasLoaded)
+            if (_isLoading && !_hasLoaded && _error == null)
               const Center(child: CircularProgressIndicator())
             else if (_error != null && _health == null)
               _HealthLoadError(error: _error!, onRetry: _load)

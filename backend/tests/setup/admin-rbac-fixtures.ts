@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import mongoose from 'mongoose'
 import {
+  ADMIN_POLICY_SCHEMA_VERSION,
   ADMIN_ROLE_KEYS,
   DEFAULT_ADMIN_ROLE_POLICIES,
   PLATFORM_ADMIN_CAPABILITIES,
@@ -92,7 +93,7 @@ export function buildPolicyFixture(input: {
     role_key: input.role,
     capabilities: input.capabilities ?? { ...DEFAULT_POLICY_CAPABILITIES[input.role] },
     protected: input.role === AdminRole.APP_ADMIN,
-    schema_version: 2,
+    schema_version: ADMIN_POLICY_SCHEMA_VERSION,
     policy_version: input.version ?? 1,
     updated_by: input.updatedBy,
     change_reason: 'Wave 1 RBAC validation fixture',
@@ -225,12 +226,14 @@ export async function createAdminRbacFixtures(options: CreateAdminRbacFixturesOp
   const primaryClinical = await createClinicalPair('a', primaryHospital._id)
   const secondaryClinical = await createClinicalPair('b', secondaryHospital._id)
 
-  const policyInputs = Object.values(AdminRole).map(role => buildPolicyFixture({
+  // Keep fixture builders on ADMIN_ROLE_KEYS so they stay aligned with
+  // DEFAULT_POLICY_CAPABILITIES and the production role allowlist.
+  const policyInputs = ADMIN_ROLE_KEYS.map(role => buildPolicyFixture({
     role,
     updatedBy: appAdmin.user._id,
     overrides: options.policyOverrides?.[role],
   }))
-  const revisionInputs = Object.values(AdminRole).map(role => buildPolicyRevisionFixture({
+  const revisionInputs = ADMIN_ROLE_KEYS.map(role => buildPolicyRevisionFixture({
     role,
     actorId: appAdmin.user._id,
     overrides: options.revisionOverrides?.[role],

@@ -164,6 +164,12 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
               final value = period.text.trim();
               if (RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(value)) {
                 Navigator.pop(dialogContext, value);
+              } else {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Enter a billing period as YYYY-MM.'),
+                  ),
+                );
               }
             },
             child: const Text('Generate'),
@@ -196,11 +202,14 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
     try {
       final result = await _repo.createInvoiceCheckout(invoiceId);
       final checkoutUrl = result['checkout_url'] as String?;
-      if (checkoutUrl == null ||
-          !await launchUrl(
-            Uri.parse(checkoutUrl),
-            mode: LaunchMode.externalApplication,
-          )) {
+      final uri = checkoutUrl == null ? null : Uri.tryParse(checkoutUrl);
+      final isSafeScheme =
+          uri != null &&
+          (uri.scheme == 'https' ||
+              (uri.scheme == 'http' &&
+                  (uri.host == 'localhost' || uri.host == '127.0.0.1')));
+      if (!isSafeScheme ||
+          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         throw StateError('Unable to open the configured payment checkout.');
       }
     } catch (e) {

@@ -125,9 +125,10 @@ bool _requiredBool(Map<String, dynamic> json, String key) {
 
 DateTime? _optionalDateTime(Object? value) {
   if (value == null) return null;
-  if (value is String && value.trim().isNotEmpty) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) return parsed;
+  if (value is String) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    return DateTime.tryParse(trimmed);
   }
-  throw const FormatException('Expected an ISO-8601 date-time or null');
+  return null;
 }

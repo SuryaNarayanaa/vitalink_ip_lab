@@ -104,15 +104,28 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
       if (!mounted) return;
       setState(() {
         _error = error;
-        _hasLoaded = true;
+        // Do not flip hasLoaded on first failure — that would render the empty
+        // form defaults as if they were server state.
       });
+      if (_hasLoaded && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is ApiException
+                  ? error.message
+                  : 'Could not refresh platform configuration.',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -238,8 +251,19 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && !_hasLoaded) {
-      return const Center(
-        child: Text('Could not load platform configuration.'),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Could not load platform configuration.'),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _isLoading ? null : () => _load(discardDraft: true),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
       );
     }
     return Form(

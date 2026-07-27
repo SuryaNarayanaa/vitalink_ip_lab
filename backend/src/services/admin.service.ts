@@ -2282,6 +2282,12 @@ export async function setPatientAccountStatus(
   if (profile.account_status === 'Deceased' && requestedActive) {
     throw new ApiError(StatusCodes.CONFLICT, 'A deceased Patient account cannot be restored')
   }
+  if (profile.account_status === 'AssignmentConflict' && requestedActive) {
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      'Resolve the patient assignment conflict before activation',
+    )
+  }
 
   if (requestedActive) {
     const doctor = await findDoctorByAssignment(profile.assigned_doctor_id)
@@ -2297,6 +2303,12 @@ export async function setPatientAccountStatus(
   await user.save()
   profile.account_status = requestedStatus ?? (requestedActive ? 'Active' : 'Discharged')
   await profile.save()
+  // Keep conflict markers consistent with the batch activation path: this path
+  // never restores into AssignmentConflict, so drop any stale conflict payload.
+  await PatientProfile.updateOne(
+    { _id: profile._id },
+    { $unset: { assignment_conflict: 1 } },
+  )
   const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
   return {
     message: requestedActive ? 'Patient restored successfully' : 'Patient status updated successfully',

@@ -43,7 +43,11 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
         );
         return UseQuery<Map<String, dynamic>>(
           options: QueryOptions<Map<String, dynamic>>(
-            queryKey: AdminQueryKeys.hospitals(refreshKey: _refreshKey),
+            queryKey: AdminQueryKeys.hospitals(
+              refreshKey: _refreshKey,
+              status: _status,
+              search: _search.text.trim(),
+            ),
             queryFn: () => _repo.getHospitals(
               search: _search.text.trim(),
               status: _status,
@@ -75,7 +79,10 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                       child: Text('Inactive'),
                     ),
                   ],
-                  onChanged: (value) => setState(() => _status = value),
+                  onChanged: (value) => setState(() {
+                    _status = value;
+                    _refreshKey++;
+                  }),
                 ),
                 if (canManage)
                   FilledButton.icon(
@@ -294,7 +301,7 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                   await _repo.updateHospital(id, data);
                 }
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-                _refresh();
+                if (mounted) _refresh();
               } catch (e) {
                 if (dialogContext.mounted) showAdminError(dialogContext, e);
               }

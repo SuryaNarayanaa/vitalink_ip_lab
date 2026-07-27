@@ -531,8 +531,13 @@ class AdminRepository {
             'name': source['hospital_name'] ?? source['hospitalName'],
           };
     final active = source['is_active'] ?? source['isActive'];
+    final rawId = source['id'] ?? source['_id'];
+    final id = rawId == null ? '' : rawId.toString();
+    if (id.isEmpty || id == 'null') {
+      throw const FormatException('Administrator account id is required');
+    }
     return {
-      'id': (source['id'] ?? source['_id']).toString(),
+      'id': id,
       'login_id': source['login_id'] ?? source['loginId'] ?? source['email'],
       'name': source['name'] ?? source['full_name'] ?? source['email'],
       'email': source['email'],

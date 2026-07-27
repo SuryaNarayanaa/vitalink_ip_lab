@@ -34,25 +34,39 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
-      _error = null;
+      if (!silent) _error = null;
     });
     try {
       final accounts = await _repository.getAdminAccounts();
       if (!mounted) return;
       setState(() {
         _accounts = accounts;
+        _error = null;
         _hasLoaded = true;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error;
+        // Still mark loaded so the error panel (not an empty list) is rendered,
+        // and so build() does not schedule infinite auto-retries.
         _hasLoaded = true;
       });
+      if (silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is ApiException
+                  ? error.message
+                  : 'Could not refresh administrator accounts.',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -202,7 +216,40 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
       builder: (dialogContext) => FutureBuilder<Map<String, dynamic>>(
         future: hospitalsFuture,
         builder: (context, snapshot) {
-          final hospitals = snapshot.data?['hospitals'] as List? ?? const [];
+          final hospitals = List<Map<String, dynamic>>.from(
+            (snapshot.data?['hospitals'] as List? ?? const []).map(
+              (item) => Map<String, dynamic>.from(item as Map),
+            ),
+          );
+          // Include the account's current hospital even when it is no longer
+          // active so DropdownButtonFormField never receives a missing value.
+          final currentHospitalId = account?.hospital?.id;
+          final hasCurrentHospital = currentHospitalId != null &&
+              hospitals.any(
+                (hospital) =>
+                    '${hospital['id'] ?? hospital['_id']}' == currentHospitalId,
+              );
+          if (currentHospitalId != null &&
+              currentHospitalId.isNotEmpty &&
+              !hasCurrentHospital) {
+            hospitals.insert(0, {
+              'id': currentHospitalId,
+              'name':
+                  account?.hospital?.name ??
+                  account?.hospital?.code ??
+                  currentHospitalId,
+              'code': account?.hospital?.code,
+              'status': 'inactive',
+            });
+          }
+          // Clear selection if the current id is still not representable.
+          final selectableIds = hospitals
+              .map((hospital) => '${hospital['id'] ?? hospital['_id']}')
+              .toSet();
+          final effectiveHospitalId =
+              hospitalId != null && selectableIds.contains(hospitalId)
+              ? hospitalId
+              : null;
           return StatefulBuilder(
             builder: (context, setDialogState) {
               final needsHospital = role == AdminRole.hospitalAdmin;
@@ -277,26 +324,32 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
                               key: const Key('admin-account-hospital'),
-                              initialValue: hospitalId,
+                              initialValue: effectiveHospitalId,
                               isExpanded: true,
                               decoration: InputDecoration(
                                 labelText: 'Active hospital',
-                                helperText:
-                                    'Hospital Admin access is limited to this hospital.',
+                                helperText: hasCurrentHospital ||
+                                        account?.hospital == null
+                                    ? 'Hospital Admin access is limited to this hospital.'
+                                    : 'The currently assigned hospital is inactive. Select an active hospital to continue.',
                                 errorText: snapshot.hasError
                                     ? 'Could not load active hospitals.'
                                     : null,
                               ),
                               items: hospitals
-                                  .map((item) {
-                                    final hospital =
-                                        item as Map<String, dynamic>;
+                                  .map((hospital) {
                                     final id =
                                         '${hospital['id'] ?? hospital['_id']}';
+                                    final status =
+                                        '${hospital['status'] ?? 'active'}';
+                                    final label =
+                                        '${hospital['name'] ?? hospital['code'] ?? id}';
                                     return DropdownMenuItem(
                                       value: id,
                                       child: Text(
-                                        '${hospital['name'] ?? hospital['code'] ?? id}',
+                                        status == 'active'
+                                            ? label
+                                            : '$label (inactive)',
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     );
@@ -453,6 +506,9 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
   Future<void> _showInvitationResult(String? temporaryPassword) {
     return showDialog<void>(
       context: context,
+      // One-time secret: require an explicit dismiss so it is not lost to a
+      // barrier tap.
+      barrierDismissible: temporaryPassword == null,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Administrator invited'),
         content: SelectableText(

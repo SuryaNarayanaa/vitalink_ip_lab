@@ -224,6 +224,9 @@ export function translateLegacyAdminPermissions(
   const has = (permission: LegacyAdminPermission) => legacy[permission] === true
 
   if (role === 'hospital_admin') {
+    // Baseline dashboard access is retained for every migrated Hospital Admin so
+    // V1 tenants do not land without a readable home surface.
+    enabled.add('tenant.dashboard.read')
     if (has('manage_doctors')) {
       enabled.add('tenant.doctors.read')
       enabled.add('tenant.doctors.manage')

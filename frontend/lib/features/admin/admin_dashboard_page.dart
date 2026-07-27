@@ -271,22 +271,62 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       );
     }
 
-    _reconcileAllowedDestinations(allowedDestinations);
-    final selectedId = _selectedDestinationId!;
+    // Derive selection without mutating State during build. Cache/visit updates
+    // are scheduled for after the frame so build stays idempotent.
+    final allowedIds = allowedDestinations
+        .map((destination) => destination.id)
+        .toSet();
+    final selectedId =
+        (_selectedDestinationId != null &&
+            allowedIds.contains(_selectedDestinationId))
+        ? _selectedDestinationId!
+        : allowedDestinations.first.id;
     final selectedDestination = allowedDestinations.firstWhere(
       (destination) => destination.id == selectedId,
     );
-    _pageCache.putIfAbsent(
-      selectedId,
-      () => KeyedSubtree(
-        key: ValueKey('admin-page-$selectedId'),
-        child: Builder(builder: selectedDestination.builder),
-      ),
-    );
-    if (!_visitedDestinationIds.contains(selectedId)) {
-      _visitedDestinationIds.add(selectedId);
+    final cachedPage =
+        _pageCache[selectedId] ??
+        KeyedSubtree(
+          key: ValueKey('admin-page-$selectedId'),
+          child: Builder(builder: selectedDestination.builder),
+        );
+    final visited = _visitedDestinationIds
+        .where(allowedIds.contains)
+        .toList(growable: true);
+    if (!visited.contains(selectedId)) visited.add(selectedId);
+    final selectedStackIndex = visited.indexOf(selectedId);
+
+    final needsReconcile =
+        _selectedDestinationId != selectedId ||
+        !_pageCache.containsKey(selectedId) ||
+        _pageCache.keys.any((id) => !allowedIds.contains(id)) ||
+        _visitedDestinationIds.length != visited.length ||
+        !_visitedDestinationIds.every(visited.contains);
+    if (needsReconcile) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _selectedDestinationId = selectedId;
+          _pageCache
+            ..removeWhere((id, _) => !allowedIds.contains(id))
+            ..putIfAbsent(selectedId, () => cachedPage);
+          _visitedDestinationIds
+            ..removeWhere((id) => !allowedIds.contains(id))
+            ..clear()
+            ..addAll(visited);
+        });
+      });
     }
-    final selectedStackIndex = _visitedDestinationIds.indexOf(selectedId);
+
+    final stackChildren = visited
+        .map(
+          (id) =>
+              _pageCache[id] ??
+              (id == selectedId
+                  ? cachedPage
+                  : const SizedBox.shrink()),
+        )
+        .toList(growable: false);
 
     return AdminScaffold(
       selectedDestinationId: selectedId,
@@ -298,26 +338,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         setState(() => _selectedDestinationId = id);
       },
       body: IndexedStack(
-        index: selectedStackIndex,
-        children: _visitedDestinationIds
-            .map((id) => _pageCache[id]!)
-            .toList(growable: false),
+        index: selectedStackIndex < 0 ? 0 : selectedStackIndex,
+        children: stackChildren,
       ),
     );
-  }
-
-  void _reconcileAllowedDestinations(
-    List<AdminDestination> allowedDestinations,
-  ) {
-    final allowedIds = allowedDestinations
-        .map((destination) => destination.id)
-        .toSet();
-    _pageCache.removeWhere((id, _) => !allowedIds.contains(id));
-    _visitedDestinationIds.removeWhere((id) => !allowedIds.contains(id));
-    if (_selectedDestinationId == null ||
-        !allowedIds.contains(_selectedDestinationId)) {
-      _selectedDestinationId = allowedDestinations.first.id;
-    }
   }
 }
 

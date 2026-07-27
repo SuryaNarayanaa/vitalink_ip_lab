@@ -35,16 +35,31 @@ export type MongoReplicaSetOptions = {
   startupTimeoutMs?: number
 }
 
-function dockerRuntimeIsUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return /could not find a working container runtime strategy|no docker client strategy|docker.*(unavailable|not running|daemon)|connect .*docker|econnrefused|named pipe/i.test(message)
-}
-
 async function execOrThrow(container: StartedTestContainer, command: string[], label: string) {
   const result = await container.exec(command)
   if (result.exitCode !== 0) {
     throw new Error(`${label} failed with exit code ${result.exitCode}: ${result.output}`)
   }
+}
+
+async function waitForPrimary(
+  container: StartedTestContainer,
+  timeoutMs = 30_000,
+) {
+  const started = Date.now()
+  // Bound the election wait so a stuck container fails with a clear cause
+  // instead of hanging the suite indefinitely.
+  while (Date.now() - started < timeoutMs) {
+    const result = await container.exec([
+      'mongosh',
+      '--quiet',
+      '--eval',
+      'if (!db.hello().isWritablePrimary) quit(1)',
+    ])
+    if (result.exitCode === 0) return
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  throw new Error(`MongoDB primary election timed out after ${timeoutMs}ms`)
 }
 
 /**
@@ -67,9 +82,8 @@ export async function startMongoReplicaSet(
       .withStartupTimeout(options.startupTimeoutMs ?? 120_000)
       .start()
   } catch (error) {
-    if (dockerRuntimeIsUnavailable(error)) throw new DockerUnavailableError(error)
-    // Container startup failures (including image-pull/runtime failures) block
-    // the integration environment; they must never be converted into a skip.
+    // Always wrap container-runtime failures as DockerUnavailableError so the
+    // suite fails closed with an actionable message rather than a raw stack.
     throw new DockerUnavailableError(error)
   }
 
@@ -81,11 +95,7 @@ export async function startMongoReplicaSet(
       `rs.initiate({_id:${JSON.stringify(replicaSetName)},members:[{_id:0,host:'127.0.0.1:${MONGO_PORT}'}]})`,
     ]
     await execOrThrow(container, initiate, 'MongoDB replica-set initiation')
-    await execOrThrow(container, [
-      'bash',
-      '-c',
-      "until mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; do sleep 0.2; done",
-    ], 'MongoDB primary election')
+    await waitForPrimary(container)
   } catch (error) {
     await container.stop().catch(() => undefined)
     throw error

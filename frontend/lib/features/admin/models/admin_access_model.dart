@@ -158,8 +158,12 @@ String _requiredString(Map<String, dynamic> json, String key) {
 
 String? _optionalString(Object? value) {
   if (value == null) return null;
-  if (value is String && value.trim().isNotEmpty) return value.trim();
-  throw const FormatException('Expected a non-empty string or null');
+  if (value is String) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+  // Display-only optional fields should not fail an entire access payload.
+  return value.toString().trim().isEmpty ? null : value.toString().trim();
 }
 
 int _requiredInt(Map<String, dynamic> json, String key) {

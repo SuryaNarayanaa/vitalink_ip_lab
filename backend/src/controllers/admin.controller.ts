@@ -247,10 +247,16 @@ export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: 
   requireAccessCapability(access, 'tenant.operations_health.read', 'tenant')
   const tenantUserIds = await getTenantUserIds(access)
   const reminderTypes = ['DOSAGE_REMINDER', 'INR_REMINDER', 'APPOINTMENT_REMINDER', 'CRITICAL_ALERT']
+  const now = new Date()
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  // Bound the health scan to a finite recent window so the endpoint never loads
+  // the entire historical reminder set for a large tenant.
+  const healthWindowStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const notifications = tenantUserIds.length
     ? await Notification.find({
       type: { $in: reminderTypes },
       user_id: { $in: tenantUserIds },
+      createdAt: { $gte: healthWindowStart },
     }).select('_id type createdAt').lean()
     : []
   const notificationIds = notifications.map(row => row._id)
@@ -261,8 +267,6 @@ export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: 
     : []
   const byStatus: Record<string, number> = {}
   for (const row of deliveries) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1
-  const now = new Date()
-  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
   const overdue = deliveries.filter(row => (
     ['PENDING', 'QUEUED', 'FAILED_RETRYABLE'].includes(row.status)
     && row.next_attempt_at <= now
@@ -272,6 +276,7 @@ export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: 
     hospital_id: access.hospitalId,
     reminders_last_24_hours: notifications.filter(row => row.createdAt >= twentyFourHoursAgo).length,
     total_reminders: notifications.length,
+    reminder_window_days: 7,
     deliveries_by_status: byStatus,
     overdue_deliveries: overdue,
   }))

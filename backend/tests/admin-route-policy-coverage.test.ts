@@ -109,11 +109,21 @@ function registryModuleExists() {
 
 function loadRegistryEntries(registerRouteModules = false): unknown[] {
   const loaded = require(REGISTRY_MODULE)
-  if (registerRouteModules) {
+  // Always ensure the registry is populated from the protected route modules so
+  // isolated / reordered test runs do not depend on ambient cross-test state.
+  const shouldRegister = registerRouteModules
+    || (typeof loaded.getRegisteredAdminRoutePolicies === 'function'
+      && loaded.getRegisteredAdminRoutePolicies().length === 0)
+  if (shouldRegister) {
     if (typeof loaded.clearRegisteredAdminRoutePoliciesForTests === 'function') {
       loaded.clearRegisteredAdminRoutePoliciesForTests()
     }
-    for (const { file } of PROTECTED_ROUTE_FILES) require(file)
+    for (const { file } of PROTECTED_ROUTE_FILES) {
+      // Bust require cache so re-registration after clear is reliable.
+      const resolved = require.resolve(file)
+      delete require.cache[resolved]
+      require(file)
+    }
   }
   const candidate = loaded.ADMIN_ROUTE_POLICIES
     ?? loaded.adminRoutePolicies
@@ -156,67 +166,14 @@ function normalizeRegistryEntry(entry: any) {
   }
 }
 
-const FOUNDATION_DIRECT_ROUTE_BASELINE = [
-  'admin GET /roles',
-  'admin PUT /roles/:roleKey',
-  'admin GET /hospitals',
-  'admin POST /hospitals',
-  'admin GET /hospitals/:id',
-  'admin PUT /hospitals/:id',
-  'admin PATCH /hospitals/:id/status',
-  'admin DELETE /hospitals/:id',
-  'admin GET /billing/invoices',
-  'admin POST /billing/invoices',
-  'admin POST /billing/checkout/:invoiceId',
-  'admin GET /users',
-  'admin POST /users',
-  'admin POST /users/:id/mfa/reset',
-  'admin PUT /users/:id',
-  'admin POST /doctors',
-  'admin GET /doctors',
-  'admin PUT /doctors/:id',
-  'admin DELETE /doctors/:id',
-  'admin POST /patients',
-  'admin GET /patients',
-  'admin PUT /patients/:id',
-  'admin DELETE /patients/:id',
-  'admin PUT /reassign/:op_num',
-  'admin GET /audit-logs',
-  'admin GET /config',
-  'admin PUT /config',
-  'admin POST /notifications/broadcast',
-  'admin POST /users/batch',
-  'admin POST /users/reset-password',
-  'admin GET /system/health',
-  'admin GET /system/reminder-delivery-health',
-  'admin GET /legacy/patients',
-  'admin GET /legacy/patient/:op_num',
-  'admin GET /legacy/doctor/:id',
-  'statistics GET /admin',
-  'statistics GET /trends',
-  'statistics GET /compliance',
-  'statistics GET /workload',
-  'statistics GET /period',
-]
 
 function inventoryProtectedRoutes() {
   return PROTECTED_ROUTE_FILES.map(({ surface, file }) => inventorySource(surface, file))
 }
 
 describe('admin/statistics route policy inventory', () => {
-  test('keeps the additive-wave route inventory explicit until typed registration is integrated', () => {
+  test('typed registration is fully integrated for protected admin/statistics routes', () => {
     const inventories = inventoryProtectedRoutes()
-    const helperIntegrated = inventories.some(inventory => inventory.typedHelperImports.length > 0)
-
-    if (!helperIntegrated) {
-      // Transitional gate, not a waiver: this exact list is the direct-call debt
-      // inherited by Wave 1. Any newly added direct route fails immediately.
-      const actual = inventories.flatMap(inventory => inventory.direct)
-        .map(route => `${route.surface} ${route.method} ${route.path}`)
-      expect(actual).toEqual(FOUNDATION_DIRECT_ROUTE_BASELINE)
-      return
-    }
-
     // Final integration assumptions:
     // 1. Both protected modules import their typed helper from
     //    authorization/admin-route-policy.

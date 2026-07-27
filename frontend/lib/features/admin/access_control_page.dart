@@ -39,16 +39,19 @@ class _AccessControlPageState extends State<AccessControlPage> {
     });
     try {
       final policies = await _repository.getRolePolicies();
-      final histories = <AdminRole, List<AdminRolePolicyRevisionModel>>{};
-      for (final policy in policies) {
-        try {
-          histories[policy.role] = await _repository.getRolePolicyHistory(
-            policy.role,
-          );
-        } catch (_) {
-          histories[policy.role] = const [];
-        }
-      }
+      final historyEntries = await Future.wait(
+        policies.map((policy) async {
+          try {
+            final history = await _repository.getRolePolicyHistory(policy.role);
+            return MapEntry(policy.role, history);
+          } catch (_) {
+            return MapEntry(policy.role, const <AdminRolePolicyRevisionModel>[]);
+          }
+        }),
+      );
+      final histories = Map<AdminRole, List<AdminRolePolicyRevisionModel>>.fromEntries(
+        historyEntries,
+      );
       if (!mounted) return;
       setState(() {
         _policies = policies;
@@ -56,14 +59,29 @@ class _AccessControlPageState extends State<AccessControlPage> {
           ..clear()
           ..addAll(histories);
         if (!preserveDrafts) _drafts.clear();
+        _error = null;
         _hasLoaded = true;
       });
     } catch (error) {
       if (!mounted) return;
+      final hadPolicies = _policies.isNotEmpty;
       setState(() {
         _error = error;
+        // Mark loaded so first-load failures render the error panel instead of
+        // scheduling infinite auto-retries from build().
         _hasLoaded = true;
       });
+      if (hadPolicies && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is ApiException
+                  ? error.message
+                  : 'Could not refresh access policies.',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -197,8 +215,10 @@ class _AccessControlPageState extends State<AccessControlPage> {
           changeReason: reason,
         );
         if (!mounted) return;
-        _drafts.remove(policy.role);
-        _serverConflicts.remove(policy.role);
+        setState(() {
+          _drafts.remove(policy.role);
+          _serverConflicts.remove(policy.role);
+        });
         await AdminAccessScope.of(
           context,
           listen: false,

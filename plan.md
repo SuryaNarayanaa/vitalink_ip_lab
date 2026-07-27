@@ -734,7 +734,7 @@ cd C:\Projects\vitalink_ip_lab\backend
 npm.cmd run build
 npm.cmd run lint:openapi
 npm.cmd test -- --runInBand tests/admin-access-unit.test.ts
-npm.cmd test -- --runInBand tests/admin-rbac-integration.test.ts
+npm.cmd test -- --runInBand tests/admin-role-policy-integration.test.ts
 npm.cmd test -- --runInBand tests/statisticscontroller.test.ts
 ```
 

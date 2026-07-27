@@ -1,4 +1,9 @@
-import type { AdminCapability, AdminCapabilityMap, AdminRoleKey } from '@alias/constants/admin-capabilities'
+import type {
+  AdminCapability,
+  AdminCapabilityMap,
+  AdminRoleKey,
+} from '@alias/constants/admin-capabilities'
+import { ADMIN_POLICY_SCHEMA_VERSION } from '@alias/constants/admin-capabilities'
 
 export type AdminAccessScope = 'global' | 'tenant'
 
@@ -17,7 +22,7 @@ export type AdminRolePolicySnapshot = {
   roleKey: AdminRoleKey
   capabilities: AdminCapabilityMap
   protected: boolean
-  schemaVersion: 2
+  schemaVersion: typeof ADMIN_POLICY_SCHEMA_VERSION
   policyVersion: number
   updatedBy: string
   changeReason: string

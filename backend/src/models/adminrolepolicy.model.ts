@@ -11,8 +11,8 @@ const AdminRolePolicySchema = new mongoose.Schema({
     type: String,
     enum: ADMIN_ROLE_KEYS,
     required: true,
+    // unique already creates the index; avoid a second identical index declaration.
     unique: true,
-    index: true,
     immutable: true,
   },
   capabilities: {

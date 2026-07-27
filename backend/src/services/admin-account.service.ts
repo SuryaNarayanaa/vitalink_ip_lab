@@ -104,10 +104,20 @@ export function assertAdminRoleScopePayload(
   }
 }
 
+function isStrictObjectId(value: string): boolean {
+  return /^[a-fA-F0-9]{24}$/.test(value)
+}
+
 async function resolveActiveHospital(identifier: string) {
-  const identity = mongoose.Types.ObjectId.isValid(identifier)
-    ? { _id: identifier }
-    : { code: identifier.toUpperCase() }
+  const trimmed = identifier.trim()
+  if (!trimmed) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital must be active and accepting members')
+  }
+  // mongoose.Types.ObjectId.isValid accepts 12-byte strings; require 24-hex so
+  // short hospital codes are never misinterpreted as `_id` lookups.
+  const identity = isStrictObjectId(trimmed)
+    ? { _id: trimmed }
+    : { code: trimmed.toUpperCase() }
   const hospital = await Hospital.findOne({
     ...identity,
     status: HospitalStatus.ACTIVE,
@@ -391,11 +401,14 @@ export async function updateAdminAccount(
   if (resultingRole === AdminRole.AUDITOR && suppliedHospital) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'System Auditor must not be assigned to a hospital')
   }
-  const hospital = resultingRole === AdminRole.HOSPITAL_ADMIN
-    ? await resolveActiveHospital(suppliedHospital || String(profile.hospital_id || ''))
-    : undefined
-  if (resultingRole === AdminRole.HOSPITAL_ADMIN && !hospital) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital Admin must be assigned to one active hospital')
+  let hospital: any
+  if (resultingRole === AdminRole.HOSPITAL_ADMIN) {
+    const hospitalKey = suppliedHospital
+      || (profile.hospital_id ? String(profile.hospital_id) : '')
+    if (!hospitalKey) {
+      throw new ApiError(StatusCodes.BAD_REQUEST, 'Hospital Admin must be assigned to one active hospital')
+    }
+    hospital = await resolveActiveHospital(hospitalKey)
   }
 
   const requestedActive = data.is_active !== undefined
@@ -531,18 +544,50 @@ export async function updateAdminAccount(
       )
     }
     if (compensationFailed) {
-      try {
-        await User.updateOne(
-          { _id: user._id },
-          { $set: { is_active: false }, $inc: { security_version: 1 } },
-        )
-      } finally {
-        await bestEffortRevokeSessionsAfterSecurityVersionBump(
-          String(user._id),
-          AuthSessionRevocationReason.ACCOUNT_DISABLED,
-        )
+      // A compensation CAS miss usually means another concurrent request already
+      // advanced the account successfully. Force-disabling that account would lock
+      // out a valid administrator. Only disable when our security-boundary write is
+      // still the current document state and could not be reversed.
+      let forceDisabled = false
+      if (securityBoundaryCommitted) {
+        try {
+          const current = await User.findById(user._id)
+            .select('_id is_active security_version')
+            .lean() as any
+          const stillOwnedByThisAttempt = Boolean(current)
+            && Boolean(current.is_active) === requestedActive
+            && Number(current.security_version || 0) === Number(user.security_version || 0) + 1
+          if (stillOwnedByThisAttempt) {
+            await User.updateOne(
+              {
+                _id: user._id,
+                is_active: requestedActive,
+                security_version: Number(user.security_version || 0) + 1,
+              },
+              { $set: { is_active: false }, $inc: { security_version: 1 } },
+            )
+            forceDisabled = true
+            await bestEffortRevokeSessionsAfterSecurityVersionBump(
+              String(user._id),
+              AuthSessionRevocationReason.ACCOUNT_DISABLED,
+            )
+          }
+        } catch {
+          forceDisabled = false
+        }
       }
-      logger.error('admin_account.update_compensation_failed', { user_id: String(user._id) })
+      if (forceDisabled) {
+        logger.error('admin_account.update_compensation_failed', {
+          user_id: String(user._id),
+          force_disabled: true,
+        })
+      } else {
+        logger.warn('admin_account.update_compensation_skipped_concurrent', {
+          user_id: String(user._id),
+          profile_mutated: profileMutated,
+          security_boundary_committed: securityBoundaryCommitted,
+        })
+      }
     }
     throw error
   } finally {

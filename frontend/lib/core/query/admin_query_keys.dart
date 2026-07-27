@@ -52,8 +52,12 @@ class AdminQueryKeys {
         refreshKey,
       ];
 
-  static List<Object> hospitals({required int refreshKey}) =>
-      [...all(), 'hospitals', refreshKey];
+  static List<Object> hospitals({
+    required int refreshKey,
+    String? status,
+    String search = '',
+  }) =>
+      [...all(), 'hospitals', status ?? 'all', search, refreshKey];
 
   static List<Object> users({required int refreshKey}) =>
       [...all(), 'users', refreshKey];

@@ -27,13 +27,12 @@ export async function resolveAdminAccess(
     })
     next()
   } catch (error) {
-    const statusCode = error instanceof ApiError
-      ? error.statusCode
-      : StatusCodes.INTERNAL_SERVER_ERROR
-    const message = error instanceof ApiError
-      ? error.message
-      : 'Unable to verify administrator access.'
-    res.status(statusCode).json({ success: false, message })
+    // Funnel through the centralized errorHandler so responses match ApiResponse
+    // and unexpected failures are logged consistently.
+    next(error instanceof Error ? error : new ApiError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      'Unable to verify administrator access.',
+    ))
   }
 }
 

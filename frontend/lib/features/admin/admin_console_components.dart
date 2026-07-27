@@ -176,63 +176,6 @@ class AdminRecordCard extends StatelessWidget {
   }
 }
 
-class RoleCard extends StatelessWidget {
-  const RoleCard({
-    super.key,
-    required this.roleKey,
-    required this.role,
-    required this.permissions,
-    required this.onChanged,
-    this.draft,
-  });
-
-  final String roleKey;
-  final Map<String, dynamic> role;
-  final List<String> permissions;
-  final Map<String, dynamic>? draft;
-  final void Function(String permission, bool value) onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final values = {
-      ...((role['permissions'] as Map?)?.cast<String, dynamic>() ?? {}),
-      ...?draft,
-    };
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${role['label'] ?? roleKey}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 2,
-              children: [
-                for (final permission in permissions)
-                  FilterChip(
-                    label: Text(permission.replaceAll('_', ' ')),
-                    selected: values[permission] == true,
-                    // Backend always retains app_admin.manage_roles so role policy cannot be locked out.
-                    onSelected:
-                        roleKey == 'app_admin' && permission == 'manage_roles'
-                        ? null
-                        : (value) => onChanged(permission, value),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class AdminStatusPill extends StatelessWidget {
   const AdminStatusPill({super.key, required this.label});
   final String label;
@@ -242,9 +185,12 @@ class AdminStatusPill extends StatelessWidget {
     final lower = label.toLowerCase();
     final theme = Theme.of(context);
     final color =
-        (lower == 'active' || lower.contains(' paid') || lower == 'paid')
+        (lower == 'active' || lower == 'paid' || lower.endsWith(' paid'))
         ? Colors.green
-        : lower.contains('suspend') || lower.contains('overdue')
+        : lower.contains('suspend') ||
+              lower.contains('overdue') ||
+              lower.contains('unpaid') ||
+              lower.contains('not paid')
         ? Colors.orange
         : theme.colorScheme.primary;
     return Chip(
