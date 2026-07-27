@@ -496,7 +496,9 @@ export async function getDoctorWorkloadStats(access: AdminAccessContext) {
   }
 
   match.hospital_id = scope.hospitalId
-  const items = await PatientProfile.aggregate([
+  // Preserve the v1 contract: tenant workload is a plain array of doctor items
+  // (global remains an anonymous aggregate object for privacy).
+  return PatientProfile.aggregate([
     { $match: match },
     { $group: { _id: '$assigned_doctor_id', patient_count: { $sum: 1 } } },
     {
@@ -527,13 +529,6 @@ export async function getDoctorWorkloadStats(access: AdminAccessContext) {
     },
     { $sort: { patient_count: -1 } },
   ])
-
-  // Always return an object envelope so global (anonymous aggregate) and tenant
-  // (per-doctor items) share a stable response shape under data.
-  return {
-    scope: 'tenant' as const,
-    items,
-  }
 }
 
 export async function getPeriodStatistics(

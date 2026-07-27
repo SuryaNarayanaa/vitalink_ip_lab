@@ -481,6 +481,11 @@ export async function updateAdminAccount(
         throw new ApiError(StatusCodes.CONFLICT, 'Administrator profile changed concurrently')
       }
       if (tracking) tracking.profileMutated = true
+      // Re-check membership leases after the profile CAS so a concurrent hospital
+      // lifecycle transition can still roll back / compensate the move.
+      if (roleChanged || scopeChanged) {
+        for (const guard of membershipGuards) await guard.assertOwned()
+      }
     }
 
     if (securityBoundaryChanged) {

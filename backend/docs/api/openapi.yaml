@@ -5353,18 +5353,13 @@ components:
         Anonymous platform-wide workload aggregate. Doctor identity is never
         included for global (app_admin / auditor) callers.
 
-    DoctorWorkloadTenantPayload:
-      type: object
-      required: [scope, items]
-      properties:
-        scope:
-          type: string
-          enum: [tenant]
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/DoctorWorkloadItem"
-      description: Per-doctor workload items for the caller's hospital tenant.
+    DoctorWorkloadTenantItems:
+      type: array
+      description: >
+        Per-doctor workload items for the caller's hospital tenant (v1 contract:
+        plain array under data, not an envelope).
+      items:
+        $ref: "#/components/schemas/DoctorWorkloadItem"
 
     DoctorWorkloadResponse:
       allOf:
@@ -5374,7 +5369,7 @@ components:
             data:
               oneOf:
                 - $ref: "#/components/schemas/DoctorWorkloadGlobalAggregate"
-                - $ref: "#/components/schemas/DoctorWorkloadTenantPayload"
+                - $ref: "#/components/schemas/DoctorWorkloadTenantItems"
 
     AuditActionCount:
       type: object

@@ -117,7 +117,7 @@ describe('Wave 2 statistics access context', () => {
     expect(JSON.stringify(result)).not.toContain('doctor_name')
   })
 
-  test('tenant workload returns per-doctor items envelope scoped by hospital_id', async () => {
+  test('tenant workload returns a plain per-doctor array scoped by hospital_id', async () => {
     const aggregate = jest.spyOn(PatientProfile, 'aggregate').mockResolvedValue([
       {
         doctor_id: '507f1f77bcf86cd799439020',
@@ -129,17 +129,15 @@ describe('Wave 2 statistics access context', () => {
     const doctorFind = jest.spyOn(DoctorProfile, 'find')
     const userFind = jest.spyOn(User, 'find')
 
-    await expect(getDoctorWorkloadStats(tenantAccess)).resolves.toEqual({
-      scope: 'tenant',
-      items: [
-        {
-          doctor_id: '507f1f77bcf86cd799439020',
-          doctor_name: 'Dr. Tenant',
-          department: 'Cardiology',
-          patient_count: 4,
-        },
-      ],
-    })
+    // v1 contract: tenant data is a plain array (api_client wraps as { items }).
+    await expect(getDoctorWorkloadStats(tenantAccess)).resolves.toEqual([
+      {
+        doctor_id: '507f1f77bcf86cd799439020',
+        doctor_name: 'Dr. Tenant',
+        department: 'Cardiology',
+        patient_count: 4,
+      },
+    ])
 
     const pipeline = aggregate.mock.calls[0][0] as unknown as Array<Record<string, unknown>>
     const matchStage = pipeline.find(stage => stage.$match) as { $match: Record<string, unknown> }

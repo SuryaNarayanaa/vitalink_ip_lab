@@ -74,52 +74,71 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
               child: AdminQueryBody<Map<String, dynamic>>(
                 query: query,
                 emptyIcon: Icons.receipt_long_outlined,
+                // Query-level empty: no invoices from the server at all.
                 emptyText: 'No invoices found',
-                isEmpty: invoices.isEmpty,
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: invoices.length,
-                  itemBuilder: (context, index) {
-                    final invoice = invoices[index] as Map<String, dynamic>;
-                    final id = '${invoice['id']}';
-                    final status = '${invoice['status'] ?? 'Pending'}';
-                    return AdminRecordCard(
-                      icon: Icons.receipt_rounded,
-                      title: id,
-                      badge: status,
-                      details: [
-                        AdminDetail(
-                          Icons.local_hospital_outlined,
-                          '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}',
+                isEmpty: all.isEmpty,
+                child: invoices.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.search_off_rounded,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'No invoices match your search',
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ],
                         ),
-                        AdminDetail(
-                          Icons.workspace_premium_outlined,
-                          '${invoice['plan'] ?? '--'}',
-                        ),
-                        AdminDetail(
-                          Icons.currency_rupee_rounded,
-                          '${invoice['amount'] ?? 0}',
-                        ),
-                        AdminDetail(
-                          Icons.event_outlined,
-                          'Due ${formatAdminDate(invoice['due'])}',
-                        ),
-                      ],
-                      menu: canCheckout
-                          ? [
-                              PopupMenuItem(
-                                enabled: status != 'Paid',
-                                value: 'checkout',
-                                child: const Text('Create checkout'),
-                                onTap: () => Future.microtask(
-                                  () => _startInvoiceCheckout(id),
-                                ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: invoices.length,
+                        itemBuilder: (context, index) {
+                          final invoice = invoices[index] as Map<String, dynamic>;
+                          final id = '${invoice['id']}';
+                          final status = '${invoice['status'] ?? 'Pending'}';
+                          return AdminRecordCard(
+                            icon: Icons.receipt_rounded,
+                            title: id,
+                            badge: status,
+                            details: [
+                              AdminDetail(
+                                Icons.local_hospital_outlined,
+                                '${invoice['hospitalName'] ?? invoice['hospital'] ?? '--'}',
                               ),
-                            ]
-                          : const [],
-                    );
-                  },
-                ),
+                              AdminDetail(
+                                Icons.workspace_premium_outlined,
+                                '${invoice['plan'] ?? '--'}',
+                              ),
+                              AdminDetail(
+                                Icons.currency_rupee_rounded,
+                                '${invoice['amount'] ?? 0}',
+                              ),
+                              AdminDetail(
+                                Icons.event_outlined,
+                                'Due ${formatAdminDate(invoice['due'])}',
+                              ),
+                            ],
+                            menu: canCheckout
+                                ? [
+                                    PopupMenuItem(
+                                      enabled: status != 'Paid',
+                                      value: 'checkout',
+                                      child: const Text('Create checkout'),
+                                      onTap: () => Future.microtask(
+                                        () => _startInvoiceCheckout(id),
+                                      ),
+                                    ),
+                                  ]
+                                : const [],
+                          );
+                        },
+                      ),
               ),
             );
             return adminPageScaffold(context, 'Billing', content);

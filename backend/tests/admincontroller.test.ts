@@ -723,12 +723,20 @@ describe('Admin Routes', () => {
                 login_id: `move-compensation-${Date.now()}@example.com`,
                 password: 'Admin@123', user_type: 'ADMIN', profile_id: targetProfile._id, is_active: true,
             });
+            // updateAdminAccount may attempt a transaction first, then fall back to
+            // standalone writes when the test Mongo is not a replica set. Only expire
+            // the membership lease after a *successful* profile CAS so the Once-style
+            // side effect is not consumed by a failed transactional probe write.
             const original = AdminProfile.findOneAndUpdate.bind(AdminProfile);
-            const spy = jest.spyOn(AdminProfile, 'findOneAndUpdate').mockImplementationOnce((async (...args: any[]) => {
+            let membershipLeaseExpired = false;
+            const spy = jest.spyOn(AdminProfile, 'findOneAndUpdate').mockImplementation((async (...args: any[]) => {
                 const updated = await original(...args);
-                await Hospital.updateOne({ _id: secondaryHospital._id }, {
-                    $set: { 'lifecycle_lock.expires_at': new Date(Date.now() - 1_000) },
-                });
+                if (!membershipLeaseExpired) {
+                    membershipLeaseExpired = true;
+                    await Hospital.updateOne({ _id: secondaryHospital._id }, {
+                        $set: { 'lifecycle_lock.expires_at': new Date(Date.now() - 1_000) },
+                    });
+                }
                 return updated as any;
             }) as any);
             try {
