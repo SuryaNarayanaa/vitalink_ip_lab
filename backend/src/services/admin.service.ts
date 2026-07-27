@@ -281,6 +281,13 @@ function requireHospitalAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>) 
   }
 }
 
+/** App Admin (global) or Hospital Admin (tenant) may mutate operational doctor/patient records. */
+function requireHospitalAdminOrAppAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
+  if (ctx.isAppAdmin) return
+  if (ctx.isHospitalAdmin && ctx.hospitalId) return
+  throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital Admin or Application Admin access is required')
+}
+
 function actorUserId(actor?: AdminActorInput) {
   return typeof actor === 'object' && actor ? actor.userId : actor
 }
@@ -1410,7 +1417,7 @@ export async function updateDoctor(
   assertOperationalAccountPayloadSafe(data)
   const ctx = await getAdminContext(actorUserId)
   requireCanMutate(ctx)
-  requireHospitalAdmin(ctx)
+  requireHospitalAdminOrAppAdmin(ctx)
   // Find user by _id or login_id
   let user = await User.findById(userId).populate('profile_id')
   if (!user) {
@@ -1501,7 +1508,10 @@ export async function updateDoctor(
       // Fail closed if the hospital-move lease is lost after a profile write:
       // deactivate the doctor so a half-applied move cannot remain operable.
       if (moveOwnershipLost) {
-        await User.updateOne({ _id: user._id }, { $set: { is_active: false } })
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { is_active: false }, $inc: { security_version: 1 } },
+        )
         await bestEffortRevokeSessionsAfterSecurityVersionBump(
           String(user._id),
           AuthSessionRevocationReason.ACCOUNT_DISABLED,

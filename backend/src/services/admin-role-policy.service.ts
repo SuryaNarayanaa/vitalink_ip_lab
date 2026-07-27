@@ -42,7 +42,13 @@ export type PolicyRestoreInput = Omit<PolicyMutationInput, 'capabilities'> & {
   revisionId: string
 }
 
-/** Short process-local TTL; mutations invalidate immediately so writes stay visible. */
+/**
+ * Short process-local TTL for role-policy snapshots.
+ * Mutations invalidate this process's cache immediately, but invalidation is not
+ * fleet-wide: other backend instances may keep serving a previously loaded
+ * snapshot (including revoked capabilities) for up to this TTL unless a shared
+ * invalidation mechanism (pub/sub, policy-version stamp check, etc.) is added.
+ */
 export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 15_000
 
 type CachedAdminRolePolicy = {

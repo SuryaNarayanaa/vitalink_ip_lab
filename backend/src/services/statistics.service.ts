@@ -411,10 +411,35 @@ export async function getInrComplianceStats(access: AdminAccessContext) {
   }
   const scope = getTenantStatisticsScope(access)!
 
-  // Keep classification logic in Node for clarity; only load this hospital's profiles
-  // (already hospital-scoped — no intermediate id materialization).
-  const patients = await PatientProfile.find({ hospital_id: scope.hospitalId })
-    .select('inr_history medical_config')
+  // Extract only the latest dated INR entry server-side so full inr_history arrays
+  // never materialize in Node for large tenants.
+  const patients = await PatientProfile.aggregate([
+    { $match: { hospital_id: scope.hospitalId } },
+    {
+      $project: {
+        medical_config: 1,
+        latest: {
+          $first: {
+            $sortArray: {
+              input: {
+                $filter: {
+                  input: { $ifNull: ['$inr_history', []] },
+                  as: 'entry',
+                  cond: {
+                    $and: [
+                      { $ne: ['$$entry.test_date', null] },
+                      { $ne: [{ $type: '$$entry.test_date' }, 'missing'] },
+                    ],
+                  },
+                },
+              },
+              sortBy: { test_date: -1 },
+            },
+          },
+        },
+      },
+    },
+  ])
 
   let inRange = 0
   let belowRange = 0
@@ -422,21 +447,13 @@ export async function getInrComplianceStats(access: AdminAccessContext) {
   let noData = 0
 
   for (const patient of patients) {
-    const history = (patient as any).inr_history || []
-    if (history.length === 0) {
+    const latest = patient.latest
+    if (!latest || latest.inr_value === undefined || latest.inr_value === null) {
       noData++
       continue
     }
-
-    const latest = history
-      .filter((entry: any) => entry?.test_date && !Number.isNaN(new Date(entry.test_date).getTime()))
-      .sort((a: any, b: any) => +new Date(b.test_date) - +new Date(a.test_date))[0]
-    if (!latest) {
-      noData++
-      continue
-    }
-    const targetMin = (patient as any).medical_config?.target_inr?.min || 2.0
-    const targetMax = (patient as any).medical_config?.target_inr?.max || 3.0
+    const targetMin = patient.medical_config?.target_inr?.min || 2.0
+    const targetMax = patient.medical_config?.target_inr?.max || 3.0
 
     if (latest.inr_value < targetMin) belowRange++
     else if (latest.inr_value > targetMax) aboveRange++
@@ -540,7 +557,9 @@ export async function getPeriodStatistics(
   const scope = getTenantStatisticsScope(access)
   const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const end = endDate ? new Date(endDate) : new Date()
-  end.setHours(23, 59, 59, 999)
+  // UTC end-of-day so period windows are deterministic across deployment timezones
+  // (still widens a full ISO timestamp to the end of its UTC calendar day).
+  end.setUTCHours(23, 59, 59, 999)
 
   if (!scope) {
     const [newDoctors, newPatients, auditActions] = await Promise.all([

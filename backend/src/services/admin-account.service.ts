@@ -613,6 +613,14 @@ export async function updateAdminAccount(
             user_id: String(user._id),
             force_disabled: true,
           })
+        } else if (!tracking.securityBoundaryCommitted && tracking.profileMutated) {
+          // Profile-only compensation failed without a concurrent security-boundary
+          // write: log as an error, not a concurrency skip.
+          logger.error('admin_account.profile_compensation_failed', {
+            user_id: String(user._id),
+            profile_mutated: true,
+            security_boundary_committed: false,
+          })
         } else {
           logger.warn('admin_account.update_compensation_skipped_concurrent', {
             user_id: String(user._id),

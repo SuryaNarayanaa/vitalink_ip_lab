@@ -206,8 +206,10 @@ describe('phone verification groundwork', () => {
       { runValidators: true, new: true },
     )
     const [, update] = updateSpy.mock.calls[0]
-    expect(update.$set).not.toHaveProperty('demographics')
-    expect(update.$set).not.toHaveProperty('demographics.phone')
-    expect(update.$set).not.toHaveProperty('demographics.phone_verification')
+    // Pass dotted keys as single-element arrays so Jest treats them as literal
+    // property names on $set, not deep path lookups.
+    expect(update.$set).not.toHaveProperty(['demographics'])
+    expect(update.$set).not.toHaveProperty(['demographics.phone'])
+    expect(update.$set).not.toHaveProperty(['demographics.phone_verification'])
   })
 })

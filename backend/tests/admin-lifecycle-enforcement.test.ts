@@ -376,7 +376,10 @@ describe('dedicated administrator account lifecycle', () => {
 
     expect(session.withTransaction).toHaveBeenCalledTimes(1)
     expect(session.endSession).toHaveBeenCalledTimes(1)
-    // Fallback path must not attach a session option.
+    // Fallback path must not attach a session option, and must not double-write
+    // after a partial transactional probe.
+    expect(profileUpdate).toHaveBeenCalledTimes(1)
+    expect(userUpdate).toHaveBeenCalledTimes(1)
     expect(profileUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ _id: profileId }),
       expect.objectContaining({ $set: expect.objectContaining({ admin_role: 'auditor' }) }),
