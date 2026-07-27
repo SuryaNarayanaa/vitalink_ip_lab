@@ -1377,9 +1377,16 @@ paths:
       x-admin-scope: global
       x-admin-roles: [app_admin, auditor]
       tags: [Admin]
-      summary: List legacy persisted role definitions
+      summary: List role catalog (compatibility; admin roles projected from V2)
       deprecated: true
-      description: Compatibility read for legacy manage_* RoleDefinition records, including Doctor and Patient definitions. These are not authoritative RBAC V2 policies; use GET /admin/role-policies.
+      description: >
+        Compatibility read. Fixed administrator roles (`app_admin`, `hospital_admin`,
+        `auditor`) are projected from authoritative AdminRolePolicy V2 documents
+        (manage_* maps are derived views; response also includes `capabilities`,
+        `policy_version`, and `role_policies_path`). Doctor and Patient rows remain
+        legacy RoleDefinition catalog metadata only. Runtime enforcement never uses
+        this payload — use GET /admin/role-policies. Missing capability returns the
+        standard V2 403 body with `required_capability` and `policy_version`.
       responses:
         "200":
           description: Roles retrieved
@@ -4565,6 +4572,23 @@ components:
         label: { type: string, example: Hospital Admin }
         color: { type: string, example: doctor }
         permissions: { $ref: "#/components/schemas/AdminRolePermissions" }
+        capabilities:
+          $ref: "#/components/schemas/AdminCapabilityMap"
+          description: Present for fixed admin roles; authoritative V2 capability map.
+        policy_version:
+          type: integer
+          minimum: 1
+          description: Present for fixed admin roles projected from AdminRolePolicy.
+        authoritative_source:
+          type: string
+          enum: [admin_role_policy, role_definition]
+          description: admin_role_policy for fixed admin roles; omitted or role_definition for clinical catalog rows.
+        role_policies_path:
+          type: string
+          example: /admin/role-policies/hospital_admin
+        deprecated:
+          type: boolean
+          description: True for fixed admin role projections on this compatibility endpoint.
 
     RolesResponse:
       allOf:

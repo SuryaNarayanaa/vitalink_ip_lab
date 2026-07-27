@@ -86,6 +86,11 @@ registerAdminRoute(router, {
 }, validate(adminRolePolicyParamsSchema), getAdminRolePolicy)
 
 // ─── Compatibility Role Endpoints ───
+// GET /roles is deprecated: fixed admin roles are projected from V2 policies;
+// doctor/patient rows remain legacy catalog metadata. Prefer /role-policies.
+// Capability-denied responses use the standard V2 403 body (required_capability,
+// policy_version). Clients that only understood manage_* RoleDefinition maps
+// must migrate; writes already return 410.
 registerAdminRoute(router, {
   method: 'get', path: '/roles', capability: 'platform.role_policy.read', scope: 'global', mutation: false, surface: 'admin',
 }, getRoles)

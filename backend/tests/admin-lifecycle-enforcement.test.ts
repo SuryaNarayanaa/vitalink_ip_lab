@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { AdminProfile, User } from '@alias/models'
+import { AdminProfile, Hospital, User } from '@alias/models'
 import type { AdminAccessContext } from '@alias/types/admin-access'
 import { DEFAULT_ADMIN_ROLE_POLICIES } from '@alias/constants/admin-capabilities'
 import {
@@ -179,6 +179,72 @@ describe('dedicated administrator account lifecycle', () => {
     )).rejects.toMatchObject({ statusCode: 403 })
     expect(profileLookup).not.toHaveBeenCalled()
     expect(userLookup).not.toHaveBeenCalled()
+  })
+
+  test('listAdminAccounts soft-fails a hospital_admin with missing hospital instead of failing the whole list', async () => {
+    const healthyProfileId = new mongoose.Types.ObjectId()
+    const brokenProfileId = new mongoose.Types.ObjectId()
+    const healthyHospitalId = new mongoose.Types.ObjectId()
+    const missingHospitalId = new mongoose.Types.ObjectId()
+    const healthyUserId = new mongoose.Types.ObjectId()
+    const brokenUserId = new mongoose.Types.ObjectId()
+
+    jest.spyOn(AdminProfile, 'find').mockReturnValue(queryResult([
+      {
+        _id: healthyProfileId,
+        name: 'Healthy Admin',
+        admin_role: 'hospital_admin',
+        hospital_id: healthyHospitalId,
+      },
+      {
+        _id: brokenProfileId,
+        name: 'Broken Admin',
+        admin_role: 'hospital_admin',
+        hospital_id: missingHospitalId,
+      },
+    ]) as any)
+    jest.spyOn(Hospital, 'find').mockReturnValue(queryResult([
+      {
+        _id: healthyHospitalId,
+        code: 'HOK',
+        name: 'Healthy Hospital',
+        status: 'ACTIVE',
+      },
+    ]) as any)
+    jest.spyOn(User, 'find').mockReturnValue(queryResult([
+      {
+        _id: healthyUserId,
+        login_id: 'healthy@example.com',
+        profile_id: healthyProfileId,
+        is_active: true,
+        admin_mfa: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        _id: brokenUserId,
+        login_id: 'broken@example.com',
+        profile_id: brokenProfileId,
+        is_active: true,
+        admin_mfa: {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]) as any)
+
+    const result = await listAdminAccounts(appAdminContext)
+    expect(result.admin_accounts).toHaveLength(2)
+    const healthy = result.admin_accounts.find((row: any) => row.login_id === 'healthy@example.com')
+    const broken = result.admin_accounts.find((row: any) => row.login_id === 'broken@example.com')
+    expect(healthy).toMatchObject({
+      assignment_status: 'ok',
+      hospital: { code: 'HOK' },
+    })
+    expect(broken).toMatchObject({
+      assignment_status: 'invalid',
+      hospital: null,
+      assignment_error: expect.stringMatching(/active hospital/i),
+    })
   })
 
   test('never creates an Application Admin through the portal lifecycle', async () => {

@@ -43,13 +43,11 @@ export type PolicyRestoreInput = Omit<PolicyMutationInput, 'capabilities'> & {
 }
 
 /**
- * Short process-local TTL for role-policy snapshots.
- * Mutations invalidate this process's cache immediately, but invalidation is not
- * fleet-wide: other backend instances may keep serving a previously loaded
- * snapshot (including revoked capabilities) for up to this TTL unless a shared
- * invalidation mechanism (pub/sub, policy-version stamp check, etc.) is added.
- * Kept aggressively short (5s) to limit post-revoke privilege retention in
- * multi-instance deploys.
+ * Process-local soft TTL for role-policy snapshots.
+ * Mutations invalidate this process's cache immediately. For multi-instance
+ * deploys, {@link getAdminRolePolicy} revalidates the Mongo `policy_version`
+ * stamp before serving a cached snapshot so revoked capabilities are not kept
+ * for the full TTL after another replica mutates policy.
  */
 export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 5_000
 
@@ -251,7 +249,11 @@ export function diffAdminCapabilityMaps(
 
 function previewWarnings(roleKey: AdminRoleKey, diff: AdminRolePolicyDiff): string[] {
   const warnings: string[] = []
-  if (diff.removed.length) warnings.push('Removed capabilities take effect on the next backend request for all active accounts in this role.')
+  if (diff.removed.length) {
+    warnings.push(
+      'Removed capabilities take effect after each backend instance revalidates the policy version stamp (typically on the next authorization request).',
+    )
+  }
   if (roleKey === 'auditor') warnings.push('System Auditors remain hard read-only regardless of stored policy data.')
   return warnings
 }
@@ -264,15 +266,31 @@ function impactedPolicyAreas(diff: AdminRolePolicyDiff) {
   }))
 }
 
+async function loadStoredPolicyVersion(roleKey: AdminRoleKey): Promise<number | null> {
+  const document = await AdminRolePolicy.findOne({ role_key: roleKey })
+    .select('policy_version')
+    .lean() as { policy_version?: number } | null
+  if (!document) return null
+  const version = Number(document.policy_version)
+  return Number.isSafeInteger(version) && version >= 1 ? version : null
+}
+
 export async function getAdminRolePolicy(roleKey: AdminRoleKey): Promise<AdminRolePolicySnapshot> {
   if (!ADMIN_ROLE_KEYS.includes(roleKey)) throw policyUnavailable()
 
   const cached = policyCache.get(roleKey)
   if (cached && cached.expiresAt > Date.now()) {
-    try {
-      return snapshotFromCache(roleKey, cached.snapshot)
-    } catch {
-      // Stale or corrupted entry — drop and reload from the store.
+    // Version-stamp check closes multi-replica post-revoke privilege windows
+    // that process-local invalidation alone cannot cover.
+    const storedVersion = await loadStoredPolicyVersion(roleKey)
+    if (storedVersion === cached.snapshot.policyVersion) {
+      try {
+        return snapshotFromCache(roleKey, cached.snapshot)
+      } catch {
+        // Stale or corrupted entry — drop and reload from the store.
+        invalidateAdminRolePolicyCache(roleKey)
+      }
+    } else {
       invalidateAdminRolePolicyCache(roleKey)
     }
   }

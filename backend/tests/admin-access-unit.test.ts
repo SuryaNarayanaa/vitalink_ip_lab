@@ -228,4 +228,28 @@ describe('typed administrator guards', () => {
     expect(res.status).toHaveBeenCalledWith(403)
     expect(next).not.toHaveBeenCalled()
   })
+
+  test('requireAdminMutation distinguishes missing access context from auditor read-only', () => {
+    const missing = responseMock()
+    requireAdminMutation()({} as Request, missing, jest.fn())
+    expect(missing.status).toHaveBeenCalledWith(403)
+    expect(missing.json).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/access context is required/i),
+    }))
+
+    const auditor = responseMock()
+    requireAdminMutation()({
+      adminAccess: {
+        userId: 'user-7',
+        role: 'auditor',
+        scope: 'global',
+        permissions: {},
+        policyVersion: 1,
+        readOnly: true,
+      },
+    } as Request, auditor, jest.fn())
+    expect(auditor.json).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/read-only/i),
+    }))
+  })
 })

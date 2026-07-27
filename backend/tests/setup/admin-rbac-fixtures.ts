@@ -131,6 +131,11 @@ export function buildPolicyRevisionFixture(input: {
 export type CreateAdminRbacFixturesOptions = {
   namespace?: string
   models?: Partial<AdminRbacFixtureModels>
+  /**
+   * When true (default), seed AdminRolePolicy + revision documents so middleware
+   * access resolution succeeds. Set false only for pure inventory/unit fixture
+   * shapes that never hit capability enforcement.
+   */
   persistPolicies?: boolean
   policyOverrides?: Partial<Record<AdminRbacRole, Record<string, unknown>>>
   revisionOverrides?: Partial<Record<AdminRbacRole, Record<string, unknown>>>
@@ -142,7 +147,10 @@ export type CreateAdminRbacFixturesOptions = {
  */
 export async function createAdminRbacFixtures(options: CreateAdminRbacFixturesOptions = {}) {
   const namespace = nextNamespace(options.namespace)
-  const discoveredPolicyModels = options.persistPolicies ? loadAdminRbacPolicyModels() : undefined
+  // Default true: integration paths that forget to seed policies fail closed
+  // with "policy unavailable" and look like product regressions.
+  const persistPolicies = options.persistPolicies !== false
+  const discoveredPolicyModels = persistPolicies ? loadAdminRbacPolicyModels() : undefined
   const models: AdminRbacFixtureModels = {
     ...defaultModels,
     ...options.models,
@@ -150,9 +158,9 @@ export async function createAdminRbacFixtures(options: CreateAdminRbacFixturesOp
     AdminRolePolicyRevision: options.models?.AdminRolePolicyRevision ?? discoveredPolicyModels?.revision,
   }
 
-  if (options.persistPolicies && (!models.AdminRolePolicy || !models.AdminRolePolicyRevision)) {
+  if (persistPolicies && (!models.AdminRolePolicy || !models.AdminRolePolicyRevision)) {
     throw new Error(
-      'Admin RBAC fixture integration requires import-safe AdminRolePolicy and AdminRolePolicyRevision model exports.',
+      'Admin RBAC fixture integration requires import-safe AdminRolePolicy and AdminRolePolicyRevision model exports. Pass persistPolicies: false only when policy documents are intentionally omitted.',
     )
   }
 
@@ -239,10 +247,10 @@ export async function createAdminRbacFixtures(options: CreateAdminRbacFixturesOp
     overrides: options.revisionOverrides?.[role],
   }))
 
-  const policies = options.persistPolicies
+  const policies = persistPolicies
     ? await Promise.all(policyInputs.map(input => models.AdminRolePolicy!.create(input)))
     : []
-  const revisions = options.persistPolicies
+  const revisions = persistPolicies
     ? await Promise.all(revisionInputs.map(input => models.AdminRolePolicyRevision!.create(input)))
     : []
 

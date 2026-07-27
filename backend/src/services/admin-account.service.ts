@@ -149,14 +149,34 @@ function isMfaEnabled(user: any) {
   )
 }
 
-function formatAdminAccount(user: any, profile: any, hospital?: any) {
+type FormatAdminAccountOptions = {
+  /**
+   * List endpoints soft-fail assignment problems so one broken hospital link
+   * cannot take down the administrator directory / recovery UI.
+   * Single-account get/update paths keep the hard 409.
+   */
+  allowDegraded?: boolean
+}
+
+function formatAdminAccount(user: any, profile: any, hospital?: any, options: FormatAdminAccountOptions = {}) {
   assertEditableAdminRole(profile?.admin_role)
+  let assignmentError: string | undefined
+
   if (profile.admin_role === AdminRole.HOSPITAL_ADMIN && !hospital) {
-    throw new ApiError(StatusCodes.CONFLICT, 'Hospital Admin account is not assigned to an active hospital')
+    const message = 'Hospital Admin account is not assigned to an active hospital'
+    if (!options.allowDegraded) {
+      throw new ApiError(StatusCodes.CONFLICT, message)
+    }
+    assignmentError = message
   }
   if (profile.admin_role === AdminRole.AUDITOR && profile.hospital_id) {
-    throw new ApiError(StatusCodes.CONFLICT, 'System Auditor account has an invalid hospital assignment')
+    const message = 'System Auditor account has an invalid hospital assignment'
+    if (!options.allowDegraded) {
+      throw new ApiError(StatusCodes.CONFLICT, message)
+    }
+    assignmentError = message
   }
+
   return {
     id: String(user._id),
     login_id: user.login_id,
@@ -169,6 +189,14 @@ function formatAdminAccount(user: any, profile: any, hospital?: any) {
     mfa_enabled: isMfaEnabled(user),
     created_at: user.createdAt,
     updated_at: user.updatedAt,
+    ...(assignmentError
+      ? {
+          assignment_error: assignmentError,
+          assignment_status: 'invalid' as const,
+        }
+      : {
+          assignment_status: 'ok' as const,
+        }),
   }
 }
 
@@ -267,8 +295,10 @@ export async function listAdminAccounts(actorInput: AdminAccountActor) {
   const hospitalIds = profiles
     .filter(profile => profile.admin_role === AdminRole.HOSPITAL_ADMIN && profile.hospital_id)
     .map(profile => profile.hospital_id)
+  // Include inactive/suspended hospitals so operators can repair assignments;
+  // active-only filtering would hide the hospital identity for degraded rows.
   const hospitals = hospitalIds.length
-    ? await Hospital.find({ _id: { $in: hospitalIds }, status: HospitalStatus.ACTIVE })
+    ? await Hospital.find({ _id: { $in: hospitalIds } })
       .select('_id code name status').lean() as any[]
     : []
   const hospitalById = new Map(hospitals.map(hospital => [String(hospital._id), hospital]))
@@ -282,13 +312,24 @@ export async function listAdminAccounts(actorInput: AdminAccountActor) {
     : []
 
   return {
-    admin_accounts: users.map(user => {
+    admin_accounts: users.flatMap(user => {
       const profile = profileById.get(String(user.profile_id))
-      return formatAdminAccount(
-        user,
-        profile,
-        profile?.hospital_id ? hospitalById.get(String(profile.hospital_id)) : undefined,
-      )
+      if (!profile) return []
+      try {
+        return [formatAdminAccount(
+          user,
+          profile,
+          profile.hospital_id ? hospitalById.get(String(profile.hospital_id)) : undefined,
+          { allowDegraded: true },
+        )]
+      } catch (error) {
+        // Unexpected format failures must not fail the entire directory.
+        logger.warn('Skipping unreadable administrator account in list', {
+          userId: String(user._id),
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return []
+      }
     }),
   }
 }

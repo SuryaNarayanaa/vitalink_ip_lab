@@ -96,8 +96,15 @@ export const requireAdminMutation = () => (
   res: Response,
   next: NextFunction,
 ): void => {
-  if (!req.adminAccess || req.adminAccess.role === 'auditor' || req.adminAccess.readOnly) {
-    deny(res, { message: 'System Auditors have read-only access.', policyVersion: req.adminAccess?.policyVersion })
+  if (!req.adminAccess) {
+    deny(res, { message: 'Administrator access context is required.' })
+    return
+  }
+  if (req.adminAccess.role === 'auditor' || req.adminAccess.readOnly) {
+    deny(res, {
+      message: 'System Auditors have read-only access.',
+      policyVersion: req.adminAccess.policyVersion,
+    })
     return
   }
   next()

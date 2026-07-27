@@ -53,7 +53,9 @@ dependencies:
   firebase_messaging: ^15.2.10
   flutter_local_notifications: ^18.0.1
   qr_flutter: ^4.1.0
-  shared_preferences: ^2.5.5
+  # Pin below 2.5.4 so Flutter CI (Dart 3.8 / Flutter 3.32) can resolve deps.
+  # 2.5.4+ requires Dart SDK ^3.9.0.
+  shared_preferences: 2.5.3
   # Pin below 2.1.6 so Flutter CI (Dart 3.8 / Flutter 3.32) can resolve deps.
   # 2.1.6+ requires Dart SDK ^3.9; 2.3+ requires ^3.10.
   pdfrx: 2.1.5

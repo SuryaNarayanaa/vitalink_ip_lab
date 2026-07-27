@@ -10,8 +10,16 @@ import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
 import { InvoiceStatus } from '@alias/models/invoice.model'
-import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions, getRolePermissions } from './role-policy.service'
+import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions } from './role-policy.service'
 import type { AdminAccessContext } from '@alias/types/admin-access'
+import { hasAdminCapability } from '@alias/types/admin-access'
+import type { AdminCapability, AdminCapabilityMap, AdminRoleKey } from '@alias/constants/admin-capabilities'
+import {
+  ADMIN_ROLE_KEYS,
+  ADMIN_ROLE_LABELS,
+} from '@alias/constants/admin-capabilities'
+import { listAdminRolePolicies } from './admin-role-policy.service'
+import { resolveAdminAccessContext } from './admin-access.service'
 import {
   createAdminAccount,
   listAdminAccounts,
@@ -42,8 +50,6 @@ const emptyPaginatedResult = (key: 'doctors' | 'patients', page: number, limit: 
   [key]: [],
   pagination: paginationResult(0, page, limit),
 })
-
-const ADMIN_ROLES = Object.values(AdminRole) as string[]
 
 type AdminActorInput = string | AdminAccessContext | undefined
 
@@ -224,36 +230,18 @@ export async function getAdminContext(actor?: AdminActorInput) {
       permissions: actor.permissions,
     }
   }
-  const userId = actor
-  const user = await User.findById(userId).populate({
-    path: 'profile_id',
-    populate: { path: 'hospital_id' },
-  })
-  const profile: any = user?.profile_id
-  const role = profile?.admin_role
-  if (!user || !user.is_active || user.user_type !== UserType.ADMIN || !profile || !ADMIN_ROLES.includes(role)) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Valid active admin profile is required')
-  }
-  const hospitalId = profile?.hospital_id?._id || profile?.hospital_id
-  if (role === AdminRole.HOSPITAL_ADMIN) {
-    if (!hospitalId || profile?.hospital_id?.status !== HospitalStatus.ACTIVE) {
-      throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital Admin must be assigned to one active hospital')
-    }
-  } else if (hospitalId) {
-    throw new ApiError(
-      StatusCodes.FORBIDDEN,
-      `${role === AdminRole.AUDITOR ? 'System Auditor' : 'Application Admin'} must not be assigned to a hospital`,
-    )
-  }
-  const permissions = await getRolePermissions(role)
+  // String actors resolve through the authoritative V2 access path so service
+  // code never sees a legacy RoleDefinition permission map that diverges from
+  // middleware capability checks.
+  const access = await resolveAdminAccessContext(actor)
   return {
-    role,
-    hospitalId: hospitalId ? String(hospitalId) : undefined,
-    hospitalCode: profile?.hospital_id?.code,
-    isAppAdmin: role === AdminRole.APP_ADMIN,
-    isHospitalAdmin: role === AdminRole.HOSPITAL_ADMIN,
-    isAuditor: role === AdminRole.AUDITOR,
-    permissions,
+    role: access.role as AdminRole,
+    hospitalId: access.hospitalId,
+    hospitalCode: access.hospitalCode,
+    isAppAdmin: access.role === AdminRole.APP_ADMIN,
+    isHospitalAdmin: access.role === AdminRole.HOSPITAL_ADMIN,
+    isAuditor: access.role === AdminRole.AUDITOR,
+    permissions: access.permissions,
   }
 }
 
@@ -457,8 +445,100 @@ async function revokeSessionsIfAccountDisabled(user: any, wasActive: boolean) {
   return result.modifiedCount || 0
 }
 
+/**
+ * Project V2 capability maps onto the legacy manage_* keys so compatibility
+ * clients keep a response shape while values track authoritative AdminRolePolicy.
+ */
+function legacyPermissionsFromV2Capabilities(
+  roleKey: AdminRoleKey,
+  capabilities: AdminCapabilityMap,
+): Record<string, boolean> {
+  const has = (capability: AdminCapability) => capabilities[capability] === true
+  if (roleKey === 'hospital_admin') {
+    return {
+      manage_hospitals: true,
+      manage_users: has('tenant.credentials.reset'),
+      manage_roles: false,
+      view_audit: has('tenant.audit.read'),
+      manage_doctors: has('tenant.doctors.read') || has('tenant.doctors.manage'),
+      manage_patients: has('tenant.patients.read') || has('tenant.patients.manage'),
+      export_data: has('tenant.analytics.read'),
+      manage_billing: has('tenant.billing.read') || has('tenant.billing.checkout'),
+      manage_system: has('tenant.notifications.broadcast') || has('tenant.operations_health.read'),
+    }
+  }
+  if (roleKey === 'auditor') {
+    return {
+      manage_hospitals: has('platform.hospitals.read'),
+      manage_users: false,
+      manage_roles: has('platform.role_policy.read'),
+      view_audit: has('platform.audit.read'),
+      manage_doctors: false,
+      manage_patients: false,
+      export_data: has('platform.analytics.read'),
+      manage_billing: has('platform.billing.read'),
+      manage_system: has('platform.system_health.read'),
+    }
+  }
+  return {
+    manage_hospitals: has('platform.hospitals.read') || has('platform.hospitals.manage'),
+    manage_users: has('platform.admin_accounts.read') || has('platform.admin_accounts.manage'),
+    manage_roles: has('platform.role_policy.read') || has('platform.role_policy.manage'),
+    view_audit: has('platform.audit.read'),
+    manage_doctors: false,
+    manage_patients: false,
+    export_data: has('platform.analytics.read'),
+    manage_billing: has('platform.billing.read') || has('platform.billing.manage'),
+    manage_system:
+      has('platform.system_config.read')
+      || has('platform.system_config.manage')
+      || has('platform.system_health.read')
+      || has('platform.notifications.broadcast'),
+  }
+}
+
+/**
+ * Compatibility role catalog.
+ * - Fixed admin roles (app_admin / hospital_admin / auditor) are projected from
+ *   V2 AdminRolePolicy (authoritative).
+ * - Doctor / patient RoleDefinition rows remain legacy catalog metadata only.
+ * Runtime enforcement never consults these manage_* maps.
+ */
 export async function getRoles() {
-  return { roles: await getRoleDefinitions() }
+  const roles = await getRoleDefinitions() as Record<string, Record<string, unknown>>
+  const policies = await listAdminRolePolicies()
+  for (const policy of policies) {
+    const existing = roles[policy.roleKey] as { label?: string; color?: string } | undefined
+    roles[policy.roleKey] = {
+      label: existing?.label || ADMIN_ROLE_LABELS[policy.roleKey],
+      color: existing?.color || (policy.roleKey === 'hospital_admin' ? 'doctor' : policy.roleKey === 'auditor' ? 'auditor' : 'admin'),
+      permissions: legacyPermissionsFromV2Capabilities(policy.roleKey, policy.capabilities),
+      // Extra fields for clients migrating off this compatibility endpoint.
+      capabilities: policy.capabilities,
+      policy_version: policy.policyVersion,
+      authoritative_source: 'admin_role_policy',
+      role_policies_path: `/admin/role-policies/${policy.roleKey}`,
+      deprecated: true,
+    }
+  }
+  // Ensure all three fixed roles are present even if RoleDefinition seed lagged.
+  for (const roleKey of ADMIN_ROLE_KEYS) {
+    if (!roles[roleKey]) {
+      const policy = policies.find(item => item.roleKey === roleKey)
+      if (!policy) continue
+      roles[roleKey] = {
+        label: ADMIN_ROLE_LABELS[roleKey],
+        color: roleKey === 'hospital_admin' ? 'doctor' : roleKey === 'auditor' ? 'auditor' : 'admin',
+        permissions: legacyPermissionsFromV2Capabilities(roleKey, policy.capabilities),
+        capabilities: policy.capabilities,
+        policy_version: policy.policyVersion,
+        authoritative_source: 'admin_role_policy',
+        role_policies_path: `/admin/role-policies/${roleKey}`,
+        deprecated: true,
+      }
+    }
+  }
+  return { roles }
 }
 
 /**
@@ -803,8 +883,22 @@ export async function deleteHospital(id: string, actor?: AdminActorInput) {
 
 export async function listInvoices(actor?: AdminActorInput) {
   const ctx = await getAdminContext(actor)
+  const accessPerms = { permissions: ctx.permissions as AdminCapabilityMap }
+  const canPlatformBilling = hasAdminCapability(accessPerms, 'platform.billing.read')
+  const canTenantBilling = hasAdminCapability(accessPerms, 'tenant.billing.read')
+  if (!canPlatformBilling && !canTenantBilling) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Administrator billing access is not permitted.')
+  }
+
   const query: any = {}
-  if (!ctx.isAppAdmin && ctx.hospitalId) query.hospital_id = ctx.hospitalId
+  // Tenant-only readers must be hospital-scoped; platform readers see all invoices.
+  if (!canPlatformBilling) {
+    if (!ctx.hospitalId) {
+      throw new ApiError(StatusCodes.FORBIDDEN, 'Active hospital administrator scope is required.')
+    }
+    query.hospital_id = ctx.hospitalId
+  }
+
   const invoices = await Invoice.find(query).populate('hospital_id').sort({ createdAt: -1 }).lean()
   return {
     invoices: invoices.map((invoice: any) => ({
