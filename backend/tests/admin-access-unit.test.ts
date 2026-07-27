@@ -203,8 +203,11 @@ describe('typed administrator guards', () => {
     expect(next).toHaveBeenCalledTimes(2)
 
     const denied = responseMock()
+    const nextCallsBeforeDeny = (next as jest.Mock).mock.calls.length
     requireGlobalAdminScope()(req, denied, next)
     expect(denied.status).toHaveBeenCalledWith(403)
+    // Ensure the guard fails closed and does not continue the chain.
+    expect((next as jest.Mock).mock.calls.length).toBe(nextCallsBeforeDeny)
   })
 
   test('hard-denies Auditor mutations even if a malformed context claims mutation access', () => {

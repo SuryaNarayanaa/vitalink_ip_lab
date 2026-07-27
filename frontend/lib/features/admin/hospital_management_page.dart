@@ -91,10 +91,11 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> {
                     label: const Text('Add'),
                   ),
               ],
-              child: AdminQueryBody(
+              child: AdminQueryBody<Map<String, dynamic>>(
                 query: query,
                 emptyIcon: Icons.local_hospital_outlined,
                 emptyText: 'No hospitals found',
+                isEmpty: hospitals.isEmpty,
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: hospitals.length,

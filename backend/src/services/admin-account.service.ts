@@ -331,6 +331,9 @@ export async function createAdminAccount(
       must_change_password: true,
     }
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
+    }
     if (created) {
       await User.updateOne(
         { _id: created.user._id, is_active: true },
@@ -345,6 +348,15 @@ export async function createAdminAccount(
   } finally {
     await membershipGuard?.release()
   }
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: number }).code === 11000,
+  )
 }
 
 function exactOptional(path: string, value: unknown) {
@@ -558,7 +570,7 @@ export async function updateAdminAccount(
             && Boolean(current.is_active) === requestedActive
             && Number(current.security_version || 0) === Number(user.security_version || 0) + 1
           if (stillOwnedByThisAttempt) {
-            await User.updateOne(
+            const forceDisableResult = await User.updateOne(
               {
                 _id: user._id,
                 is_active: requestedActive,
@@ -566,11 +578,16 @@ export async function updateAdminAccount(
               },
               { $set: { is_active: false }, $inc: { security_version: 1 } },
             )
-            forceDisabled = true
-            await bestEffortRevokeSessionsAfterSecurityVersionBump(
-              String(user._id),
-              AuthSessionRevocationReason.ACCOUNT_DISABLED,
-            )
+            // Only report force-disable when the CAS write actually matched; a
+            // concurrent update can invalidate the filter between the freshness
+            // read and this update.
+            forceDisabled = forceDisableResult.matchedCount === 1
+            if (forceDisabled) {
+              await bestEffortRevokeSessionsAfterSecurityVersionBump(
+                String(user._id),
+                AuthSessionRevocationReason.ACCOUNT_DISABLED,
+              )
+            }
           }
         } catch {
           forceDisabled = false

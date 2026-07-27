@@ -9,15 +9,15 @@ import { AuditAction } from '@alias/models/auditlog.model'
 import logger from '@alias/utils/logger'
 import { getDeliveryMetrics } from '@alias/services/notification-delivery.metrics'
 import type { AdminAccessContext } from '@alias/types/admin-access'
-import { hasAdminCapability } from '@alias/types/admin-access'
+import {
+  requireAdminAccessContext,
+  requireAdminCapabilityContext,
+} from '@alias/types/admin-access'
 import type { AdminCapability } from '@alias/constants/admin-capabilities'
 import { UserType } from '@alias/validators'
 
 function accessContext(req: Request): AdminAccessContext {
-  if (!req.adminAccess) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Administrator access context is required.')
-  }
-  return req.adminAccess
+  return requireAdminAccessContext(req)
 }
 
 function requireAccessCapability(
@@ -25,15 +25,7 @@ function requireAccessCapability(
   capability: AdminCapability,
   scope?: 'global' | 'tenant',
 ): void {
-  if (
-    !hasAdminCapability(access, capability)
-    || (scope !== undefined && access.scope !== scope)
-    || (access.readOnly && !capability.endsWith('.read'))
-  ) {
-    const error = new ApiError(StatusCodes.FORBIDDEN, 'Administrator access is not permitted for this operation.')
-    Object.assign(error, { requiredCapability: capability })
-    throw error
-  }
+  requireAdminCapabilityContext(access, capability, { scope })
 }
 
 async function getTenantUserIds(access: AdminAccessContext): Promise<any[]> {

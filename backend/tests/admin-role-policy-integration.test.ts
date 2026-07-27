@@ -166,8 +166,10 @@ describe('RBAC V2 policy transaction integration', () => {
       revisions: await AdminRolePolicyRevision.countDocuments({ role_key: 'hospital_admin' }),
       audits: await AuditLog.countDocuments({ action: 'ROLE_POLICY_UPDATE' }),
     }
-    expect(afterRollback.policy?.policy_version).toBe(beforeRollback.policy?.policy_version)
-    expect(afterRollback.policy?.capabilities).toEqual(beforeRollback.policy?.capabilities)
+    expect(beforeRollback.policy).toBeTruthy()
+    expect(afterRollback.policy).toBeTruthy()
+    expect(afterRollback.policy!.policy_version).toBe(beforeRollback.policy!.policy_version)
+    expect(afterRollback.policy!.capabilities).toEqual(beforeRollback.policy!.capabilities)
     expect(afterRollback.revisions).toBe(beforeRollback.revisions)
     expect(afterRollback.audits).toBe(beforeRollback.audits)
   })

@@ -252,7 +252,7 @@ export async function getDoctorWorkloadStats(access: AdminAccessContext) {
   }
 
   match.hospital_id = scope.hospitalId
-  const workload = await PatientProfile.aggregate([
+  const items = await PatientProfile.aggregate([
     { $match: match },
     { $group: { _id: '$assigned_doctor_id', patient_count: { $sum: 1 } } },
     {
@@ -284,7 +284,12 @@ export async function getDoctorWorkloadStats(access: AdminAccessContext) {
     { $sort: { patient_count: -1 } },
   ])
 
-  return workload
+  // Always return an object envelope so global (anonymous aggregate) and tenant
+  // (per-doctor items) share a stable response shape under data.
+  return {
+    scope: 'tenant' as const,
+    items,
+  }
 }
 
 export async function getPeriodStatistics(

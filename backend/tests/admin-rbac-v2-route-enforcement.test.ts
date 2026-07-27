@@ -263,7 +263,18 @@ describe('RBAC V2 typed route enforcement', () => {
   })
 
   test('applies fixed-role allow/deny rules to every typed route class', async () => {
-    const policies = [...getRegisteredAdminRoutePolicies()]
+    // Ensure production route policies are available without depending on a
+    // prior test. Prefer an already-populated registry (from an earlier test
+    // in this file). Only require the route modules when the registry still
+    // holds the small probe set from beforeAll — re-require + cache bust can
+    // split the policy-module singleton under ts-jest and leave the outer
+    // registry empty.
+    let policies = [...getRegisteredAdminRoutePolicies()]
+    if (policies.length <= 10) {
+      clearRegisteredAdminRoutePoliciesForTests()
+      for (const file of PROTECTED_ROUTE_FILES) require(file)
+      policies = [...getRegisteredAdminRoutePolicies()]
+    }
     expect(policies.length).toBeGreaterThan(40)
 
     const matrixApp = express()

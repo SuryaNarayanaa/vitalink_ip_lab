@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
@@ -71,19 +72,21 @@ class AdminListShell extends StatelessWidget {
   }
 }
 
-class AdminQueryBody extends StatelessWidget {
+class AdminQueryBody<T> extends StatelessWidget {
   const AdminQueryBody({
     super.key,
     required this.query,
     required this.child,
     required this.emptyIcon,
     required this.emptyText,
+    this.isEmpty = false,
   });
 
-  final dynamic query;
+  final QueryResult<T> query;
   final Widget child;
   final IconData emptyIcon;
   final String emptyText;
+  final bool isEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +95,18 @@ class AdminQueryBody extends StatelessWidget {
     }
     if (query.isError) {
       return ApiErrorState(error: query.error, onRetry: () => query.refetch());
+    }
+    if (isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(emptyIcon, size: 48),
+            const SizedBox(height: 12),
+            Text(emptyText),
+          ],
+        ),
+      );
     }
     return child;
   }
@@ -182,15 +197,23 @@ class AdminStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lower = label.toLowerCase();
+    final lower = label.toLowerCase().trim();
     final theme = Theme.of(context);
-    final color =
-        (lower == 'active' || lower == 'paid' || lower.endsWith(' paid'))
+    // Evaluate negative / warning statuses before any positive "paid" match so
+    // values like "Not Paid" never pick up green via a trailing " paid" suffix.
+    final isWarning =
+        lower.contains('suspend') ||
+        lower.contains('overdue') ||
+        lower == 'unpaid' ||
+        lower.contains('unpaid') ||
+        lower == 'not paid' ||
+        lower.contains('not paid');
+    final isPositive =
+        !isWarning &&
+        (lower == 'active' || lower == 'paid' || lower.endsWith(' paid'));
+    final color = isPositive
         ? Colors.green
-        : lower.contains('suspend') ||
-              lower.contains('overdue') ||
-              lower.contains('unpaid') ||
-              lower.contains('not paid')
+        : isWarning
         ? Colors.orange
         : theme.colorScheme.primary;
     return Chip(

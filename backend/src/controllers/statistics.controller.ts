@@ -1,14 +1,11 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { asyncHandler, ApiError, ApiResponse } from '@alias/utils'
+import { asyncHandler, ApiResponse } from '@alias/utils'
 import * as statisticsService from '@alias/services/statistics.service'
-import type { AdminAccessContext } from '@alias/types/admin-access'
+import { requireAdminAccessContext } from '@alias/types/admin-access'
 
-function accessContext(req: Request): AdminAccessContext {
-  if (!req.adminAccess) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Administrator access context is required.')
-  }
-  return req.adminAccess
+function accessContext(req: Request) {
+  return requireAdminAccessContext(req)
 }
 
 export const getAdminStats = asyncHandler(async (req: Request, res: Response) => {

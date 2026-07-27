@@ -377,7 +377,8 @@ describe('Statistics Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
-            const doctorNames = response.data.data.map((entry: any) => entry.doctor_name);
+            expect(response.data.data.scope).toBe('tenant');
+            const doctorNames = response.data.data.items.map((entry: any) => entry.doctor_name);
             expect(doctorNames).toContain('Dr. Workload One');
             expect(doctorNames).not.toContain('Dr. Workload Two');
         });

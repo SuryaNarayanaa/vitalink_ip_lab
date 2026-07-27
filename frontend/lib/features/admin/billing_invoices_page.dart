@@ -71,10 +71,11 @@ class _BillingInvoicesPageState extends State<BillingInvoicesPage> {
                     label: const Text('Generate'),
                   ),
               ],
-              child: AdminQueryBody(
+              child: AdminQueryBody<Map<String, dynamic>>(
                 query: query,
                 emptyIcon: Icons.receipt_long_outlined,
                 emptyText: 'No invoices found',
+                isEmpty: invoices.isEmpty,
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: invoices.length,

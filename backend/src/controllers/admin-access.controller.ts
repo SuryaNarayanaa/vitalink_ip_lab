@@ -1,14 +1,11 @@
 import type { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { getEnabledAdminCapabilities } from '@alias/constants/admin-capabilities'
-import type { AdminAccessContext } from '@alias/types/admin-access'
-import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
+import { requireAdminAccessContext } from '@alias/types/admin-access'
+import { ApiResponse, asyncHandler } from '@alias/utils'
 
-function accessContext(req: Request): AdminAccessContext {
-  if (!req.adminAccess) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Administrator access context is required.')
-  }
-  return req.adminAccess
+function accessContext(req: Request) {
+  return requireAdminAccessContext(req)
 }
 
 /** GET /api/admin/access/me */

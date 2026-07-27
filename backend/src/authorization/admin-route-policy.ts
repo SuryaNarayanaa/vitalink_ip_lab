@@ -50,10 +50,11 @@ function validateRoutePolicy(policy: AdminRoutePolicy): void {
     if (declared.some(isMutationAdminCapability)) {
       throw new Error('Read route policy cannot require a mutation capability')
     }
-  } else if (declared.length && !declared.some(isMutationAdminCapability)) {
-    // Mutation routes must require at least one mutation-classified capability so
-    // a pure-read capability cannot authorize write handlers.
-    throw new Error('Mutation route policy must require at least one mutation capability')
+  } else if (declared.length && declared.some(capability => !isMutationAdminCapability(capability))) {
+    // Mutation routes use requireAnyAdminCapability; a mixed list would let a
+    // pure-read capability alone authorize the write handler. Every entry must
+    // therefore be a mutation-classified capability.
+    throw new Error('Mutation route policy anyOfCapabilities/capability must all be mutation capabilities')
   }
 }
 

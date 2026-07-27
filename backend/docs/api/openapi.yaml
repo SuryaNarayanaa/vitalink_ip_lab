@@ -5334,15 +5334,47 @@ components:
         patient_count:
           type: integer
 
+    DoctorWorkloadGlobalAggregate:
+      type: object
+      required: [scope, doctors_with_active_patients, active_patient_assignments]
+      properties:
+        scope:
+          type: string
+          enum: [global]
+        doctors_with_active_patients:
+          type: integer
+        active_patient_assignments:
+          type: integer
+        maximum_assignments_per_doctor:
+          type: integer
+        average_assignments_per_doctor:
+          type: number
+      description: >
+        Anonymous platform-wide workload aggregate. Doctor identity is never
+        included for global (app_admin / auditor) callers.
+
+    DoctorWorkloadTenantPayload:
+      type: object
+      required: [scope, items]
+      properties:
+        scope:
+          type: string
+          enum: [tenant]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorWorkloadItem"
+      description: Per-doctor workload items for the caller's hospital tenant.
+
     DoctorWorkloadResponse:
       allOf:
         - $ref: "#/components/schemas/ApiResponseBase"
         - type: object
           properties:
             data:
-              type: array
-              items:
-                $ref: "#/components/schemas/DoctorWorkloadItem"
+              oneOf:
+                - $ref: "#/components/schemas/DoctorWorkloadGlobalAggregate"
+                - $ref: "#/components/schemas/DoctorWorkloadTenantPayload"
 
     AuditActionCount:
       type: object

@@ -2,7 +2,7 @@ import { AuthSession, SystemConfig } from '@alias/models'
 import { ApiError } from '@alias/utils'
 import { StatusCodes } from 'http-status-codes'
 import type { AdminAccessContext } from '@alias/types/admin-access'
-import { hasAdminCapability } from '@alias/types/admin-access'
+import { requireAdminCapabilityContext } from '@alias/types/admin-access'
 import type { AdminCapability } from '@alias/constants/admin-capabilities'
 
 export const DEFAULT_FEATURE_FLAGS = {
@@ -84,16 +84,10 @@ function requireGlobalAppAdminConfigAccess(
   access: AdminAccessContext,
   capability: AdminCapability,
 ): void {
-  if (
-    access.role !== 'app_admin'
-    || access.scope !== 'global'
-    || access.readOnly
-    || !hasAdminCapability(access, capability)
-  ) {
-    const error = new ApiError(StatusCodes.FORBIDDEN, 'Application Admin platform configuration access is required.')
-    Object.assign(error, { requiredCapability: capability })
-    throw error
-  }
+  requireAdminCapabilityContext(access, capability, {
+    role: 'app_admin',
+    scope: 'global',
+  })
 }
 
 /** Global administrative configuration read, separate from internal runtime reads. */

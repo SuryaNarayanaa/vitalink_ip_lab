@@ -208,6 +208,8 @@ describe('Admin RBAC V2 migration validation scaffolding', () => {
       ? await verifier(migrationContext(connection, 'verify'))
       : await runner!(migrationContext(connection, 'verify'))
     expect(report).toBeDefined()
+    // Fully seeded V2 fixtures must pass verification (no blockers / missing policies).
+    expect((report as { verificationPassed?: boolean }).verificationPassed).toBe(true)
     expect(await snapshotDocuments(connection)).toBe(before)
   })
 })

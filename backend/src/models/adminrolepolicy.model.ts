@@ -23,7 +23,13 @@ const AdminRolePolicySchema = new mongoose.Schema({
     validate: {
       validator: function (value: unknown) {
         const context = this as any
-        const role = context.role_key ?? context.getQuery?.().role_key
+        // Prefer document field, then query filter, then update payload so
+        // findOneAndUpdate({ _id }) with runValidators still resolves the role.
+        const update = typeof context.getUpdate === 'function' ? context.getUpdate() : undefined
+        const updateSet = update?.$set ?? update ?? {}
+        const role = context.role_key
+          ?? context.getQuery?.().role_key
+          ?? updateSet.role_key
         if (!ADMIN_ROLE_KEYS.includes(role)) return false
         try {
           normalizeAdminCapabilityMap(role, value)

@@ -239,19 +239,39 @@ export async function runAdminRbacV2Migration(input: {
     .filter(policy => !validateExistingPolicy(policy))
     .map(policy => policy.roleKey)
   const blockers: string[] = []
-  if (!activeApplicationAdmins.length) blockers.push('At least one active Application Admin is required as the migration actor and recovery principal.')
-  if (tenantlessHospitalAdmins.length) blockers.push('Active Hospital Admin accounts without a hospital must be resolved.')
-  if (auditorsWithHospital.length) blockers.push('Hospital-scoped System Auditors require explicit Application Admin review; migration will not globalize them.')
-  if (applicationAdminsWithHospital.length) blockers.push('Application Admin accounts must not carry a hospital assignment.')
-  if (missingOrInactiveHospitalAssignments.length) blockers.push('Hospital Admin accounts assigned to missing or inactive hospitals must be resolved.')
-  if (invalidRoleAccounts.length) blockers.push('Active administrator accounts with missing or unsupported fixed roles must be resolved.')
-  if (invalidExistingPolicies.length) blockers.push('Existing V2 policy documents are invalid and will not be overwritten automatically.')
+  const blockerCodes = new Set<string>()
+  const pushBlocker = (code: string, message: string) => {
+    if (blockerCodes.has(code)) return
+    blockerCodes.add(code)
+    blockers.push(message)
+  }
+  if (!activeApplicationAdmins.length) {
+    pushBlocker('missing_active_app_admin', 'At least one active Application Admin is required as the migration actor and recovery principal.')
+  }
+  if (tenantlessHospitalAdmins.length) {
+    pushBlocker('tenantless_hospital_admin', 'Active Hospital Admin accounts without a hospital must be resolved.')
+  }
+  if (auditorsWithHospital.length) {
+    pushBlocker('auditor_with_hospital', 'Hospital-scoped System Auditors require explicit Application Admin review; migration will not globalize them.')
+  }
+  if (applicationAdminsWithHospital.length) {
+    pushBlocker('app_admin_with_hospital', 'Application Admin accounts must not carry a hospital assignment.')
+  }
+  if (missingOrInactiveHospitalAssignments.length) {
+    pushBlocker('inactive_hospital_assignment', 'Hospital Admin accounts assigned to missing or inactive hospitals must be resolved.')
+  }
+  if (invalidRoleAccounts.length) {
+    pushBlocker('invalid_admin_role', 'Active administrator accounts with missing or unsupported fixed roles must be resolved.')
+  }
+  if (invalidExistingPolicies.length) {
+    pushBlocker('invalid_existing_policy', 'Existing V2 policy documents are invalid and will not be overwritten automatically.')
+  }
 
   const appPolicy = existingPolicies.find(policy => policy.roleKey === 'app_admin')
   const applicationAdminRecoveryReady = activeApplicationAdmins.length > 0
     && (!appPolicy || validateExistingPolicy(appPolicy))
-  if (!applicationAdminRecoveryReady && !blockers.some(blocker => blocker.includes('Application Admin'))) {
-    blockers.push('Application Admin recovery invariant is not satisfied.')
+  if (!applicationAdminRecoveryReady && !blockerCodes.has('missing_active_app_admin') && !blockerCodes.has('invalid_existing_policy')) {
+    pushBlocker('app_admin_recovery', 'Application Admin recovery invariant is not satisfied.')
   }
 
   const report: AdminRbacV2MigrationReport = {
@@ -339,6 +359,12 @@ async function main() {
   }
   mongoose.set('autoIndex', false)
   await connectDB()
+  // autoIndex is off for migration processes; ensure the unique role_key index
+  // exists before any execute-path inserts so concurrent retries cannot create
+  // duplicate AdminRolePolicy documents.
+  if (options.execute) {
+    await AdminRolePolicy.syncIndexes()
+  }
   const report = await runAdminRbacV2Migration(options)
   console.log('--- Admin RBAC V2 Migration ---')
   console.log(JSON.stringify(report, null, 2))

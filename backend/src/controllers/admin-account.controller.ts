@@ -7,21 +7,27 @@ import {
   updateAdminAccount as updateAdminAccountLifecycle,
 } from '@alias/services/admin-account.service'
 import type { AdminAccessContext } from '@alias/types/admin-access'
-import { hasAdminCapability } from '@alias/types/admin-access'
+import {
+  requireAdminAccessContext,
+  requireAdminCapabilityContext,
+} from '@alias/types/admin-access'
 import { ApiError, ApiResponse, asyncHandler } from '@alias/utils'
 
 function requireAppAdminAccountAccess(req: Request, mutation: boolean): AdminAccessContext {
-  const access = req.adminAccess
+  const access = requireAdminAccessContext(req)
   const capability = mutation ? 'platform.admin_accounts.manage' : 'platform.admin_accounts.read'
-  if (
-    !access
-    || access.role !== 'app_admin'
-    || access.scope !== 'global'
-    || (mutation && access.readOnly)
-    || !hasAdminCapability(access, capability)
-  ) {
-    const error = new ApiError(StatusCodes.FORBIDDEN, 'Application Admin account-management access is required.')
-    Object.assign(error, { requiredCapability: capability })
+  try {
+    requireAdminCapabilityContext(access, capability, {
+      role: 'app_admin',
+      scope: 'global',
+    })
+  } catch (error) {
+    // Preserve the account-management specific denial message for API clients.
+    if (error instanceof ApiError) {
+      const denied = new ApiError(StatusCodes.FORBIDDEN, 'Application Admin account-management access is required.')
+      Object.assign(denied, { requiredCapability: capability })
+      throw denied
+    }
     throw error
   }
   return access
