@@ -420,15 +420,16 @@ describe('dedicated administrator account lifecycle', () => {
       admin_role: 'auditor',
       hospital_id: undefined,
     }) as any)
-    // Both CAS writes succeed; post-commit membership re-check fails so compensation runs.
+    // Both CAS writes succeed; post-user membership re-check fails so compensation runs.
     jest.spyOn(User, 'findOneAndUpdate').mockReturnValue(queryResult({
       ...currentUser,
       security_version: 10,
     }) as any)
     const assertOwned = jest.fn()
       .mockResolvedValueOnce(undefined) // outer preflight
+      .mockResolvedValueOnce(undefined) // after profile CAS (role/scope)
       .mockResolvedValueOnce(undefined) // pre user-write
-      .mockRejectedValueOnce(new Error('membership lease lost'))
+      .mockRejectedValueOnce(new Error('membership lease lost')) // post user-write
     jest.spyOn(doctorAssignmentService, 'acquireHospitalMembershipGuards').mockResolvedValue([{
       assertOwned,
       release: jest.fn(async () => undefined),
