@@ -212,10 +212,10 @@ class _FilePreviewModalState extends State<FilePreviewModal> {
       );
     }
 
+    // pdfrx 2.1.x (Flutter 3.32 / Dart 3.8 compatible) has no PdfViewer.uri timeout.
     return PdfViewer.uri(
       uri,
       controller: _pdfController,
-      timeout: const Duration(seconds: 45),
       params: PdfViewerParams(
         backgroundColor: const Color(0xFF1F2937),
         margin: 10,

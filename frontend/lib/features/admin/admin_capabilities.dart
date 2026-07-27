@@ -33,11 +33,13 @@ abstract final class AdminCapabilities {
   static const tenantNotificationsBroadcast = 'tenant.notifications.broadcast';
   static const tenantOperationsHealthRead = 'tenant.operations_health.read';
 
+  /// Matches `GET /statistics/admin` (`platform.analytics.read` | `tenant.dashboard.read`).
   static const dashboardRead = [
     tenantDashboardRead,
     platformAnalyticsRead,
-    tenantAnalyticsRead,
   ];
+
+  /// Matches trends/workload/period analytics routes (`platform.analytics.read` | `tenant.analytics.read`).
   static const analyticsRead = [platformAnalyticsRead, tenantAnalyticsRead];
   static const billingRead = [platformBillingRead, tenantBillingRead];
   static const auditRead = [platformAuditRead, tenantAuditRead];

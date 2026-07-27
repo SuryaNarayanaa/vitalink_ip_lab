@@ -1398,9 +1398,12 @@ paths:
       x-admin-scope: global
       x-admin-roles: [app_admin]
       tags: [Admin]
-      summary: Update a legacy persisted role definition
+      summary: Update a legacy persisted role definition (retired)
       deprecated: true
-      description: Compatibility write for legacy manage_* data. It does not update authoritative RBAC V2 policy; use PUT /admin/role-policies/{roleKey}.
+      description: >
+        Retired compatibility write path. Always returns 410 Gone.
+        Mutating legacy RoleDefinition documents would create a second source of truth
+        while runtime enforcement uses AdminRolePolicy. Use PUT /admin/role-policies/{roleKey}.
       parameters:
         - in: path
           name: roleKey
@@ -1414,12 +1417,12 @@ paths:
             schema:
               $ref: "#/components/schemas/RoleUpdateRequest"
       responses:
-        "200":
-          description: Role updated
+        "410":
+          description: Legacy role writes are retired; use /admin/role-policies
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RoleResponse"
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

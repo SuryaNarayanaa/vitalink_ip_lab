@@ -1,10 +1,8 @@
 import type { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import type { AdminCapability } from '@alias/constants/admin-capabilities'
-import { getAdminContext, requirePermission } from '@alias/services/admin.service'
 import { hasAdminCapability, hasAnyAdminCapability } from '@alias/types/admin-access'
 import type {} from '@alias/types/admin-access'
-import { ApiError } from '@alias/utils'
 
 function deny(
   res: Response,
@@ -105,23 +103,3 @@ export const requireAdminMutation = () => (
   next()
 }
 
-/**
- * Compatibility guard for existing Release A routes using legacy manage_* keys.
- * It intentionally retains the legacy policy service until those routes are
- * converted to resolveAdminAccess plus typed V2 guards.
- */
-export const requireAdminPermission = (permission: string) => async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const context = await getAdminContext(req.user?.user_id)
-    requirePermission(context, permission)
-    next()
-  } catch (error) {
-    const statusCode = error instanceof ApiError ? error.statusCode : StatusCodes.INTERNAL_SERVER_ERROR
-    const message = error instanceof ApiError ? error.message : 'Unable to verify permissions.'
-    res.status(statusCode).json({ success: false, message })
-  }
-}

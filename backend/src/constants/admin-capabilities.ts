@@ -234,6 +234,17 @@ export function translateLegacyAdminPermissions(
     if (has('manage_patients')) {
       enabled.add('tenant.patients.read')
       enabled.add('tenant.patients.manage')
+      // V1 hospital admins could reassign patients via role membership alone.
+      enabled.add('tenant.patients.assign')
+    }
+    // Suspend/restore were role-gated in V1, not fine-grained legacy keys.
+    if (has('manage_doctors') || has('manage_patients')) {
+      enabled.add('tenant.accounts.status.manage')
+    }
+    // Operational hospital admins could read non-clinical analytics in V1;
+    // export_data also implies analytics when present without manage_* rights.
+    if (has('manage_doctors') || has('manage_patients') || has('export_data')) {
+      enabled.add('tenant.analytics.read')
     }
     if (has('view_audit')) enabled.add('tenant.audit.read')
     if (has('manage_billing')) {
@@ -251,7 +262,8 @@ export function translateLegacyAdminPermissions(
     if (has('view_audit')) enabled.add('platform.audit.read')
     if (has('manage_billing')) enabled.add('platform.billing.read')
     if (has('manage_system')) enabled.add('platform.system_health.read')
-    // export_data deliberately has no V2 mapping until an export endpoint exists.
+    // export_data has no auditor write/export surface yet; analytics remains
+    // explicitly granted via V2 policy rather than implied by export_data.
   }
 
   return createRoleCapabilityMap(role, enabled)

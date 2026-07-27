@@ -49,7 +49,8 @@ export type PolicyRestoreInput = Omit<PolicyMutationInput, 'capabilities'> & {
  * snapshot (including revoked capabilities) for up to this TTL unless a shared
  * invalidation mechanism (pub/sub, policy-version stamp check, etc.) is added.
  */
-export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 15_000
+/** Aggressive TTL limits post-revoke privilege retention in multi-instance deploys. */
+export const ADMIN_ROLE_POLICY_CACHE_TTL_MS = 5_000
 
 type CachedAdminRolePolicy = {
   snapshot: AdminRolePolicySnapshot

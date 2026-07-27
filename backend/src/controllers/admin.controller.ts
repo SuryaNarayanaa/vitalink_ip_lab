@@ -50,7 +50,7 @@ async function getTenantUserIds(access: AdminAccessContext): Promise<any[]> {
 // ─── Doctor Management ───
 
 export const createDoctor = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.registerDoctor(req.body, accessContext(req).userId)
+  const result = await adminService.registerDoctor(req.body, accessContext(req))
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Doctor created successfully', result))
 })
 
@@ -62,30 +62,30 @@ export const getAllDoctors = asyncHandler(async (req: Request, res: Response) =>
   if (search) filters.search = search
   if (hospital_id) filters.hospital_id = hospital_id
 
-  const result = await adminService.getAllDoctors(filters, { page: Number(page), limit: Number(limit) }, accessContext(req).userId)
+  const result = await adminService.getAllDoctors(filters, { page: Number(page), limit: Number(limit) }, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctors retrieved successfully', result))
 })
 
 export const updateDoctor = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const result = await adminService.updateDoctor(id, req.body, accessContext(req).userId)
+  const result = await adminService.updateDoctor(id, req.body, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor updated successfully', result))
 })
 
 export const deactivateDoctor = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const result = await adminService.deactivateDoctor(id, accessContext(req).userId)
+  const result = await adminService.deactivateDoctor(id, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor deactivated successfully', result))
 })
 
 export const updateDoctorStatus = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.setDoctorAccountStatus(req.params.id, req.body.is_active, accessContext(req).userId)
+  const result = await adminService.setDoctorAccountStatus(req.params.id, req.body.is_active, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor status updated successfully', result))
 })
 
 export const resetDoctorCredentials = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.resetOperationalUserPassword(
-    accessContext(req).userId,
+    accessContext(req),
     req.params.id,
     UserType.DOCTOR,
     req.body.new_password,
@@ -96,7 +96,7 @@ export const resetDoctorCredentials = asyncHandler(async (req: Request, res: Res
 // ─── Patient Management ───
 
 export const createPatient = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.onboardPatient(req.body, accessContext(req).userId)
+  const result = await adminService.onboardPatient(req.body, accessContext(req))
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Patient created successfully', result))
 })
 
@@ -108,19 +108,19 @@ export const getAllPatients = asyncHandler(async (req: Request, res: Response) =
   if (search) filters.search = search
   if (hospital_id) filters.hospital_id = hospital_id
 
-  const result = await adminService.getAllPatients(filters, { page: Number(page), limit: Number(limit) }, accessContext(req).userId)
+  const result = await adminService.getAllPatients(filters, { page: Number(page), limit: Number(limit) }, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patients retrieved successfully', result))
 })
 
 export const updatePatient = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const result = await adminService.updatePatient(id, req.body, accessContext(req).userId)
+  const result = await adminService.updatePatient(id, req.body, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient updated successfully', result))
 })
 
 export const deactivatePatient = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const result = await adminService.deactivatePatient(id, accessContext(req).userId)
+  const result = await adminService.deactivatePatient(id, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient deactivated successfully', result))
 })
 
@@ -130,7 +130,7 @@ export const reassignPatient = asyncHandler(async (req: Request, res: Response) 
   const { audit_resource_id, ...result } = await adminService.reassignPatient(
     op_num,
     new_doctor_id,
-    accessContext(req).userId,
+    accessContext(req),
   )
   res.locals.auditResourceId = audit_resource_id
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient reassigned successfully', result))
@@ -140,20 +140,20 @@ export const assignPatient = asyncHandler(async (req: Request, res: Response) =>
   const { audit_resource_id, ...result } = await adminService.reassignPatient(
     req.params.id,
     req.body.doctor_id,
-    accessContext(req).userId,
+    accessContext(req),
   )
   res.locals.auditResourceId = audit_resource_id
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient assigned successfully', result))
 })
 
 export const updatePatientStatus = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.setPatientAccountStatus(req.params.id, req.body, accessContext(req).userId)
+  const result = await adminService.setPatientAccountStatus(req.params.id, req.body, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient status updated successfully', result))
 })
 
 export const resetPatientCredentials = asyncHandler(async (req: Request, res: Response) => {
   const result = await adminService.resetOperationalUserPassword(
-    accessContext(req).userId,
+    accessContext(req),
     req.params.id,
     UserType.PATIENT,
     req.body.new_password,
@@ -172,7 +172,7 @@ export const getAuditLogs = asyncHandler(async (req: Request, res: Response) => 
   if (end_date) filters.end_date = end_date
   if (success !== undefined) filters.success = success === 'true'
 
-  const result = await adminService.getAuditLogs(filters, { page: Number(page), limit: Number(limit) }, accessContext(req).userId)
+  const result = await adminService.getAuditLogs(filters, { page: Number(page), limit: Number(limit) }, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Audit logs retrieved successfully', result))
 })
 
@@ -207,7 +207,7 @@ export const broadcastNotification = asyncHandler(async (req: Request, res: Resp
 
 export const performBatchOperation = asyncHandler(async (req: Request, res: Response) => {
   const { operation, user_ids } = req.body
-  const result = await adminService.performBatchOperation(operation, user_ids, accessContext(req).userId)
+  const result = await adminService.performBatchOperation(operation, user_ids, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Batch operation completed', result))
 })
 
@@ -277,19 +277,19 @@ export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: 
 // ─── Legacy Endpoints ───
 
 export const listAllPatients = asyncHandler(async (req: Request, res: Response) => {
-  const { patients } = await adminService.listLegacyPatients(accessContext(req).userId)
+  const { patients } = await adminService.listLegacyPatients(accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'All patients', { patients }))
 })
 
 export const getPatientById = asyncHandler(async (req: Request, res: Response) => {
   const { op_num } = req.params
-  const result = await adminService.getLegacyPatientByLoginId(op_num, accessContext(req).userId)
+  const result = await adminService.getLegacyPatientByLoginId(op_num, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Patient found', result))
 })
 
 export const getDoctorById = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params
-  const result = await adminService.getLegacyDoctorById(id, accessContext(req).userId)
+  const result = await adminService.getLegacyDoctorById(id, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Doctor found', result))
 })
 
@@ -297,8 +297,7 @@ export const getDoctorById = asyncHandler(async (req: Request, res: Response) =>
 
 export const resetUserPassword = asyncHandler(async (req: Request, res: Response) => {
   const { target_user_id, new_password } = req.body
-  const adminUserId = accessContext(req).userId
-  const result = await adminService.resetUserPassword(adminUserId, target_user_id, new_password)
+  const result = await adminService.resetUserPassword(accessContext(req), target_user_id, new_password)
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Password reset successful', result))
 })
 
@@ -311,23 +310,23 @@ export const getRoles = asyncHandler(async (req: Request, res: Response) => {
 })
 
 export const updateRole = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.updateRoleDefinition(req.params.roleKey, req.body, accessContext(req).userId)
+  const result = await adminService.updateRoleDefinition(req.params.roleKey, req.body, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Role updated successfully', result))
 })
 
 export const listHospitals = asyncHandler(async (req: Request, res: Response) => {
   const { status, search } = (req.validatedQuery ?? req.query) as any
-  const result = await adminService.listHospitals({ status, search }, accessContext(req).userId)
+  const result = await adminService.listHospitals({ status, search }, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospitals retrieved successfully', result))
 })
 
 export const createHospital = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.createHospital(req.body, accessContext(req).userId)
+  const result = await adminService.createHospital(req.body, accessContext(req))
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Hospital created successfully', result))
 })
 
 export const getHospital = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.listHospitals({}, accessContext(req).userId)
+  const result = await adminService.listHospitals({}, accessContext(req))
   const hospital = result.hospitals.find((h: any) => h.id === req.params.id || h._id === req.params.id)
   if (!hospital) {
     res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Hospital not found'))
@@ -337,32 +336,32 @@ export const getHospital = asyncHandler(async (req: Request, res: Response) => {
 })
 
 export const updateHospital = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.updateHospital(req.params.id, req.body, accessContext(req).userId)
+  const result = await adminService.updateHospital(req.params.id, req.body, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospital updated successfully', result))
 })
 
 export const updateHospitalStatus = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.setHospitalStatus(req.params.id, req.body.status, accessContext(req).userId)
+  const result = await adminService.setHospitalStatus(req.params.id, req.body.status, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospital status updated successfully', result))
 })
 
 export const deleteHospital = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.deleteHospital(req.params.id, accessContext(req).userId)
+  const result = await adminService.deleteHospital(req.params.id, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospital deactivated successfully', result))
 })
 
 export const listInvoices = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.listInvoices(accessContext(req).userId)
+  const result = await adminService.listInvoices(accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Invoices retrieved successfully', result))
 })
 
 export const generateInvoices = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.generateInvoices(req.body, accessContext(req).userId)
+  const result = await adminService.generateInvoices(req.body, accessContext(req))
   res.status(StatusCodes.CREATED).json(new ApiResponse(StatusCodes.CREATED, 'Invoices generated successfully', result))
 })
 
 export const createInvoiceCheckout = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.createCheckout(req.params.invoiceId, accessContext(req).userId)
+  const result = await adminService.createCheckout(req.params.invoiceId, accessContext(req))
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Checkout session created', result))
 })
 

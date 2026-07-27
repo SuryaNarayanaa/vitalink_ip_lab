@@ -266,6 +266,10 @@ describe('dry-run-first RBAC migration skeleton', () => {
     expect(report.tenantlessHospitalAdmins).toEqual(['hospital-admin-1'])
     expect(report.auditorsWithHospital).toEqual(['auditor-1'])
     expect(report.proposedPolicies.hospital_admin['tenant.doctors.read']).toBe(true)
+    // manage_doctors alone still enables status + analytics operational parity.
+    expect(report.proposedPolicies.hospital_admin['tenant.accounts.status.manage']).toBe(true)
+    expect(report.proposedPolicies.hospital_admin['tenant.analytics.read']).toBe(true)
+    // assign requires manage_patients in the legacy map.
     expect(report.proposedPolicies.hospital_admin['tenant.patients.assign']).toBe(false)
     expect(report.documents.wouldAdd).toEqual(['app_admin', 'hospital_admin', 'auditor'])
     expect(report.blockers.length).toBeGreaterThan(0)

@@ -54,7 +54,9 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   qr_flutter: ^4.1.0
   shared_preferences: ^2.5.5
-  pdfrx: ^2.4.7
+  # Pin below 2.1.6 so Flutter CI (Dart 3.8 / Flutter 3.32) can resolve deps.
+  # 2.1.6+ requires Dart SDK ^3.9; 2.3+ requires ^3.10.
+  pdfrx: 2.1.5
 
 dev_dependencies:
   flutter_test:

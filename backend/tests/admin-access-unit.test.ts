@@ -93,9 +93,10 @@ describe('canonical administrator capabilities', () => {
     expect(hospital['tenant.patients.manage']).toBe(true)
     expect(hospital['tenant.billing.checkout']).toBe(true)
     expect(hospital['tenant.notifications.broadcast']).toBe(true)
-    expect(hospital['tenant.patients.assign']).toBe(false)
-    expect(hospital['tenant.accounts.status.manage']).toBe(false)
-    expect(hospital['tenant.analytics.read']).toBe(false)
+    // V1 operational parity: assign/status/analytics come with manage_* rights.
+    expect(hospital['tenant.patients.assign']).toBe(true)
+    expect(hospital['tenant.accounts.status.manage']).toBe(true)
+    expect(hospital['tenant.analytics.read']).toBe(true)
 
     const auditor = translateLegacyAdminPermissions('auditor', {
       manage_hospitals: true,

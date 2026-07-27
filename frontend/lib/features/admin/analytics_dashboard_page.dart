@@ -3,9 +3,13 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
+import 'package:frontend/core/widgets/admin/admin_access_gate.dart';
+import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/page_skeleton.dart';
+import 'package:frontend/features/admin/admin_capabilities.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
+import 'package:frontend/features/admin/models/admin_access_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 
 class AnalyticsDashboardPage extends StatefulWidget {
@@ -19,13 +23,24 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
   final AdminRepository _repo = AppDependencies.adminRepository;
   String _selectedPeriod = '30d';
 
-  Future<_AnalyticsDashboardAggregate> _fetchDashboardAggregate() async {
-    final statsFuture = _safeLoad(_repo.getAdminStats);
-    final trendsFuture = _safeLoad(
-      () => _repo.getTrends(period: _selectedPeriod),
-    );
-    final complianceFuture = _safeLoad(_repo.getCompliance);
-    final workloadFuture = _safeLoad(_repo.getWorkload);
+  Future<_AnalyticsDashboardAggregate> _fetchDashboardAggregate(
+    AdminAccessModel access,
+  ) async {
+    final canLoadDashboardStats = access.canAny(AdminCapabilities.dashboardRead);
+    final canLoadAnalytics = access.canAny(AdminCapabilities.analyticsRead);
+
+    final statsFuture = canLoadDashboardStats
+        ? _loadWithAuthStatus(_repo.getAdminStats)
+        : Future.value(const _AuthLoadResult<AdminStatsModel>.skipped());
+    final trendsFuture = canLoadAnalytics
+        ? _loadWithAuthStatus(() => _repo.getTrends(period: _selectedPeriod))
+        : Future.value(const _AuthLoadResult<RegistrationTrends>.skipped());
+    final complianceFuture = canLoadAnalytics
+        ? _loadWithAuthStatus(_repo.getCompliance)
+        : Future.value(const _AuthLoadResult<InrComplianceStats>.skipped());
+    final workloadFuture = canLoadAnalytics
+        ? _loadWithAuthStatus(_repo.getWorkload)
+        : Future.value(const _AuthLoadResult<List<DoctorWorkload>>.skipped());
 
     final stats = await statsFuture;
     final trends = await trendsFuture;
@@ -33,162 +48,222 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
     final workload = await workloadFuture;
 
     return _AnalyticsDashboardAggregate(
-      stats: stats,
-      trends: trends,
-      compliance: compliance,
-      workload: workload ?? const [],
+      stats: stats.value,
+      statsDenied: stats.denied,
+      trends: trends.value,
+      trendsDenied: trends.denied,
+      compliance: compliance.value,
+      complianceDenied: compliance.denied,
+      workload: workload.value ?? const [],
+      workloadDenied: workload.denied,
     );
   }
 
-  Future<T?> _safeLoad<T>(Future<T> Function() loader) async {
+  Future<_AuthLoadResult<T>> _loadWithAuthStatus<T>(
+    Future<T> Function() loader,
+  ) async {
     try {
-      return await loader();
-    } catch (_) {
-      return null;
+      return _AuthLoadResult.ok(await loader());
+    } catch (error) {
+      final message = error.toString().toLowerCase();
+      final denied = message.contains('403') ||
+          message.contains('forbidden') ||
+          message.contains('capability') ||
+          message.contains('not permitted') ||
+          message.contains('access');
+      return _AuthLoadResult.failed(denied: denied);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final showPageScaffold = !AdminScaffold.usesShellAppBar(context);
-    final periodSelector = _PeriodSelector(
-      selectedPeriod: _selectedPeriod,
-      onChanged: (value) => setState(() => _selectedPeriod = value),
-    );
+    return AdminAccessGate(
+      anyCapabilities: [
+        ...AdminCapabilities.dashboardRead,
+        ...AdminCapabilities.analyticsRead,
+      ],
+      deniedTitle: 'Analytics not available',
+      deniedMessage:
+          'Your current administrator policy does not include dashboard or analytics access.',
+      builder: (context) {
+        final access = AdminAccessScope.accessOf(context)!;
+        final showPageScaffold = !AdminScaffold.usesShellAppBar(context);
+        final periodSelector = _PeriodSelector(
+          selectedPeriod: _selectedPeriod,
+          onChanged: (value) => setState(() => _selectedPeriod = value),
+        );
 
-    final body = UseQuery<_AnalyticsDashboardAggregate>(
-      options: QueryOptions<_AnalyticsDashboardAggregate>(
-        queryKey: AdminQueryKeys.analyticsDashboard(_selectedPeriod),
-        queryFn: _fetchDashboardAggregate,
-      ),
-      builder: (context, aggregateQuery) {
-        if (aggregateQuery.isLoading) {
-          return const PageSkeleton(cardCount: 4);
-        }
+        final body = UseQuery<_AnalyticsDashboardAggregate>(
+          options: QueryOptions<_AnalyticsDashboardAggregate>(
+            queryKey: [
+              ...AdminQueryKeys.analyticsDashboard(_selectedPeriod),
+              access.role.name,
+              access.policyVersion,
+              ...access.effectiveCapabilities,
+            ],
+            queryFn: () => _fetchDashboardAggregate(access),
+          ),
+          builder: (context, aggregateQuery) {
+            if (aggregateQuery.isLoading) {
+              return const PageSkeleton(cardCount: 4);
+            }
 
-        final aggregate = aggregateQuery.data;
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final isDesktop = width > 900;
-              final isTablet = width > 600;
-              final chartHeight = isDesktop
-                  ? 350.0
-                  : isTablet
-                      ? 330.0
-                      : 300.0;
+            final aggregate = aggregateQuery.data;
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final isDesktop = width > 900;
+                  final isTablet = width > 600;
+                  final chartHeight = isDesktop
+                      ? 350.0
+                      : isTablet
+                          ? 330.0
+                          : 300.0;
 
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!showPageScaffold)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: isTablet
-                            ? Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Analytics Dashboard',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleLarge,
-                                    ),
-                                  ),
-                                  periodSelector,
-                                ],
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Analytics Dashboard',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: periodSelector,
-                                  ),
-                                ],
-                              ),
-                      ),
-                    _SummaryCards(stats: aggregate?.stats),
-                    const SizedBox(height: 24),
-                    Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: isDesktop ? (width - 16) / 2 : width,
-                          height: chartHeight,
-                          child: _TrendsChart(trends: aggregate?.trends),
-                        ),
-                        SizedBox(
-                          width: isDesktop ? (width - 16) / 2 : width,
-                          height: chartHeight,
-                          child: _ComplianceChart(
-                            compliance: aggregate?.compliance,
+                        if (!showPageScaffold)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: isTablet
+                                ? Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'Analytics Dashboard',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleLarge,
+                                        ),
+                                      ),
+                                      periodSelector,
+                                    ],
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Analytics Dashboard',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleLarge,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: periodSelector,
+                                      ),
+                                    ],
+                                  ),
                           ),
+                        _SummaryCards(
+                          stats: aggregate?.stats,
+                          denied: aggregate?.statsDenied ?? false,
                         ),
-                        SizedBox(
-                          width: isDesktop ? (width - 16) / 2 : width,
-                          height: chartHeight,
-                          child: _WorkloadChart(
-                            workload: aggregate?.workload ?? const [],
-                          ),
+                        const SizedBox(height: 24),
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          children: [
+                            SizedBox(
+                              width: isDesktop ? (width - 16) / 2 : width,
+                              height: chartHeight,
+                              child: _TrendsChart(
+                                trends: aggregate?.trends,
+                                denied: aggregate?.trendsDenied ?? false,
+                              ),
+                            ),
+                            SizedBox(
+                              width: isDesktop ? (width - 16) / 2 : width,
+                              height: chartHeight,
+                              child: _ComplianceChart(
+                                compliance: aggregate?.compliance,
+                                denied: aggregate?.complianceDenied ?? false,
+                              ),
+                            ),
+                            SizedBox(
+                              width: isDesktop ? (width - 16) / 2 : width,
+                              height: chartHeight,
+                              child: _WorkloadChart(
+                                workload: aggregate?.workload ?? const [],
+                                denied: aggregate?.workloadDenied ?? false,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  );
+                },
+              ),
+            );
+          },
+        );
+
+        if (!showPageScaffold) {
+          return body;
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Analytics Dashboard'),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: _PeriodSelector(
+                  selectedPeriod: _selectedPeriod,
+                  onChanged: (value) => setState(() => _selectedPeriod = value),
                 ),
-              );
-            },
+              ),
+            ],
           ),
+          body: body,
         );
       },
     );
-
-    if (!showPageScaffold) {
-      return body;
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Analytics Dashboard'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: _PeriodSelector(
-              selectedPeriod: _selectedPeriod,
-              onChanged: (value) => setState(() => _selectedPeriod = value),
-            ),
-          ),
-        ],
-      ),
-      body: body,
-    );
   }
+}
+
+class _AuthLoadResult<T> {
+  const _AuthLoadResult._({
+    this.value,
+    this.denied = false,
+  });
+
+  const _AuthLoadResult.ok(T value) : this._(value: value);
+  const _AuthLoadResult.failed({required bool denied}) : this._(denied: denied);
+  const _AuthLoadResult.skipped() : this._(denied: true);
+
+  final T? value;
+  final bool denied;
 }
 
 class _AnalyticsDashboardAggregate {
   const _AnalyticsDashboardAggregate({
     required this.stats,
+    required this.statsDenied,
     required this.trends,
+    required this.trendsDenied,
     required this.compliance,
+    required this.complianceDenied,
     required this.workload,
+    required this.workloadDenied,
   });
 
   final AdminStatsModel? stats;
+  final bool statsDenied;
   final RegistrationTrends? trends;
+  final bool trendsDenied;
   final InrComplianceStats? compliance;
+  final bool complianceDenied;
   final List<DoctorWorkload> workload;
+  final bool workloadDenied;
 }
 
 class _PeriodSelector extends StatelessWidget {
@@ -225,10 +300,18 @@ class _PeriodSelector extends StatelessWidget {
 // ─── Summary Cards ───
 class _SummaryCards extends StatelessWidget {
   final AdminStatsModel? stats;
-  const _SummaryCards({this.stats});
+  final bool denied;
+  const _SummaryCards({this.stats, this.denied = false});
 
   @override
   Widget build(BuildContext context) {
+    if (denied && stats == null) {
+      return const _DeniedPanel(
+        title: 'Dashboard aggregates unavailable',
+        message:
+            'Your policy does not include dashboard aggregate access (tenant.dashboard.read or platform.analytics.read).',
+      );
+    }
     final s = stats;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -274,6 +357,50 @@ class _SummaryCards extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _DeniedPanel extends StatelessWidget {
+  const _DeniedPanel({required this.title, required this.message});
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lock_outline, color: theme.colorScheme.error),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    message,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -351,10 +478,19 @@ class _ChartCard extends StatelessWidget {
 // ─── Registration Trends ───
 class _TrendsChart extends StatelessWidget {
   final RegistrationTrends? trends;
-  const _TrendsChart({this.trends});
+  final bool denied;
+  const _TrendsChart({this.trends, this.denied = false});
 
   @override
   Widget build(BuildContext context) {
+    if (denied && trends == null) {
+      return _ChartCard(
+        title: 'Registration Trends',
+        child: const Center(
+          child: Text('Access denied for this analytics capability'),
+        ),
+      );
+    }
     final data = trends?.dataPoints ?? [];
     if (data.isEmpty) {
       return _ChartCard(
@@ -447,10 +583,19 @@ class _TrendsChart extends StatelessWidget {
 // ─── INR Compliance ───
 class _ComplianceChart extends StatelessWidget {
   final InrComplianceStats? compliance;
-  const _ComplianceChart({this.compliance});
+  final bool denied;
+  const _ComplianceChart({this.compliance, this.denied = false});
 
   @override
   Widget build(BuildContext context) {
+    if (denied && compliance == null) {
+      return _ChartCard(
+        title: 'INR Compliance',
+        child: const Center(
+          child: Text('Access denied for this analytics capability'),
+        ),
+      );
+    }
     final c = compliance;
     if (c == null || c.total == 0) {
       return _ChartCard(
@@ -527,10 +672,19 @@ class _ComplianceChart extends StatelessWidget {
 // ─── Doctor Workload ───
 class _WorkloadChart extends StatelessWidget {
   final List<DoctorWorkload> workload;
-  const _WorkloadChart({required this.workload});
+  final bool denied;
+  const _WorkloadChart({required this.workload, this.denied = false});
 
   @override
   Widget build(BuildContext context) {
+    if (denied && workload.isEmpty) {
+      return _ChartCard(
+        title: 'Doctor Workload',
+        child: const Center(
+          child: Text('Access denied for this analytics capability'),
+        ),
+      );
+    }
     if (workload.isEmpty) {
       return _ChartCard(
         title: 'Doctor Workload',

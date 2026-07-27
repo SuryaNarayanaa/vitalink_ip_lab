@@ -308,25 +308,24 @@ describe('Admin Routes', () => {
             expect(await Notification.countDocuments({ title: 'Auditor broadcast attempt' })).toBe(0);
         });
 
-        test('keeps legacy role edits separate from persisted V2 route enforcement', async () => {
+        test('retires legacy role writes and keeps V2 policy as the authorization source', async () => {
             const rolesResponse = await api.get('/api/admin/roles', {
                 headers: { Authorization: `Bearer ${adminToken}` },
             });
             expect(rolesResponse.status).toBe(200);
             expect(rolesResponse.data.data.roles.app_admin.permissions.manage_roles).toBe(true);
 
+            // Compatibility RoleDefinition writes are gone; V2 role-policies own
+            // capability changes so operators cannot drift a second source of truth.
             const legacyEdit = await api.put('/api/admin/roles/app_admin', {
                 permissions: { manage_roles: false, manage_users: false },
             }, {
                 headers: { Authorization: `Bearer ${adminToken}` },
             });
-            expect(legacyEdit.status).toBe(200);
-            expect(legacyEdit.data.data.role.permissions.manage_roles).toBe(true);
-            expect(legacyEdit.data.data.role.permissions.manage_users).toBe(false);
+            expect(legacyEdit.status).toBe(410);
+            expect(legacyEdit.data.success).toBe(false);
+            expect(String(legacyEdit.data.message)).toMatch(/role-policies|retired/i);
 
-            // Compatibility manage_* values are no longer the authorization
-            // source for V2 routes. The persisted platform capability remains
-            // authoritative on the very next request.
             const invited = await api.post('/api/admin/users', {
                 name: 'V2 capability governed admin',
                 email: 'v2-capability-admin@example.com',
@@ -343,15 +342,6 @@ describe('Admin Routes', () => {
             });
             expect(access.status).toBe(200);
             expect(access.data.data.effective_capabilities).toContain('platform.admin_accounts.manage');
-
-            // Restore compatibility state so unrelated legacy tests do not depend
-            // on an intentionally stale manage_users value.
-            const restoreResponse = await api.put('/api/admin/roles/app_admin', {
-                permissions: { manage_users: true },
-            }, {
-                headers: { Authorization: `Bearer ${adminToken}` },
-            });
-            expect(restoreResponse.status).toBe(200);
         });
 
         test('should deny hospital admin role policy updates', async () => {
@@ -364,7 +354,7 @@ describe('Admin Routes', () => {
             expect(response.data.success).toBe(false);
         });
 
-        test('should reject unknown roles and malformed role permissions', async () => {
+        test('should reject unknown roles and legacy role permission writes', async () => {
             const invalidRole = await api.put(`/api/admin/users/${adminUser._id}`, {
                 role: 'super_admin',
             }, {
@@ -373,13 +363,13 @@ describe('Admin Routes', () => {
             expect(invalidRole.status).toBe(400);
             expect(invalidRole.data.success).toBe(false);
 
-            const invalidPermission = await api.put('/api/admin/roles/hospital_admin', {
+            const retiredPermissionWrite = await api.put('/api/admin/roles/hospital_admin', {
                 permissions: { arbitrary_permission: true },
             }, {
                 headers: { Authorization: `Bearer ${adminToken}` },
             });
-            expect(invalidPermission.status).toBe(400);
-            expect(invalidPermission.data.success).toBe(false);
+            expect(retiredPermissionWrite.status).toBe(410);
+            expect(retiredPermissionWrite.data.success).toBe(false);
         });
 
         test('should reject unknown fields on sensitive admin mutations', async () => {

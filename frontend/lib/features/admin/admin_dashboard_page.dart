@@ -356,7 +356,10 @@ class _DashboardTab extends StatelessWidget {
       anyCapabilities: AdminCapabilities.dashboardRead,
       builder: (context) {
         final access = AdminAccessScope.accessOf(context)!;
-        final canReadAnalytics = access.canAny(AdminCapabilities.analyticsRead);
+        // Dashboard aggregate cards call GET /statistics/admin — same gate as dashboardRead.
+        final canReadDashboardStats = access.canAny(
+          AdminCapabilities.dashboardRead,
+        );
         final canReadPlatformHealth = access.can(
           AdminCapabilities.platformSystemHealthRead,
         );
@@ -389,14 +392,14 @@ class _DashboardTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            if (canReadAnalytics)
+            if (canReadDashboardStats)
               _StatsSection(repository: repository)
             else
               const _UnavailableDashboardWidget(
                 icon: Icons.analytics_outlined,
-                title: 'Operational analytics not included',
+                title: 'Dashboard statistics not included',
                 message:
-                    'Other permitted dashboard widgets remain available independently.',
+                    'Your policy does not include dashboard aggregate access. Other permitted widgets remain available independently.',
               ),
             if (canAddDoctor || canAddPatient) ...[
               const SizedBox(height: 20),

@@ -10,7 +10,7 @@ import mongoose from 'mongoose'
 import { AdminRole } from '@alias/models/adminprofile.model'
 import { HospitalStatus } from '@alias/models/hospital.model'
 import { InvoiceStatus } from '@alias/models/invoice.model'
-import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions, getRolePermissions, updateRolePermissions } from './role-policy.service'
+import { DEFAULT_ROLE_DEFINITIONS, getRoleDefinitions, getRolePermissions } from './role-policy.service'
 import type { AdminAccessContext } from '@alias/types/admin-access'
 import {
   createAdminAccount,
@@ -288,8 +288,9 @@ function requireHospitalAdminOrAppAdmin(ctx: Awaited<ReturnType<typeof getAdminC
   throw new ApiError(StatusCodes.FORBIDDEN, 'Hospital Admin or Application Admin access is required')
 }
 
-function actorUserId(actor?: AdminActorInput) {
-  return typeof actor === 'object' && actor ? actor.userId : actor
+function actorUserId(actor?: AdminActorInput): string | undefined {
+  if (!actor) return undefined
+  return typeof actor === 'object' ? actor.userId : actor
 }
 
 function ensureTenantAccess(ctx: Awaited<ReturnType<typeof getAdminContext>>, hospitalId?: unknown) {
@@ -410,8 +411,8 @@ function isUserVisibleToAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>, 
   return Boolean(ctx.hospitalId && hospitalId === ctx.hospitalId)
 }
 
-export async function getTenantUserIdsForAdmin(actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function getTenantUserIdsForAdmin(actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   if (ctx.isAppAdmin || (ctx.isAuditor && !ctx.hospitalId)) return undefined
   if (!ctx.hospitalId) return []
 
@@ -460,19 +461,21 @@ export async function getRoles() {
   return { roles: await getRoleDefinitions() }
 }
 
-export async function updateRoleDefinition(roleKey: string, data: any, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
-  requirePermission(ctx, 'manage_roles')
-  if (!ctx.isAppAdmin) throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
-  const allowedPermissions = DEFAULT_ROLE_DEFINITIONS[roleKey]?.permissions
-  if (!allowedPermissions) throw new ApiError(StatusCodes.NOT_FOUND, 'Role not found')
-  const permissions = data?.permissions
-  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions) || Object.keys(permissions).length === 0 ||
-    Object.entries(permissions).some(([key, value]) => !Object.prototype.hasOwnProperty.call(allowedPermissions, key) || typeof value !== 'boolean')) {
-    throw new ApiError(StatusCodes.BAD_REQUEST, 'Role permissions must contain only supported boolean permission values')
+/**
+ * Legacy RoleDefinition write path is retired for Admin RBAC V2.
+ * Runtime enforcement uses AdminRolePolicy; mutating RoleDefinition would create
+ * a second source of truth that V2 guards ignore.
+ */
+export async function updateRoleDefinition(_roleKey: string, _data: any, actor?: AdminActorInput) {
+  if (actor !== undefined) {
+    const ctx = await getAdminContext(actor)
+    requireCanMutate(ctx)
+    if (!ctx.isAppAdmin) throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
   }
-  const role = await updateRolePermissions(roleKey, permissions)
-  return { role }
+  throw new ApiError(
+    StatusCodes.GONE,
+    'Legacy role updates are retired. Use PUT /admin/role-policies/:roleKey to manage administrator capabilities.',
+  )
 }
 
 function valueAtPath(source: any, path: string) {
@@ -529,8 +532,8 @@ function compensationGroups(paths: string[]) {
   return groups
 }
 
-export async function listHospitals(filters: { status?: string; search?: string } = {}, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function listHospitals(filters: { status?: string; search?: string } = {}, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   const tenantScoped = !ctx.isAppAdmin && Boolean(ctx.hospitalId)
   if (tenantScoped) {
     if (!ctx.hospitalId) return { hospitals: [] }
@@ -610,8 +613,8 @@ async function allocateHospitalCodeSequence(): Promise<number> {
   return allocated.value
 }
 
-export async function createHospital(data: any, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function createHospital(data: any, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireAppAdmin(ctx)
   // The retry allocator is only race-safe when the unique code index exists.
   // Await index readiness before serving hospital creation requests.
@@ -643,8 +646,8 @@ export async function createHospital(data: any, actorUserId?: string) {
   return { hospital: formatHospital(hospital.toObject()) }
 }
 
-export async function updateHospital(id: string, data: any, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function updateHospital(id: string, data: any, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireAppAdmin(ctx)
   const identity = mongoose.Types.ObjectId.isValid(id) ? { _id: id } : { code: id.toUpperCase() }
   const currentHospital = await Hospital.findOne(identity)
@@ -790,16 +793,16 @@ export async function updateHospital(id: string, data: any, actorUserId?: string
   }
 }
 
-export async function setHospitalStatus(id: string, status: string, actorUserId?: string) {
-  return updateHospital(id, { status }, actorUserId)
+export async function setHospitalStatus(id: string, status: string, actor?: AdminActorInput) {
+  return updateHospital(id, { status }, actor)
 }
 
-export async function deleteHospital(id: string, actorUserId?: string) {
-  return updateHospital(id, { status: HospitalStatus.INACTIVE }, actorUserId)
+export async function deleteHospital(id: string, actor?: AdminActorInput) {
+  return updateHospital(id, { status: HospitalStatus.INACTIVE }, actor)
 }
 
-export async function listInvoices(actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function listInvoices(actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   const query: any = {}
   if (!ctx.isAppAdmin && ctx.hospitalId) query.hospital_id = ctx.hospitalId
   const invoices = await Invoice.find(query).populate('hospital_id').sort({ createdAt: -1 }).lean()
@@ -818,8 +821,8 @@ export async function listInvoices(actorUserId?: string) {
   }
 }
 
-export async function generateInvoices(data: any = {}, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function generateInvoices(data: any = {}, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireAppAdmin(ctx)
   const hospitals = await Hospital.find({ status: HospitalStatus.ACTIVE })
   const now = new Date()
@@ -951,8 +954,8 @@ function readCheckoutSession(
  * checkouts cannot clobber each other's settlement keys. Prior OPEN sessions
  * remain in payment_metadata.checkout_sessions for reconciliation.
  */
-export async function createCheckout(invoiceId: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function createCheckout(invoiceId: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   const invoice = await Invoice.findOne(mongoose.Types.ObjectId.isValid(invoiceId) ? { _id: invoiceId } : { invoice_number: invoiceId })
   if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
   ensureTenantAccess(ctx, invoice.hospital_id)
@@ -1293,9 +1296,9 @@ export async function registerDoctor(data: {
   hospital_id?: string
   hospital?: string
   [key: string]: unknown
-}, actorUserId?: string) {
+}, actor?: AdminActorInput) {
   assertOperationalAccountPayloadSafe(data)
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
@@ -1349,9 +1352,9 @@ export async function registerDoctor(data: {
 export async function getAllDoctors(
   filters: { department?: string; is_active?: boolean; search?: string; hospital_id?: string } = {},
   pagination: { page?: number; limit?: number } = {},
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
   const { department, is_active, search } = filters
   const page = Math.max(1, pagination.page || 1)
@@ -1410,12 +1413,12 @@ export async function updateDoctor(
     hospital_id?: string
     hospital?: string
   },
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
   // Status/password lifecycle mutations are rejected here and must use dedicated
   // status + credentials endpoints (setDoctorAccountStatus / reset credentials).
   assertOperationalAccountPayloadSafe(data)
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdminOrAppAdmin(ctx)
   // Find user by _id or login_id
@@ -1539,8 +1542,8 @@ export async function updateDoctor(
   return await User.findById(user._id).populate('profile_id')
 }
 
-export async function deactivateDoctor(userId: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function deactivateDoctor(userId: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let user = await User.findById(userId)
@@ -1563,10 +1566,10 @@ export async function deactivateDoctor(userId: string, actorUserId?: string) {
   return { message: 'Doctor deactivated successfully', invalidated_sessions: invalidatedSessions }
 }
 
-export async function setDoctorAccountStatus(userId: string, isActive: boolean, actorUserId?: string) {
-  if (!isActive) return deactivateDoctor(userId, actorUserId)
+export async function setDoctorAccountStatus(userId: string, isActive: boolean, actor?: AdminActorInput) {
+  if (!isActive) return deactivateDoctor(userId, actor)
 
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let user = await User.findById(userId)
@@ -1603,9 +1606,9 @@ export async function onboardPatient(data: {
   hospital_id?: string
   hospital?: string
   [key: string]: unknown
-}, actorUserId?: string) {
+}, actor?: AdminActorInput) {
   assertOperationalAccountPayloadSafe(data, { patient: true })
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   const existingUser = await User.findOne({ login_id: data.login_id })
@@ -1715,9 +1718,9 @@ export async function onboardPatient(data: {
 export async function getAllPatients(
   filters: { assigned_doctor_id?: string; account_status?: string; search?: string; hospital_id?: string } = {},
   pagination: { page?: number; limit?: number } = {},
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
   const page = Math.max(1, pagination.page || 1)
   const limit = Math.max(1, pagination.limit || 20)
@@ -1779,12 +1782,12 @@ export async function updatePatient(
     hospital_id?: string
     hospital?: string
   },
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
   // Clinical config, assignment, status, and credentials are rejected here and
   // must use dedicated clinical / reassignment / status / credentials surfaces.
   assertOperationalAccountPayloadSafe(data, { patient: true, forbidAssignment: true })
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let user = await User.findById(userId).populate('profile_id')
@@ -1896,8 +1899,8 @@ export async function updatePatient(
   return await User.findById(user._id).populate('profile_id')
 }
 
-export async function deactivatePatient(userId: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function deactivatePatient(userId: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let user = await User.findById(userId)
@@ -1931,9 +1934,9 @@ export async function deactivatePatient(userId: string, actorUserId?: string) {
 export async function setPatientAccountStatus(
   userId: string,
   status: { is_active?: boolean; account_status?: 'Active' | 'Discharged' | 'Deceased' },
-  actorUserId?: string,
+  actor?: AdminActorInput,
 ) {
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let user = await User.findById(userId)
@@ -1990,8 +1993,8 @@ export async function setPatientAccountStatus(
   }
 }
 
-export async function reassignPatient(patientLoginId: string, newDoctorId: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function reassignPatient(patientLoginId: string, newDoctorId: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   let patientUser = mongoose.Types.ObjectId.isValid(patientLoginId)
@@ -2116,7 +2119,7 @@ export async function reassignPatient(patientLoginId: string, newDoctorId: strin
 
   await createDoctorUpdateNotification({
     patientUserId: patientUser._id,
-    changedByDoctorId: actorUserId || doctorUser._id,
+    changedByDoctorId: actorUserId(actor) || doctorUser._id,
     changeType: 'DOCTOR_REASSIGNED',
     title: 'Doctor assignment changed',
     message: `Your care has been reassigned to ${doctorProfile.name || doctorUser.login_id}.`,
@@ -2142,17 +2145,17 @@ export async function getAuditLogs(
     success?: boolean
   } = {},
   pagination: { page?: number; limit?: number } = {},
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
   const page = pagination.page || 1
   const limit = pagination.limit || 50
 
   const query: any = {}
-  const tenantUserIds = await getTenantUserIdsForAdmin(actorUserId)
+  const tenantUserIds = await getTenantUserIdsForAdmin(actor)
   if (tenantUserIds) query.user_id = { $in: tenantUserIds }
 
   if (filters.user_id) {
-    const ctx = await getAdminContext(actorUserId)
+    const ctx = await getAdminContext(actor)
     await ensureUserTenantAccess(ctx, filters.user_id)
     query.user_id = filters.user_id
   }
@@ -2191,9 +2194,9 @@ export async function getAuditLogs(
 export async function performBatchOperation(
   operation: 'activate' | 'deactivate' | 'reset_password',
   userIds: string[],
-  actorUserId?: string
+  actor?: AdminActorInput
 ) {
-  const ctx = await getAdminContext(actorUserId)
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   const results: {
@@ -2346,16 +2349,18 @@ export async function performBatchOperation(
   }
 }
 
-export async function resetUserPassword(adminUserId: string, targetUserId: string, newPassword?: string) {
-  const ctx = await getAdminContext(adminUserId)
+export async function resetUserPassword(actor: AdminActorInput, targetUserId: string, newPassword?: string) {
+  const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
   await ensureOperationalUserTenantAccess(ctx, targetUserId)
+  const adminUserId = actorUserId(actor)
+  if (!adminUserId) throw new ApiError(StatusCodes.FORBIDDEN, 'Valid admin profile is required')
   return adminResetPassword(adminUserId, targetUserId, newPassword)
 }
 
 export async function resetOperationalUserPassword(
-  adminUserId: string,
+  actor: AdminActorInput,
   targetUserId: string,
   expectedType: UserType.DOCTOR | UserType.PATIENT,
   newPassword?: string,
@@ -2365,11 +2370,11 @@ export async function resetOperationalUserPassword(
   if (target.user_type !== expectedType) {
     throw new ApiError(StatusCodes.BAD_REQUEST, `User is not a ${expectedType === UserType.DOCTOR ? 'doctor' : 'patient'}`)
   }
-  return resetUserPassword(adminUserId, targetUserId, newPassword)
+  return resetUserPassword(actor, targetUserId, newPassword)
 }
 
-export async function listLegacyPatients(actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function listLegacyPatients(actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
   const patients = await User.find({ user_type: UserType.PATIENT })
     .populate('profile_id')
@@ -2377,8 +2382,8 @@ export async function listLegacyPatients(actorUserId?: string) {
   return { patients: patients.filter(patient => isUserVisibleToAdmin(ctx, patient)) }
 }
 
-export async function getLegacyPatientByLoginId(opNum: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function getLegacyPatientByLoginId(opNum: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
   const user = await User.findOne({ login_id: opNum, user_type: UserType.PATIENT }).populate('profile_id')
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
@@ -2386,8 +2391,8 @@ export async function getLegacyPatientByLoginId(opNum: string, actorUserId?: str
   return { patient: user }
 }
 
-export async function getLegacyDoctorById(id: string, actorUserId?: string) {
-  const ctx = await getAdminContext(actorUserId)
+export async function getLegacyDoctorById(id: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
   const user = await User.findById(id).populate('profile_id')
   if (!user || user.user_type !== UserType.DOCTOR) {
