@@ -58,8 +58,9 @@ dependencies:
   qr_flutter: ^4.1.0
   # Pin for reproducible CI; newer minors may raise the Dart lower bound.
   shared_preferences: 2.5.3
-  # Pin for reproducible CI; 2.1.6+ raises Dart lower bound further.
-  pdfrx: 2.1.5
+  # Align with Flutter 3.44 / Dart 3.12 (pdfrx 2.1.5 breaks web compile with
+  # current pdfrx_engine 0.1.x transitive resolution).
+  pdfrx: 2.4.7
 
 dev_dependencies:
   flutter_test:
