@@ -156,7 +156,7 @@ class PatientProfileContent extends StatelessWidget {
               child: Image.network(
                 profile['profilePictureUrl']!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
+                errorBuilder: (_, _, _) =>
                     PatientAvatarPlaceholder(name: profile['name'] ?? 'P'),
               ),
             )

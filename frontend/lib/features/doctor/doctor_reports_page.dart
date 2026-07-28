@@ -379,7 +379,7 @@ class _DoctorReportsPageState extends State<DoctorReportsPage> {
         options: MutationOptions<void, Map<String, dynamic>>(
           mutationFn: (vars) =>
               repository.updateReport(_selectedPatientOp!, rId, vars),
-          onSuccess: (_, __) {
+          onSuccess: (_, _) {
             qClient.invalidateQueries(
               DoctorQueryKeys.patientReports(_selectedPatientOp!),
             );

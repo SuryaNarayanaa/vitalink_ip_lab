@@ -373,7 +373,7 @@ class _LoginPageState extends State<LoginPage> {
                                     'assets/images/psg_logo_2.png',
                                     fit: BoxFit.contain,
                                     filterQuality: FilterQuality.medium,
-                                    errorBuilder: (_, __, ___) => const Icon(
+                                    errorBuilder: (_, _, _) => const Icon(
                                       Icons.account_balance_outlined,
                                       size: 40,
                                       color: _primaryPurple,
@@ -387,7 +387,7 @@ class _LoginPageState extends State<LoginPage> {
                                     'assets/images/psg_ims.png',
                                     fit: BoxFit.contain,
                                     filterQuality: FilterQuality.medium,
-                                    errorBuilder: (_, __, ___) => const Icon(
+                                    errorBuilder: (_, _, _) => const Icon(
                                       Icons.local_hospital_outlined,
                                       size: 40,
                                       color: _primaryPurple,
