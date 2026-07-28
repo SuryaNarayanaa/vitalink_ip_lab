@@ -176,7 +176,9 @@ const productionAdapter: AdminRbacV2MigrationAdapter = {
     const session = await mongoose.startSession()
     try {
       await session.withTransaction(async () => {
-        await AdminRolePolicy.create(policies, { session })
+        // Mongoose 9 requires ordered:true when create() is called with a
+        // session and multiple documents.
+        await AdminRolePolicy.create(policies, { session, ordered: true })
       })
     } finally {
       await session.endSession()
