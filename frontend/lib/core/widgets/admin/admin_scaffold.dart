@@ -2,135 +2,131 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
+import 'package:frontend/core/widgets/admin/admin_access_gate.dart';
+import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/core/widgets/common/logout_dialog.dart';
+
+class AdminNavigationItem {
+  const AdminNavigationItem({
+    required this.id,
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String id;
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
 
 /// Admin layout wrapper with responsive sidebar/drawer navigation.
 class AdminScaffold extends StatelessWidget {
   static const double tabletBreakpoint = 600;
   static const double desktopBreakpoint = 900;
 
-  final int selectedIndex;
-  final ValueChanged<int> onDestinationSelected;
-  final Widget body;
-  final List<Widget>? actions;
-
   const AdminScaffold({
     super.key,
-    required this.selectedIndex,
+    required this.selectedDestinationId,
     required this.onDestinationSelected,
+    required this.destinations,
     required this.body,
     this.actions,
   });
+
+  final String selectedDestinationId;
+  final ValueChanged<String> onDestinationSelected;
+  final List<AdminNavigationItem> destinations;
+  final Widget body;
+  final List<Widget>? actions;
 
   static bool showsSidebar(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= tabletBreakpoint;
 
   static bool usesShellAppBar(BuildContext context) => !showsSidebar(context);
 
-  static const _destinations = <_NavItem>[
-    _NavItem(Icons.dashboard_outlined, Icons.dashboard_rounded, 'Dashboard'),
-    _NavItem(
-      Icons.local_hospital_outlined,
-      Icons.local_hospital_rounded,
-      'Hospitals',
-    ),
-    _NavItem(
-      Icons.medical_services_outlined,
-      Icons.medical_services_rounded,
-      'Doctors',
-    ),
-    _NavItem(Icons.people_outline, Icons.people_rounded, 'Patients'),
-    _NavItem(
-      Icons.manage_accounts_outlined,
-      Icons.manage_accounts_rounded,
-      'Users',
-    ),
-    _NavItem(
-      Icons.admin_panel_settings_outlined,
-      Icons.admin_panel_settings_rounded,
-      'Roles',
-    ),
-    _NavItem(
-      Icons.receipt_long_outlined,
-      Icons.receipt_long_rounded,
-      'Billing',
-    ),
-    _NavItem(Icons.analytics_outlined, Icons.analytics_rounded, 'Analytics'),
-    _NavItem(
-      Icons.notifications_outlined,
-      Icons.notifications_rounded,
-      'Notifications',
-    ),
-    _NavItem(Icons.history_outlined, Icons.history_rounded, 'Audit Logs'),
-    _NavItem(Icons.settings_outlined, Icons.settings_rounded, 'Settings'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= desktopBreakpoint;
     final showSidebar = showsSidebar(context);
+    final controller = AdminAccessScope.maybeOf(context);
+    final showReadOnlyBanner = controller?.access?.readOnly == true;
+    final selectedIndex = destinations.indexWhere(
+      (destination) => destination.id == selectedDestinationId,
+    );
+    final safeIndex = selectedIndex < 0 ? 0 : selectedIndex;
+    final content = Column(
+      children: [
+        if (showReadOnlyBanner) const AdminReadOnlyBanner(),
+        Expanded(child: body),
+      ],
+    );
 
     if (showSidebar) {
       return Scaffold(
         body: Row(
           children: [
             _AdminNavigationRail(
-              selectedIndex: selectedIndex,
-              onDestinationSelected: onDestinationSelected,
+              destinations: destinations,
+              selectedIndex: safeIndex,
+              onDestinationSelected: (index) =>
+                  onDestinationSelected(destinations[index].id),
               isExtended: isDesktop,
             ),
             const VerticalDivider(thickness: 1, width: 1),
-            Expanded(child: body),
+            Expanded(child: content),
           ],
         ),
       );
     }
 
+    final selectedLabel = destinations.isEmpty
+        ? 'VitaLink Admin'
+        : destinations[safeIndex].label;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('VitaLink Admin'),
+        title: Text(selectedLabel),
         actions: actions,
         leading: Builder(
           builder: (ctx) => IconButton(
             icon: const Icon(Icons.menu),
+            tooltip: 'Open administrator navigation',
             onPressed: () => Scaffold.of(ctx).openDrawer(),
           ),
         ),
       ),
       drawer: Drawer(
-        width: 280,
-        child: _AdminNavigationRail(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: (i) {
-            onDestinationSelected(i);
-            Navigator.pop(context);
-          },
-          isExtended: true,
+        width: 300,
+        child: SafeArea(
+          child: _AdminNavigationRail(
+            destinations: destinations,
+            selectedIndex: safeIndex,
+            onDestinationSelected: (index) {
+              onDestinationSelected(destinations[index].id);
+              Navigator.pop(context);
+            },
+            isExtended: true,
+          ),
         ),
       ),
-      body: body,
+      body: content,
     );
   }
 }
 
-class _NavItem {
-  final IconData icon;
-  final IconData selectedIcon;
-  final String label;
-  const _NavItem(this.icon, this.selectedIcon, this.label);
-}
-
 class _AdminNavigationRail extends StatelessWidget {
-  final int selectedIndex;
-  final ValueChanged<int> onDestinationSelected;
-  final bool isExtended;
-
   const _AdminNavigationRail({
+    required this.destinations,
     required this.selectedIndex,
     required this.onDestinationSelected,
     this.isExtended = true,
   });
+
+  final List<AdminNavigationItem> destinations;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final bool isExtended;
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +135,9 @@ class _AdminNavigationRail extends StatelessWidget {
       selectedIndex: selectedIndex,
       onDestinationSelected: onDestinationSelected,
       extended: isExtended,
+      scrollable: true,
       minWidth: 72,
+      minExtendedWidth: 248,
       backgroundColor: theme.colorScheme.surface,
       selectedIconTheme: IconThemeData(color: theme.colorScheme.primary),
       unselectedIconTheme: IconThemeData(
@@ -170,45 +168,40 @@ class _AdminNavigationRail extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
         ],
       ),
-      destinations: AdminScaffold._destinations
+      destinations: destinations
           .map(
-            (d) => NavigationRailDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
-              label: Text(d.label),
+            (destination) => NavigationRailDestination(
+              icon: Icon(destination.icon),
+              selectedIcon: Icon(destination.selectedIcon),
+              label: Text(destination.label),
             ),
           )
-          .toList(),
-      trailing: Expanded(
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: isExtended
-                ? TextButton.icon(
-                    onPressed: () => _showLogoutDialog(context),
-                    icon: Icon(
-                      Icons.logout_rounded,
-                      color: theme.colorScheme.error,
-                    ),
-                    label: Text(
-                      'Logout',
-                      style: TextStyle(color: theme.colorScheme.error),
-                    ),
-                  )
-                : IconButton(
-                    onPressed: () => _showLogoutDialog(context),
-                    icon: Icon(
-                      Icons.logout_rounded,
-                      color: theme.colorScheme.error,
-                    ),
-                    tooltip: 'Logout',
-                  ),
-          ),
-        ),
+          .toList(growable: false),
+      trailing: Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 24),
+        child: isExtended
+            ? TextButton.icon(
+                onPressed: () => _showLogoutDialog(context),
+                icon: Icon(
+                  Icons.logout_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                label: Text(
+                  'Logout',
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              )
+            : IconButton(
+                onPressed: () => _showLogoutDialog(context),
+                icon: Icon(
+                  Icons.logout_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                tooltip: 'Logout',
+              ),
       ),
     );
   }

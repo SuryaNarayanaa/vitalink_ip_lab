@@ -2,8 +2,9 @@ import { createDoctorSchema, createPatientSchema } from '@alias/validators/admin
 import { createPatient as doctorCreatePatientSchema } from '@alias/validators/doctor.validator'
 import { updateProfileSchema as patientUpdateProfileSchema } from '@alias/validators/patient.validator'
 import { DoctorProfile, PatientProfile, User } from '@alias/models'
+import { DEFAULT_ADMIN_ROLE_POLICIES } from '@alias/constants/admin-capabilities'
+import type { AdminAccessContext } from '@alias/types/admin-access'
 import { updatePatient } from '@alias/services/admin.service'
-import * as rolePolicyService from '@alias/services/role-policy.service'
 
 describe('phone verification groundwork', () => {
   afterEach(() => {
@@ -14,7 +15,6 @@ describe('phone verification groundwork', () => {
     await expect(createDoctorSchema.parseAsync({
       body: {
         login_id: 'doctor_phone',
-        password: 'Doctor@123',
         name: 'Dr. Phone',
       },
     })).rejects.toBeDefined()
@@ -22,7 +22,6 @@ describe('phone verification groundwork', () => {
     await expect(createDoctorSchema.parseAsync({
       body: {
         login_id: 'doctor_phone',
-        password: 'Doctor@123',
         name: 'Dr. Phone',
         contact_number: '9000000001',
       },
@@ -33,7 +32,6 @@ describe('phone verification groundwork', () => {
     await expect(createPatientSchema.parseAsync({
       body: {
         login_id: 'PAT_PHONE',
-        password: 'Patient@123',
         assigned_doctor_id: 'doctor_phone',
         demographics: {
           name: 'Patient Phone',
@@ -45,7 +43,6 @@ describe('phone verification groundwork', () => {
     await expect(createPatientSchema.parseAsync({
       body: {
         login_id: 'PAT_PHONE',
-        password: 'Patient@123',
         assigned_doctor_id: 'doctor_phone',
         demographics: {
           name: 'Patient Phone',
@@ -53,6 +50,43 @@ describe('phone verification groundwork', () => {
         },
       },
     })).resolves.toBeDefined()
+  })
+
+  test('rejects passwords on generic admin doctor and patient schemas', async () => {
+    const doctorResult = await createDoctorSchema.safeParseAsync({
+      body: {
+        login_id: 'doctor_phone',
+        password: 'Doctor@123',
+        name: 'Dr. Phone',
+        contact_number: '9000000001',
+      },
+    })
+    expect(doctorResult.success).toBe(false)
+    if (!doctorResult.success) {
+      expect(doctorResult.error.issues).toContainEqual(expect.objectContaining({
+        code: 'unrecognized_keys',
+        keys: expect.arrayContaining(['password']),
+      }))
+    }
+
+    const patientResult = await createPatientSchema.safeParseAsync({
+      body: {
+        login_id: 'PAT_PHONE',
+        password: 'Patient@123',
+        assigned_doctor_id: 'doctor_phone',
+        demographics: {
+          name: 'Patient Phone',
+          phone: '9888888888',
+        },
+      },
+    })
+    expect(patientResult.success).toBe(false)
+    if (!patientResult.success) {
+      expect(patientResult.error.issues).toContainEqual(expect.objectContaining({
+        code: 'unrecognized_keys',
+        keys: expect.arrayContaining(['password']),
+      }))
+    }
   })
 
   test('validates doctor-added patient and patient self-update phone numbers', async () => {
@@ -92,15 +126,26 @@ describe('phone verification groundwork', () => {
   })
 
   test('admin patient demographics updates preserve phone verification when phone is omitted', async () => {
-    // updatePatient resolves admin permissions; isolate that dependency and let
-    // the suite-level afterEach restore this spy even when the test fails.
-    jest.spyOn(rolePolicyService, 'getRolePermissions').mockResolvedValue({} as any)
+    // Pass a resolved V2 access context so the test does not re-mock the full
+    // resolveAdminAccessContext chain (User.select/lean + AdminProfile + policy).
     const profileId = 'patient-profile-id'
+    const hospitalId = 'hospital-id'
+    const hospitalAdminAccess: AdminAccessContext = {
+      userId: 'admin-user-id',
+      role: 'hospital_admin',
+      scope: 'tenant',
+      hospitalId,
+      hospitalCode: 'PHONE_TEST',
+      permissions: { ...DEFAULT_ADMIN_ROLE_POLICIES.hospital_admin },
+      policyVersion: 1,
+      readOnly: false,
+    }
     const patientUser: any = {
       _id: 'patient-user-id',
       user_type: 'PATIENT',
       profile_id: {
         _id: profileId,
+        hospital_id: hospitalId,
         demographics: {
           name: 'Existing Patient',
           phone: '9888888888',
@@ -111,6 +156,7 @@ describe('phone verification groundwork', () => {
         },
         toObject: jest.fn().mockReturnValue({
           _id: profileId,
+          hospital_id: hospitalId,
           demographics: {
             name: 'Existing Patient',
             phone: '9888888888',
@@ -130,18 +176,10 @@ describe('phone verification groundwork', () => {
       }),
     }
     const updatedUser = { ...patientUser }
-    const adminUser: any = {
-      _id: 'admin-user-id',
-      user_type: 'ADMIN',
-      profile_id: { admin_role: 'app_admin' },
-    }
 
     const findByIdMock = jest.spyOn(User, 'findById' as any) as jest.Mock
     findByIdMock
-      .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(adminUser) })
-      .mockReturnValueOnce({
-        select: jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(patientUser) }),
-      })
+      .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(patientUser) })
       .mockReturnValueOnce({ populate: jest.fn().mockResolvedValue(updatedUser) })
     jest.spyOn(User, 'findOne').mockReturnValue({ populate: jest.fn() } as any)
     const updateSpy = jest
@@ -152,7 +190,7 @@ describe('phone verification groundwork', () => {
       demographics: {
         name: 'Updated Name',
       },
-    }, 'admin-user-id')
+    }, hospitalAdminAccess)
 
     expect(updateSpy).toHaveBeenCalledWith(
       { _id: profileId },
@@ -164,8 +202,10 @@ describe('phone verification groundwork', () => {
       { runValidators: true, new: true },
     )
     const [, update] = updateSpy.mock.calls[0]
-    expect(update.$set).not.toHaveProperty('demographics')
-    expect(update.$set).not.toHaveProperty('demographics.phone')
-    expect(update.$set).not.toHaveProperty('demographics.phone_verification')
+    // Pass dotted keys as single-element arrays so Jest treats them as literal
+    // property names on $set, not deep path lookups.
+    expect(update.$set).not.toHaveProperty(['demographics'])
+    expect(update.$set).not.toHaveProperty(['demographics.phone'])
+    expect(update.$set).not.toHaveProperty(['demographics.phone_verification'])
   })
 })

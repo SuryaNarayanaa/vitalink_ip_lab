@@ -72,7 +72,7 @@ class AppNavBar extends StatelessWidget {
                                 'assets/images/psg_ims.png',
                                 fit: BoxFit.contain,
                                 filterQuality: FilterQuality.medium,
-                                errorBuilder: (_, __, ___) => Icon(
+                                errorBuilder: (_, _, _) => Icon(
                                   Icons.local_hospital_outlined,
                                   size: logoHeight * 0.7,
                                   color: Colors.indigo.shade700,
@@ -99,7 +99,7 @@ class AppNavBar extends StatelessWidget {
                                 'assets/images/psg_logo_2.png',
                                 fit: BoxFit.contain,
                                 filterQuality: FilterQuality.medium,
-                                errorBuilder: (_, __, ___) => Icon(
+                                errorBuilder: (_, _, _) => Icon(
                                   Icons.account_balance_outlined,
                                   size: logoHeight * 0.7,
                                   color: Colors.indigo.shade700,

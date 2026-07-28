@@ -137,7 +137,7 @@ class _NotificationCenterPageState extends State<NotificationCenterPage> {
                                     ),
                                     sliver: SliverList.separated(
                                       itemCount: filteredNotifications.length,
-                                      separatorBuilder: (_, __) =>
+                                      separatorBuilder: (_, _) =>
                                           PortalLayout.itemSpacer,
                                       itemBuilder: (context, index) {
                                         final item =

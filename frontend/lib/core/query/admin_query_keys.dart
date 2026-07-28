@@ -5,6 +5,14 @@ class AdminQueryKeys {
 
   static List<Object> all() => ['admin', _scope];
 
+  static List<Object> accessMe() => [...all(), 'access', 'me'];
+
+  static List<Object> effectiveAccess() => accessMe();
+
+  static List<Object> rolePolicies() => [...all(), 'role-policies'];
+
+  static List<Object> adminAccounts() => [...all(), 'admin-accounts'];
+
   static List<Object> stats() => [...all(), 'stats'];
 
   static List<Object> analyticsDashboard(String period) =>
@@ -44,8 +52,12 @@ class AdminQueryKeys {
         refreshKey,
       ];
 
-  static List<Object> hospitals({required int refreshKey}) =>
-      [...all(), 'hospitals', refreshKey];
+  static List<Object> hospitals({
+    required int refreshKey,
+    String? status,
+    String search = '',
+  }) =>
+      [...all(), 'hospitals', status ?? 'all', search, refreshKey];
 
   static List<Object> users({required int refreshKey}) =>
       [...all(), 'users', refreshKey];

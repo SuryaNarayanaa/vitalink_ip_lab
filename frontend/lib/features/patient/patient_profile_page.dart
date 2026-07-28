@@ -227,7 +227,7 @@ class _DoctorUpdatesCard extends StatelessWidget {
                 child: ListView.separated(
                   primary: false,
                   itemCount: updates.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const SizedBox(height: AppSpacing.sm - 2),
                   itemBuilder: (context, index) => _DoctorUpdateTile(
                     event: updates[index],

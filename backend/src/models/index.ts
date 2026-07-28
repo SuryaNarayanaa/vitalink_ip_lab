@@ -49,6 +49,8 @@ import FileAsset from './fileasset.model'
 import DeviceToken from './DeviceToken.model'
 import NotificationDelivery from './notificationdelivery.model'
 import RoleDefinition from './roledefinition.model'
+import AdminRolePolicy from './adminrolepolicy.model'
+import AdminRolePolicyRevision from './adminrolepolicyrevision.model'
 
 export {
   User,
@@ -67,6 +69,8 @@ export {
   DeviceToken,
   NotificationDelivery,
   RoleDefinition,
+  AdminRolePolicy,
+  AdminRolePolicyRevision,
 }
 // Aliases for backward compatibility
 export const Doctor = DoctorProfile

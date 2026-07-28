@@ -2,8 +2,9 @@ import axios, { AxiosInstance } from 'axios';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import mongoose from 'mongoose';
 import app from '@alias/app';
-import { AdminProfile, AuditLog, DoctorProfile, PatientProfile, User, Hospital } from '@alias/models';
+import { AdminProfile, AdminRolePolicy, AuditLog, DoctorProfile, PatientProfile, User, Hospital } from '@alias/models';
 import { AdminRole } from '@alias/models/adminprofile.model';
+import { DEFAULT_ADMIN_ROLE_POLICIES } from '@alias/constants/admin-capabilities';
 import { AuditAction } from '@alias/models/auditlog.model';
 import { Server } from 'http';
 
@@ -57,6 +58,16 @@ describe('Statistics Routes', () => {
             profile_id: adminProfile._id,
             is_active: true
         });
+
+        await AdminRolePolicy.create(Object.values(AdminRole).map(role => ({
+            role_key: role,
+            capabilities: DEFAULT_ADMIN_ROLE_POLICIES[role],
+            protected: role === AdminRole.APP_ADMIN,
+            schema_version: 2,
+            policy_version: 1,
+            updated_by: adminUser._id,
+            change_reason: 'Statistics RBAC V2 test fixture',
+        })));
 
         const hospitalAdminProfile = await AdminProfile.create({
             name: 'Stats Hospital Admin',
@@ -317,26 +328,14 @@ describe('Statistics Routes', () => {
     });
 
     describe('GET /api/statistics/compliance', () => {
-        test('should return INR compliance distribution', async () => {
+        test('should reject global admin access to clinical INR compliance', async () => {
             const response = await api.get('/api/statistics/compliance', {
                 headers: { Authorization: `Bearer ${adminToken}` }
             });
 
-            expect(response.status).toBe(200);
-            expect(response.data.success).toBe(true);
-            expect(response.data.data.total_patients).toBe(5);
-            expect(response.data.data.in_range).toBeGreaterThanOrEqual(1);
-            expect(response.data.data.below_range).toBeGreaterThanOrEqual(1);
-            expect(response.data.data.above_range).toBeGreaterThanOrEqual(1);
-            expect(response.data.data.no_data).toBeGreaterThanOrEqual(1);
-
-            const total =
-                response.data.data.in_range +
-                response.data.data.below_range +
-                response.data.data.above_range +
-                response.data.data.no_data;
-
-            expect(total).toBe(response.data.data.total_patients);
+            expect(response.status).toBe(403);
+            expect(response.data.success).toBe(false);
+            expect(response.data.required_capability).toBe('tenant.analytics.read');
         });
 
         test('should scope INR compliance to hospital admin tenant', async () => {
@@ -354,21 +353,21 @@ describe('Statistics Routes', () => {
     });
 
     describe('GET /api/statistics/workload', () => {
-        test('should return active patient workload grouped by doctor', async () => {
+        test('should return anonymous global patient workload aggregates', async () => {
             const response = await api.get('/api/statistics/workload', {
                 headers: { Authorization: `Bearer ${adminToken}` }
             });
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
-            expect(Array.isArray(response.data.data)).toBe(true);
-
-            const byDoctorName = new Map(
-                response.data.data.map((entry: any) => [entry.doctor_name, entry.patient_count])
-            );
-
-            expect(byDoctorName.get('Dr. Workload One')).toBe(2);
-            expect(byDoctorName.get('Dr. Workload Two')).toBe(2);
+            expect(response.data.data).toEqual({
+                scope: 'global',
+                doctors_with_active_patients: 2,
+                active_patient_assignments: 4,
+                maximum_assignments_per_doctor: 2,
+                average_assignments_per_doctor: 2,
+            });
+            expect(JSON.stringify(response.data.data)).not.toContain('doctor_name');
         });
 
         test('should scope workload statistics to hospital admin tenant', async () => {
@@ -378,6 +377,7 @@ describe('Statistics Routes', () => {
 
             expect(response.status).toBe(200);
             expect(response.data.success).toBe(true);
+            expect(Array.isArray(response.data.data)).toBe(true);
             const doctorNames = response.data.data.map((entry: any) => entry.doctor_name);
             expect(doctorNames).toContain('Dr. Workload One');
             expect(doctorNames).not.toContain('Dr. Workload Two');

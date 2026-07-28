@@ -46,7 +46,7 @@ class DoctorProfileContent extends StatelessWidget {
                   child: Image.network(
                     profile.profilePictureUrl!,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
+                    errorBuilder: (_, _, _) =>
                         DoctorAvatarPlaceholder(name: profile.name),
                   ),
                 )

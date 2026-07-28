@@ -12,8 +12,14 @@ import {
 } from '@alias/services/admin-totp.service'
 import { bootstrapAdminUser } from '@alias/scripts/createAdminUser'
 
+jest.setTimeout(60_000)
+
 describe('admin TOTP supervised recovery concurrency', () => {
   let mongoContainer: StartedTestContainer
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
 
   beforeAll(async () => {
     mongoContainer = await new GenericContainer('mongo:7.0').withExposedPorts(27017).start()
@@ -42,21 +48,11 @@ describe('admin TOTP supervised recovery concurrency', () => {
 
   test('returns setup material only to the single winning concurrent reset', async () => {
     const admin = await createAdmin('concurrent-recovery-admin')
-    const originalUpdate = User.updateOne.bind(User)
-    let arrivals = 0
-    let release!: () => void
-    const bothArrived = new Promise<void>(resolve => { release = resolve })
-    const spy = jest.spyOn(User, 'updateOne').mockImplementation(((...args: any[]) => {
-      if (args[0]?.['admin_mfa.totp.factor_generation'] !== undefined && args[1]?.$inc?.security_version) {
-        arrivals += 1
-        if (arrivals === 2) release()
-        return (async () => {
-          await bothArrived
-          return originalUpdate(...args) as any
-        })() as any
-      }
-      return originalUpdate(...args) as any
-    }) as any)
+    const staleSnapshot = await User.findById(admin._id)
+    expect(staleSnapshot).toBeTruthy()
+    const spy = jest.spyOn(User, 'findOne')
+      .mockImplementationOnce((async () => staleSnapshot) as any)
+      .mockImplementationOnce((async () => staleSnapshot) as any)
 
     try {
       const results = await Promise.allSettled([
@@ -85,17 +81,11 @@ describe('admin TOTP supervised recovery concurrency', () => {
       factor_generation: 0,
       security_version: Number(admin.security_version || 0),
     })
-    const originalUpdate = User.updateOne.bind(User)
-    let deactivated = false
-    const spy = jest.spyOn(User, 'updateOne').mockImplementation(((...args: any[]) => {
-      if (!deactivated && args[0]?.['admin_mfa.totp.factor_generation'] !== undefined) {
-        deactivated = true
-        return (async () => {
-          await User.collection.updateOne({ _id: admin._id }, { $set: { is_active: false } })
-          return originalUpdate(...args) as any
-        })() as any
-      }
-      return originalUpdate(...args) as any
+    const staleSnapshot = await User.findById(admin._id)
+    expect(staleSnapshot).toBeTruthy()
+    const spy = jest.spyOn(User, 'findOne').mockImplementationOnce((async () => {
+      await User.collection.updateOne({ _id: admin._id }, { $set: { is_active: false } })
+      return staleSnapshot
     }) as any)
     try {
       await expect(replaceAdminTotpForRecovery(admin)).rejects.toMatchObject({ statusCode: 409 })

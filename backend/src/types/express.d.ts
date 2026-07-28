@@ -1,5 +1,6 @@
 import { JWTPayload } from '@alias/validators'
 import type { AuthUserSnapshot } from '@alias/types/auth-user'
+import type { AdminAccessContext } from '@alias/types/admin-access'
 
 export type { AuthUserSnapshot }
 
@@ -12,6 +13,7 @@ declare global {
       user?: JWTPayload
       /** Lean user row validated by authenticate (same request only). */
       authUser?: AuthUserSnapshot
+      adminAccess?: AdminAccessContext
       requestId?: string
       validatedQuery?: unknown
     }
@@ -22,5 +24,6 @@ declare module "express-serve-static-core" {
     requestId?: string;
     validatedQuery?: unknown;
     authUser?: AuthUserSnapshot;
+    adminAccess?: AdminAccessContext;
   }
 }
