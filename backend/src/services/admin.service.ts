@@ -37,6 +37,61 @@ export const ROLE_DEFINITIONS = DEFAULT_ROLE_DEFINITIONS
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/** mongoose.Types.ObjectId.isValid accepts any 12-byte string; require 24-hex only. */
+function isStrictObjectId(value: string): boolean {
+  return /^[a-fA-F0-9]{24}$/.test(value)
+}
+
+/** Aggregation stages emit `{ _id: <userId> }` for every user whose profile is in the hospital. */
+function tenantUserIdUnionStages(hospitalId: mongoose.Types.ObjectId): mongoose.PipelineStage[] {
+  const usersColl = User.collection.name
+  const userIdFromProfile = [
+    {
+      $lookup: {
+        from: usersColl,
+        localField: '_id',
+        foreignField: 'profile_id',
+        as: 'user',
+        pipeline: [{ $project: { _id: 1 } }, { $limit: 1 }],
+      },
+    },
+    { $unwind: '$user' },
+    { $project: { _id: '$user._id' } },
+  ] as mongoose.PipelineStage.FacetPipelineStage[]
+
+  return [
+    { $match: { hospital_id: hospitalId } },
+    ...userIdFromProfile,
+    {
+      $unionWith: {
+        coll: PatientProfile.collection.name,
+        pipeline: [
+          { $match: { hospital_id: hospitalId } },
+          ...userIdFromProfile,
+        ],
+      },
+    },
+    {
+      $unionWith: {
+        coll: AdminProfile.collection.name,
+        pipeline: [
+          { $match: { hospital_id: hospitalId } },
+          ...userIdFromProfile,
+        ],
+      },
+    },
+  ]
+}
+
+/** Sensitive User fields aggregation must strip (Mongoose toJSON is bypassed). */
+const USER_AGGREGATION_SENSITIVE_UNSET = [
+  'profile',
+  'password',
+  'salt',
+  'password_history',
+  'admin_mfa',
+] as const
+
 const paginationResult = (total: number, page: number, limit: number) => ({
   total,
   page,
@@ -330,7 +385,8 @@ async function resolveHospitalId(input?: string, ctx?: Awaited<ReturnType<typeof
     return ctx.hospitalId
   }
   if (!input) return undefined
-  if (mongoose.Types.ObjectId.isValid(input)) {
+  // Prefer strict 24-hex so 12-char hospital codes are never treated as `_id`.
+  if (isStrictObjectId(input)) {
     const byId = await Hospital.findById(input)
     if (byId) {
       if (byId.status !== HospitalStatus.ACTIVE || byId.accepting_assignments === false || !['STABLE', undefined, null].includes(byId.lifecycle_state as any)) {
@@ -406,32 +462,6 @@ async function ensureOperationalUserTenantAccess(
     )
   }
   return user
-}
-
-function isUserVisibleToAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>, user: any) {
-  if (ctx.isAppAdmin || (ctx.isAuditor && !ctx.hospitalId)) return true
-  const hospitalId = getProfileHospitalId(user)
-  return Boolean(ctx.hospitalId && hospitalId === ctx.hospitalId)
-}
-
-export async function getTenantUserIdsForAdmin(actor?: AdminActorInput) {
-  const ctx = await getAdminContext(actor)
-  if (ctx.isAppAdmin || (ctx.isAuditor && !ctx.hospitalId)) return undefined
-  if (!ctx.hospitalId) return []
-
-  const [doctorProfiles, patientProfiles, adminProfiles] = await Promise.all([
-    DoctorProfile.find({ hospital_id: ctx.hospitalId }).select('_id').lean(),
-    PatientProfile.find({ hospital_id: ctx.hospitalId }).select('_id').lean(),
-    AdminProfile.find({ hospital_id: ctx.hospitalId }).select('_id').lean(),
-  ])
-
-  const profileIds = [
-    ...doctorProfiles.map(p => p._id),
-    ...patientProfiles.map(p => p._id),
-    ...adminProfiles.map(p => p._id),
-  ]
-  const users = await User.find({ profile_id: { $in: profileIds } }).select('_id').lean()
-  return users.map(user => user._id)
 }
 
 async function revokeSessionsIfAccountDisabled(user: any, wasActive: boolean) {
@@ -679,6 +709,37 @@ export async function listHospitals(filters: { status?: string; search?: string 
     patients: h.patientCounts[0]?.count ?? 0,
   }))
   return { hospitals: formatted }
+}
+
+/**
+ * Fetch a single hospital by `_id` or code without listing the full catalog.
+ */
+export async function getHospitalById(id: string, actor?: AdminActorInput) {
+  const ctx = await getAdminContext(actor)
+  const trimmed = String(id || '').trim()
+  if (!trimmed) throw new ApiError(StatusCodes.NOT_FOUND, 'Hospital not found')
+
+  const hospital = isStrictObjectId(trimmed)
+    ? await Hospital.findById(trimmed).lean()
+    : await Hospital.findOne({ code: trimmed.toUpperCase() }).lean()
+
+  if (!hospital) throw new ApiError(StatusCodes.NOT_FOUND, 'Hospital not found')
+
+  // Tenant-scoped readers may only read their assigned hospital.
+  if (!ctx.isAppAdmin && !(ctx.isAuditor && !ctx.hospitalId)) {
+    if (!ctx.hospitalId || String(hospital._id) !== ctx.hospitalId) {
+      throw new ApiError(StatusCodes.NOT_FOUND, 'Hospital not found')
+    }
+  }
+
+  const [doctors, patients] = await Promise.all([
+    DoctorProfile.countDocuments({ hospital_id: hospital._id }),
+    PatientProfile.countDocuments({ hospital_id: hospital._id }),
+  ])
+
+  return {
+    hospital: formatHospital(hospital, { doctors, patients }),
+  }
 }
 
 async function allocateHospitalCodeSequence(): Promise<number> {
@@ -1483,7 +1544,7 @@ export async function getAllDoctors(
 
   const profileQuery: any = {}
   if (!ctx.isAppAdmin && ctx.hospitalId) profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(ctx.hospitalId)
-  else if (filters.hospital_id && mongoose.Types.ObjectId.isValid(filters.hospital_id)) {
+  else if (filters.hospital_id && isStrictObjectId(filters.hospital_id)) {
     profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(filters.hospital_id)
   } else if (filters.hospital_id) {
     return emptyPaginatedResult('doctors', page, limit)
@@ -1502,7 +1563,7 @@ export async function getAllDoctors(
     { $match: profileQuery },
     { $set: { profile_id: '$profile' } },
     // Aggregation bypasses User#toJSON, so explicitly preserve its sensitive-field contract.
-    { $unset: ['profile', 'password', 'salt', 'password_history'] },
+    { $unset: [...USER_AGGREGATION_SENSITIVE_UNSET] },
     {
       $facet: {
         doctors: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
@@ -1857,7 +1918,7 @@ export async function getAllPatients(
 
   const profileQuery: any = {}
   if (!ctx.isAppAdmin && ctx.hospitalId) profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(ctx.hospitalId)
-  else if (filters.hospital_id && mongoose.Types.ObjectId.isValid(filters.hospital_id)) {
+  else if (filters.hospital_id && isStrictObjectId(filters.hospital_id)) {
     profileQuery['profile.hospital_id'] = new mongoose.Types.ObjectId(filters.hospital_id)
   } else if (filters.hospital_id) {
     return emptyPaginatedResult('patients', page, limit)
@@ -1877,7 +1938,7 @@ export async function getAllPatients(
     { $match: profileQuery },
     { $set: { profile_id: '$profile' } },
     // Aggregation bypasses User#toJSON, so explicitly preserve its sensitive-field contract.
-    { $unset: ['profile', 'password', 'salt', 'password_history'] },
+    { $unset: [...USER_AGGREGATION_SENSITIVE_UNSET] },
     {
       $facet: {
         patients: [{ $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
@@ -2270,45 +2331,102 @@ export async function getAuditLogs(
   pagination: { page?: number; limit?: number } = {},
   actor?: AdminActorInput
 ) {
-  const page = pagination.page || 1
-  const limit = pagination.limit || 50
+  const page = Math.max(1, pagination.page || 1)
+  const limit = Math.max(1, Math.min(200, pagination.limit || 50))
+  const ctx = await getAdminContext(actor)
 
-  const query: any = {}
-  const tenantUserIds = await getTenantUserIdsForAdmin(actor)
-  if (tenantUserIds) query.user_id = { $in: tenantUserIds }
+  const accessPerms = { permissions: ctx.permissions as AdminCapabilityMap }
+  const canPlatformAudit = hasAdminCapability(accessPerms, 'platform.audit.read')
+  const canTenantAudit = hasAdminCapability(accessPerms, 'tenant.audit.read')
+  if (!canPlatformAudit && !canTenantAudit) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Administrator audit access is not permitted.')
+  }
+
+  // Tenant-only readers must stay hospital-scoped; platform readers see all (or a single user).
+  const tenantOnly = !canPlatformAudit
+  if (tenantOnly && !ctx.hospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Active hospital administrator scope is required.')
+  }
+
+  const logMatch: any = {}
+  if (filters.action) logMatch.action = filters.action
+  if (typeof filters.success === 'boolean') logMatch.success = filters.success
+  if (filters.start_date || filters.end_date) {
+    logMatch.createdAt = {}
+    if (filters.start_date) logMatch.createdAt.$gte = new Date(filters.start_date)
+    if (filters.end_date) logMatch.createdAt.$lte = new Date(filters.end_date)
+  }
 
   if (filters.user_id) {
-    const ctx = await getAdminContext(actor)
     await ensureUserTenantAccess(ctx, filters.user_id)
-    query.user_id = filters.user_id
-  }
-  if (filters.action) query.action = filters.action
-  if (typeof filters.success === 'boolean') query.success = filters.success
-
-  if (filters.start_date || filters.end_date) {
-    query.createdAt = {}
-    if (filters.start_date) query.createdAt.$gte = new Date(filters.start_date)
-    if (filters.end_date) query.createdAt.$lte = new Date(filters.end_date)
+    logMatch.user_id = new mongoose.Types.ObjectId(filters.user_id)
   }
 
-  const logs = await AuditLog.find(query)
-    .populate('user_id', 'login_id user_type')
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(limit)
+  // Global/platform path (or single-user after access check): simple find, no id materialization.
+  if (!tenantOnly || filters.user_id) {
+    const logs = await AuditLog.find(logMatch)
+      .populate('user_id', 'login_id user_type')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
 
-  const total = await AuditLog.countDocuments(query)
+    const total = await AuditLog.countDocuments(logMatch)
+    return {
+      logs,
+      pagination: paginationResult(total, page, limit),
+    }
+  }
 
+  // Tenant-scoped list: keep hospital membership entirely in Mongo (profile-side union + $lookup),
+  // matching statistics — never materialize every tenant user id into Node for $in.
+  const hospitalId = new mongoose.Types.ObjectId(ctx.hospitalId)
+  const logLookupPipeline: mongoose.PipelineStage.FacetPipelineStage[] = []
+  if (Object.keys(logMatch).length) logLookupPipeline.push({ $match: logMatch })
+
+  const [result] = await DoctorProfile.aggregate([
+    ...tenantUserIdUnionStages(hospitalId),
+    {
+      $lookup: {
+        from: AuditLog.collection.name,
+        localField: '_id',
+        foreignField: 'user_id',
+        as: 'log',
+        pipeline: logLookupPipeline,
+      },
+    },
+    { $unwind: '$log' },
+    { $replaceRoot: { newRoot: '$log' } },
+    { $sort: { createdAt: -1, _id: -1 } },
+    {
+      $facet: {
+        logs: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: User.collection.name,
+              localField: 'user_id',
+              foreignField: '_id',
+              as: 'user_id',
+              pipeline: [{ $project: { login_id: 1, user_type: 1 } }],
+            },
+          },
+          {
+            $set: {
+              user_id: { $arrayElemAt: ['$user_id', 0] },
+            },
+          },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ])
+
+  const logs = result?.logs ?? []
+  const total = result?.total?.[0]?.count ?? 0
   return {
     logs,
-    pagination: {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrev: page > 1,
-    },
+    pagination: paginationResult(total, page, limit),
   }
 }
 
@@ -2504,10 +2622,31 @@ export async function resetOperationalUserPassword(
 export async function listLegacyPatients(actor?: AdminActorInput) {
   const ctx = await getAdminContext(actor)
   requireHospitalAdmin(ctx)
-  const patients = await User.find({ user_type: UserType.PATIENT })
-    .populate('profile_id')
-    .sort({ createdAt: -1 })
-  return { patients: patients.filter(patient => isUserVisibleToAdmin(ctx, patient)) }
+
+  // Scope in Mongo via PatientProfile.hospital_id — never load every patient then filter in Node.
+  const profileMatch: any = {}
+  if (!ctx.isAppAdmin && ctx.hospitalId) {
+    profileMatch['profile.hospital_id'] = new mongoose.Types.ObjectId(ctx.hospitalId)
+  }
+
+  const patients = await User.aggregate([
+    { $match: { user_type: UserType.PATIENT } },
+    {
+      $lookup: {
+        from: PatientProfile.collection.name,
+        localField: 'profile_id',
+        foreignField: '_id',
+        as: 'profile',
+      },
+    },
+    { $unwind: '$profile' },
+    ...(Object.keys(profileMatch).length ? [{ $match: profileMatch }] : []),
+    { $set: { profile_id: '$profile' } },
+    { $unset: [...USER_AGGREGATION_SENSITIVE_UNSET] },
+    { $sort: { createdAt: -1, _id: -1 } },
+  ])
+
+  return { patients }
 }
 
 export async function getLegacyPatientByLoginId(opNum: string, actor?: AdminActorInput) {

@@ -209,11 +209,16 @@ class AdminRepository {
     return _apiClient.post('${AppStrings.adminUsersPath}/$id/mfa/reset');
   }
 
+  /// Legacy RoleDefinition list (`GET /admin/roles`). Prefer [getRolePolicies].
+  @Deprecated('Use getRolePolicies / role-policies endpoints')
   Future<Map<String, dynamic>> getRoles() async {
     final response = await _apiClient.getRaw(AppStrings.adminRolesPath);
     return _extractData(response);
   }
 
+  /// Legacy RoleDefinition write (`PUT /admin/roles/:roleKey`). Backend returns 410.
+  /// Prefer [updateRolePolicyV2].
+  @Deprecated('Use updateRolePolicyV2 / role-policies endpoints')
   Future<Map<String, dynamic>> updateRole(
     String roleKey,
     Map<String, dynamic> permissions,

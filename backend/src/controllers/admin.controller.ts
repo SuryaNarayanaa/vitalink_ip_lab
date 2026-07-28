@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
+import mongoose from 'mongoose'
 import { asyncHandler, ApiError, ApiResponse } from '@alias/utils'
 import * as adminService from '@alias/services/admin.service'
 import * as configService from '@alias/services/config.service'
@@ -28,23 +29,48 @@ function requireAccessCapability(
   requireAdminCapabilityContext(access, capability, { scope })
 }
 
-async function getTenantUserIds(access: AdminAccessContext): Promise<any[]> {
-  if (access.scope !== 'tenant' || !access.hospitalId) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Active hospital administrator scope is required.')
-  }
-  const [doctorProfiles, patientProfiles, adminProfiles] = await Promise.all([
-    DoctorProfile.find({ hospital_id: access.hospitalId }).select('_id').lean(),
-    PatientProfile.find({ hospital_id: access.hospitalId }).select('_id').lean(),
-    AdminProfile.find({ hospital_id: access.hospitalId }).select('_id').lean(),
-  ])
-  const profileIds = [
-    ...doctorProfiles.map(profile => profile._id),
-    ...patientProfiles.map(profile => profile._id),
-    ...adminProfiles.map(profile => profile._id),
+/**
+ * Stages that emit `{ _id: <userId> }` for hospital members without materializing
+ * every tenant id into Node (avoids large `$in` / BSON limits).
+ */
+function tenantUserIdUnionStages(hospitalId: mongoose.Types.ObjectId) {
+  const usersColl = User.collection.name
+  const userIdFromProfile = [
+    {
+      $lookup: {
+        from: usersColl,
+        localField: '_id',
+        foreignField: 'profile_id',
+        as: 'user',
+        pipeline: [{ $project: { _id: 1 } }, { $limit: 1 }],
+      },
+    },
+    { $unwind: '$user' },
+    { $project: { _id: '$user._id' } },
   ]
-  if (!profileIds.length) return []
-  const users = await User.find({ profile_id: { $in: profileIds } }).select('_id').lean()
-  return users.map(user => user._id)
+
+  return [
+    { $match: { hospital_id: hospitalId } },
+    ...userIdFromProfile,
+    {
+      $unionWith: {
+        coll: PatientProfile.collection.name,
+        pipeline: [
+          { $match: { hospital_id: hospitalId } },
+          ...userIdFromProfile,
+        ],
+      },
+    },
+    {
+      $unionWith: {
+        coll: AdminProfile.collection.name,
+        pipeline: [
+          { $match: { hospital_id: hospitalId } },
+          ...userIdFromProfile,
+        ],
+      },
+    },
+  ]
 }
 
 // ─── Doctor Management ───
@@ -237,21 +263,41 @@ export const getSystemHealth = asyncHandler(async (req: Request, res: Response) 
 export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: Response) => {
   const access = accessContext(req)
   requireAccessCapability(access, 'tenant.operations_health.read', 'tenant')
-  const tenantUserIds = await getTenantUserIds(access)
+  if (!access.hospitalId) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Active hospital administrator scope is required.')
+  }
   const reminderTypes = ['DOSAGE_REMINDER', 'INR_REMINDER', 'APPOINTMENT_REMINDER', 'CRITICAL_ALERT']
   const now = new Date()
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
   // Bound the health scan to a finite recent window so the endpoint never loads
   // the entire historical reminder set for a large tenant.
   const healthWindowStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const notifications = tenantUserIds.length
-    ? await Notification.find({
-      type: { $in: reminderTypes },
-      user_id: { $in: tenantUserIds },
-      createdAt: { $gte: healthWindowStart },
-    }).select('_id type createdAt').lean()
-    : []
-  const notificationIds = notifications.map(row => row._id)
+  const hospitalOid = new mongoose.Types.ObjectId(access.hospitalId)
+
+  // Keep tenant membership in Mongo — no full user-id materialization into `$in`.
+  const notifications = await DoctorProfile.aggregate([
+    ...tenantUserIdUnionStages(hospitalOid),
+    {
+      $lookup: {
+        from: Notification.collection.name,
+        localField: '_id',
+        foreignField: 'user_id',
+        as: 'notification',
+        pipeline: [
+          {
+            $match: {
+              type: { $in: reminderTypes },
+              createdAt: { $gte: healthWindowStart },
+            },
+          },
+          { $project: { _id: 1, type: 1, createdAt: 1 } },
+        ],
+      },
+    },
+    { $unwind: '$notification' },
+    { $replaceRoot: { newRoot: '$notification' } },
+  ])
+  const notificationIds = notifications.map((row: { _id: mongoose.Types.ObjectId }) => row._id)
   const deliveries = notificationIds.length
     ? await NotificationDelivery.find({ notification_id: { $in: notificationIds } })
       .select('status notification_id next_attempt_at')
@@ -266,7 +312,7 @@ export const getReminderDeliveryHealth = asyncHandler(async (req: Request, res: 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Reminder delivery health', {
     scope: 'tenant',
     hospital_id: access.hospitalId,
-    reminders_last_24_hours: notifications.filter(row => row.createdAt >= twentyFourHoursAgo).length,
+    reminders_last_24_hours: notifications.filter((row: { createdAt: Date }) => row.createdAt >= twentyFourHoursAgo).length,
     total_reminders: notifications.length,
     reminder_window_days: 7,
     deliveries_by_status: byStatus,
@@ -326,13 +372,8 @@ export const createHospital = asyncHandler(async (req: Request, res: Response) =
 })
 
 export const getHospital = asyncHandler(async (req: Request, res: Response) => {
-  const result = await adminService.listHospitals({}, accessContext(req))
-  const hospital = result.hospitals.find((h: any) => h.id === req.params.id || h._id === req.params.id)
-  if (!hospital) {
-    res.status(StatusCodes.NOT_FOUND).json(new ApiResponse(StatusCodes.NOT_FOUND, 'Hospital not found'))
-    return
-  }
-  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospital retrieved successfully', { hospital }))
+  const result = await adminService.getHospitalById(req.params.id, accessContext(req))
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Hospital retrieved successfully', result))
 })
 
 export const updateHospital = asyncHandler(async (req: Request, res: Response) => {
