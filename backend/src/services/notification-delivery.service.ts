@@ -186,13 +186,44 @@ function computeNextAttemptAt(attempts: number): Date {
 }
 
 function payloadDataAsRecord(
-  data: Map<string, string> | Record<string, string> | undefined | null
+  data: Map<string, string> | Record<string, unknown> | undefined | null
 ): Record<string, string> {
   if (!data) return {}
-  if (data instanceof Map) {
-    return Object.fromEntries(data.entries())
+  const raw = data instanceof Map
+    ? Object.fromEntries(data.entries())
+    : { ...data }
+  // FCM / NotificationDelivery.data is Map-of-String only. Coerce arrays and
+  // other non-strings so in-app notification payloads (e.g. changed_fields[])
+  // never fail durable outbox persistence.
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined || value === null) continue
+    if (Array.isArray(value)) {
+      const hasNested = value.some(
+        (item) => item !== null && typeof item === 'object',
+      )
+      if (hasNested) {
+        try {
+          result[key] = JSON.stringify(value)
+        } catch {
+          // Skip values that cannot be serialized rather than persist garbage.
+        }
+      } else {
+        result[key] = value.map(String).join(',')
+      }
+      continue
+    }
+    if (typeof value === 'object') {
+      try {
+        result[key] = JSON.stringify(value)
+      } catch {
+        // Skip values that cannot be serialized rather than persist "[object Object]".
+      }
+      continue
+    }
+    result[key] = String(value)
   }
-  return { ...data }
+  return result
 }
 
 /**

@@ -5,6 +5,12 @@ import { hasActiveClinicalHospitalAccess, hasActiveHospitalAccess } from '@alias
 import { isFeatureEnabled } from '@alias/services/config.service'
 import { ensureRedisConnected, getRedisClient, getRedisSubscriber, isRedisConfigured } from '@alias/config/redis'
 import logger from '@alias/utils/logger'
+import { UserType } from '@alias/validators'
+
+export type ClinicalPublishOptions = {
+  /** When set, the recipient must still hold this role at both eligibility checks. */
+  requireUserType?: UserType
+}
 
 type StreamEnvelope = {
   event: string
@@ -286,17 +292,31 @@ export async function publishGeneralNotificationToUser(userId: string, event: st
   return true
 }
 
+const isClinicalRecipientEligible = async (
+  user: { is_active?: boolean; user_type?: string; profile_id?: unknown } | null | undefined,
+  options?: ClinicalPublishOptions,
+) => {
+  if (!user?.is_active) return false
+  if (options?.requireUserType && user.user_type !== options.requireUserType) return false
+  return hasActiveClinicalHospitalAccess(user)
+}
+
 /** Revalidate tenant state at the last boundary before clinical SSE disclosure. */
-export async function publishClinicalNotificationToUser(userId: string, event: string, data: unknown) {
+export async function publishClinicalNotificationToUser(
+  userId: string,
+  event: string,
+  data: unknown,
+  options?: ClinicalPublishOptions,
+) {
   if (!await isFeatureEnabled('notifications_enabled')) return false
   let user = await User.findById(userId).select('is_active user_type profile_id').lean()
-  if (!user?.is_active || !await hasActiveClinicalHospitalAccess(user)) return false
+  if (!await isClinicalRecipientEligible(user, options)) return false
   // Final provider-independent kill-switch boundary. Eligibility includes
   // awaited profile/hospital reads, during which an operator may pause all
   // notification disclosure.
   if (!await isFeatureEnabled('notifications_enabled')) return false
   user = await User.findById(userId).select('is_active user_type profile_id').lean()
-  if (!user?.is_active || !await hasActiveClinicalHospitalAccess(user)) return false
+  if (!await isClinicalRecipientEligible(user, options)) return false
   publishNotificationToUser(userId, event, data)
   return true
 }

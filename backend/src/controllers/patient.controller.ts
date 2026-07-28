@@ -8,7 +8,7 @@ import { getSystemConfig, isFeatureEnabled } from '@alias/services/config.servic
 import * as notificationService from '@alias/services/notification.service'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import { publishClinicalNotificationToUser } from '@alias/services/realtime-notification.service'
-import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { cancelNotificationPush, enqueueNotificationPush } from '@alias/services/notification-delivery.service'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { hasActiveClinicalHospitalAccess } from '@alias/services/hospital-access.service'
 import type {
@@ -112,17 +112,24 @@ const notifyDoctorOfInrReport = async (input: {
 	isCritical: boolean
 	testDate: Date
 }) => {
+	const isEligibleDoctorRecipient = async (userId: string) => {
+		const recipient = await User.findById(userId)
+			.select('is_active user_type profile_id')
+			.lean()
+		return Boolean(
+			recipient?.is_active
+			&& recipient.user_type === UserType.DOCTOR
+			&& await hasActiveClinicalHospitalAccess(recipient),
+		)
+	}
+
 	try {
 		if (!await isFeatureEnabled('notifications_enabled')) return
 
 		const doctorUserId = getObjectIdString(input.assignedDoctorId)
 		if (!doctorUserId) return
 
-		const doctor = await User.findById(doctorUserId)
-			.select('_id is_active user_type profile_id')
-			.lean()
-		if (!doctor?.is_active || doctor.user_type !== UserType.DOCTOR) return
-		if (!await hasActiveClinicalHospitalAccess(doctor)) return
+		if (!await isEligibleDoctorRecipient(doctorUserId)) return
 
 		let patientLoginId = input.patientLoginId?.trim() || ''
 		if (!patientLoginId) {
@@ -165,29 +172,47 @@ const notifyDoctorOfInrReport = async (input: {
 			expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
 		})
 
-		const stillEligible = await User.findById(doctorUserId)
-			.select('is_active user_type profile_id')
-			.lean()
-		if (
-			!await isFeatureEnabled('notifications_enabled') ||
-			!stillEligible?.is_active ||
-			!await hasActiveClinicalHospitalAccess(stillEligible)
-		) {
+		const notificationsEnabled = await isFeatureEnabled('notifications_enabled')
+		if (!notificationsEnabled || !await isEligibleDoctorRecipient(doctorUserId)) {
+			await cancelNotificationPush(
+				String(created._id),
+				!notificationsEnabled ? 'notifications_paused' : 'recipient_became_ineligible',
+			)
 			return
 		}
 
-		await publishClinicalNotificationToUser(doctorUserId, 'notification', {
-			id: String(created._id),
-			title: created.title,
-			message: created.message,
-			type: created.type,
-			priority: created.priority,
-			is_read: created.is_read,
-			created_at: created.createdAt,
-			data: created.data,
-		})
+		// Realtime path revalidates active + DOCTOR + clinical hospital before SSE
+		// disclosure. Fail closed and cancel push if the recipient is no longer eligible.
+		const published = await publishClinicalNotificationToUser(
+			doctorUserId,
+			'notification',
+			{
+				id: String(created._id),
+				title: created.title,
+				message: created.message,
+				type: created.type,
+				priority: created.priority,
+				is_read: created.is_read,
+				created_at: created.createdAt,
+				data: created.data,
+			},
+			{ requireUserType: UserType.DOCTOR },
+		)
+		if (!published) {
+			await cancelNotificationPush(String(created._id), 'clinical_realtime_ineligible')
+			return
+		}
 
-		if (!await isFeatureEnabled('notifications_enabled')) return
+		if (!await isFeatureEnabled('notifications_enabled')) {
+			await cancelNotificationPush(String(created._id), 'notifications_paused')
+			return
+		}
+		// Independent outbox boundary: revalidate again before enqueue so push
+		// cannot continue after a post-realtime eligibility loss.
+		if (!await isEligibleDoctorRecipient(doctorUserId)) {
+			await cancelNotificationPush(String(created._id), 'recipient_became_ineligible')
+			return
+		}
 		await enqueueNotificationPush({
 			notificationId: String(created._id),
 			userId: doctorUserId,
@@ -215,7 +240,9 @@ const mapNotificationToDoctorUpdateEvent = (notification: any): DoctorUpdateEven
 	change_type: notification?.data?.change_type ?? 'DOCTOR_UPDATE',
 	changed_fields: Array.isArray(notification?.data?.changed_fields)
 		? notification.data.changed_fields
-		: [],
+		: typeof notification?.data?.changed_fields === 'string'
+			? notification.data.changed_fields.split(',').map((s: string) => s.trim()).filter(Boolean)
+			: [],
 	is_read: notification?.is_read === true,
 	created_at: notification?.createdAt ? new Date(notification.createdAt) : new Date(0),
 	changed_by_doctor_id: notification?.data?.changed_by_doctor_id,
@@ -1033,6 +1060,7 @@ export const getNotifications = asyncHandler(async (
 	const unreadCount = await Notification.countDocuments({
 		user_id: patientUser._id,
 		is_read: false,
+		push_delivery_cancelled_at: { $exists: false },
 	})
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notifications fetched successfully', {
@@ -1048,6 +1076,7 @@ export const getNotificationsUnreadCount = asyncHandler(async (req: Request, res
 	const unreadCount = await Notification.countDocuments({
 		user_id: patientUser._id,
 		is_read: false,
+		push_delivery_cancelled_at: { $exists: false },
 	})
 	res.status(StatusCodes.OK).json(new ApiResponse(
 		StatusCodes.OK,

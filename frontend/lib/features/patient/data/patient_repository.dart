@@ -172,49 +172,18 @@ class PatientRepository {
       return;
     }
 
-    final token = await _secureStorage.readToken();
-    final dio = Dio(
-      BaseOptions(
-        baseUrl: AppStrings.apiBaseUrl,
-        validateStatus: (status) => status != null && status < 500,
-      ),
-    );
-
     final formData = FormData.fromMap({
       'inr_value': inrValue,
       'test_date': testDate,
       'file': MultipartFile.fromBytes(fileBytes, filename: fileName),
     });
 
-    try {
-      final response = await dio.post<Map<String, dynamic>>(
-        '$_patientBasePath/reports',
-        data: formData,
-        options: Options(
-          headers: {
-            'Accept': 'application/json',
-            if (token != null && token.isNotEmpty)
-              'Authorization': 'Bearer $token',
-          },
-        ),
-      );
-
-      final body = response.data ?? <String, dynamic>{};
-      if ((response.statusCode ?? 500) >= 400 || body['success'] == false) {
-        throw _uploadException(
-          response.statusCode ?? 500,
-          body['message']?.toString(),
-        );
-      }
-      _invalidateReportFetch();
-    } on DioException catch (e) {
-      final statusCode = e.response?.statusCode;
-      final responseData = e.response?.data;
-      final message = responseData is Map<String, dynamic>
-          ? responseData['message']?.toString()
-          : null;
-      throw _uploadException(statusCode, message);
-    }
+    // Route through ApiClient so 401 → refresh → retry applies like other patient APIs.
+    await _apiClient.post(
+      '$_patientBasePath/reports',
+      data: formData,
+    );
+    _invalidateReportFetch();
   }
 
   Future<void> submitHealthLog({

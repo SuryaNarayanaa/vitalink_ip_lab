@@ -28,16 +28,29 @@ describe('Patient File Upload Routes', () => {
     let uploadedReportKeys: string[] = [];
     let uploadedProfilePicKey: string;
 
-    // Helper function to delete S3 objects
+    // Helper function to delete S3 objects (best-effort; never hang suite teardown).
     const deleteS3Object = async (key: string) => {
         if (!key) return;
+        const abortController = new AbortController();
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         try {
-            await client.send(new DeleteObjectCommand({
-                Bucket: config.bucketName,
-                Key: key
-            }));
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    abortController.abort();
+                    reject(new Error(`S3 delete timed out for ${key}`));
+                }, 5_000);
+            });
+            await Promise.race([
+                client.send(new DeleteObjectCommand({
+                    Bucket: config.bucketName,
+                    Key: key,
+                }), { abortSignal: abortController.signal }),
+                timeoutPromise,
+            ]);
         } catch (error) {
             console.error('Failed to delete S3 object:', key, error);
+        } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
         }
     };
 
@@ -127,20 +140,47 @@ describe('Patient File Upload Routes', () => {
     }, 120000);
 
     afterAll(async () => {
-        // Cleanup all uploaded files from S3
-        for (const key of uploadedReportKeys) {
-            await deleteS3Object(key);
+        try {
+            // Best-effort remote cleanup; do not let S3 latency fail the suite.
+            for (const key of uploadedReportKeys) {
+                await deleteS3Object(key);
+            }
+            await deleteS3Object(uploadedProfilePicKey);
+        } catch (error) {
+            console.error('S3 cleanup failed during afterAll', error);
         }
-        await deleteS3Object(uploadedProfilePicKey);
 
-        await mongoose.connection.dropDatabase();
-        await mongoose.connection.close();
-        await mongoContainer.stop();
-        await new Promise<void>((resolve, reject) => {
-            server.close((error) => error ? reject(error) : resolve());
-        });
+        if (mongoose.connection.readyState !== 0) {
+            try {
+                await mongoose.connection.dropDatabase();
+            } catch (error) {
+                console.error('Mongo dropDatabase failed during afterAll', error);
+            }
+            try {
+                await mongoose.connection.close();
+            } catch (error) {
+                console.error('Mongo connection close failed during afterAll', error);
+            }
+        }
+
+        try {
+            if (mongoContainer) await mongoContainer.stop();
+        } catch (error) {
+            console.error('Mongo container stop failed during afterAll', error);
+        }
+
+        try {
+            if (server) {
+                await new Promise<void>((resolve, reject) => {
+                    server.close((error) => error ? reject(error) : resolve());
+                });
+            }
+        } catch (error) {
+            console.error('HTTP server close failed during afterAll', error);
+        }
+
         config.bucketName = previousBucketName;
-    });
+    }, 120000);
 
     describe('POST /api/patient/reports', () => {
         test('should submit report with PDF file', async () => {

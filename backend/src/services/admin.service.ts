@@ -90,6 +90,12 @@ const USER_AGGREGATION_SENSITIVE_UNSET = [
   'salt',
   'password_history',
   'admin_mfa',
+  'failed_login_attempts',
+  'locked_until',
+  'last_failed_login_at',
+  'security_version',
+  'must_change_password',
+  'password_changed_at',
 ] as const
 
 const paginationResult = (total: number, page: number, limit: number) => ({
@@ -2099,16 +2105,53 @@ export async function deactivatePatient(userId: string, actor?: AdminActorInput)
   ensureTenantAccess(ctx, profile?.hospital_id)
 
   const wasActive = user.is_active
-  user.is_active = false
-  await user.save()
-  const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
-
-  // Also update account_status
-  await PatientProfile.findByIdAndUpdate(
-    user.profile_id,
-    { account_status: 'Discharged' },
-    { runValidators: true },
-  )
+  const session = await mongoose.startSession()
+  let invalidatedSessions = 0
+  try {
+    session.startTransaction()
+    const deactivated = await User.findOneAndUpdate(
+      { _id: user._id, user_type: UserType.PATIENT },
+      { $set: { is_active: false } },
+      { new: true, session, runValidators: true },
+    )
+    if (!deactivated) throw new ApiError(StatusCodes.CONFLICT, 'Patient account changed concurrently')
+    user.is_active = false
+    // Never overwrite a terminal Deceased status with Discharged.
+    const profileUpdate = await PatientProfile.findOneAndUpdate(
+      {
+        _id: user.profile_id,
+        account_status: { $ne: 'Deceased' },
+      },
+      { $set: { account_status: 'Discharged' } },
+      { new: true, session, runValidators: true },
+    )
+    if (!profileUpdate) {
+      const currentProfile = await PatientProfile.findById(user.profile_id).session(session).lean()
+      if (currentProfile?.account_status === 'Deceased') {
+        throw new ApiError(
+          StatusCodes.CONFLICT,
+          'A deceased Patient account cannot be discharged through deactivation',
+        )
+      }
+      throw new ApiError(StatusCodes.CONFLICT, 'Patient profile changed concurrently')
+    }
+    await session.commitTransaction()
+    try {
+      invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+    } catch (revocationError) {
+      // Deactivation already committed; do not report failure for a revocation race.
+      logger.error('deactivate_patient.session_revocation_failed', {
+        user_id: String(user._id),
+        error: revocationError instanceof Error ? revocationError.message : 'unknown_error',
+      })
+      invalidatedSessions = 0
+    }
+  } catch (error) {
+    if (session.inTransaction()) await session.abortTransaction()
+    throw error
+  } finally {
+    session.endSession()
+  }
 
   return { message: 'Patient deactivated successfully', invalidated_sessions: invalidatedSessions }
 }
@@ -2471,56 +2514,150 @@ export async function performBatchOperation(
       switch (operation) {
         case 'activate': {
           let invalidatedSessions = 0
-          if (!user.is_active) {
-            let hospitalId: unknown
-            if (user.user_type === UserType.DOCTOR) {
-              hospitalId = (await DoctorProfile.findById(user.profile_id).select('hospital_id').lean())?.hospital_id
-            } else if (user.user_type === UserType.PATIENT) {
-              const profile = await PatientProfile.findById(user.profile_id)
-                .select('hospital_id account_status assigned_doctor_id').lean()
-              hospitalId = profile?.hospital_id
-              if (profile?.account_status === 'AssignmentConflict') {
-                throw new ApiError(StatusCodes.CONFLICT, 'Resolve the patient assignment conflict before activation')
-              }
-            } else {
-              throw new ApiError(StatusCodes.FORBIDDEN, 'Only Doctor and Patient accounts support operational status changes')
+          const needsLoginActivation = !user.is_active
+          let patientProfile: {
+            hospital_id?: unknown
+            account_status?: string
+            assigned_doctor_id?: unknown
+          } | null = null
+          let previousAccountStatus: string | undefined
+          let previousAssignmentConflict: unknown
+          if (user.user_type === UserType.PATIENT) {
+            patientProfile = await PatientProfile.findById(user.profile_id)
+              .select('hospital_id account_status assigned_doctor_id assignment_conflict')
+              .lean()
+            previousAccountStatus = patientProfile?.account_status
+            previousAssignmentConflict = (patientProfile as { assignment_conflict?: unknown } | null)
+              ?.assignment_conflict
+            if (user.is_active && patientProfile?.account_status === 'Active') {
+              results.push({
+                userId,
+                success: true,
+                message: 'User activated',
+                invalidated_sessions: 0,
+              })
+              break
             }
-            if (hospitalId) {
-              const patientLifecycleLease = user.user_type === UserType.PATIENT
-                ? await acquirePatientFileOperationLease(user.profile_id, { requireActive: false })
-                : undefined
-              try {
-                const guard = await acquireHospitalMembershipGuard(hospitalId)
-                let activationCommitted = false
-                try {
-                  await patientLifecycleLease?.assertOwned()
-                  await guard.assertOwned()
-                  const activated = await User.findOneAndUpdate(
-                    { _id: user._id, is_active: false },
-                    { $set: { is_active: true }, $inc: { security_version: 1 } },
-                    { new: true, runValidators: true },
-                  )
-                  if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
-                  activationCommitted = true
-                  await patientLifecycleLease?.assertOwned()
-                  await guard.assertOwned()
-                } catch (error) {
-                  if (activationCommitted) {
-                    await User.updateOne(
-                      { _id: user._id, is_active: true },
-                      { $set: { is_active: false }, $inc: { security_version: 1 } },
-                    )
-                  }
-                  throw error
-                } finally {
-                  await guard.release()
+            if (patientProfile?.account_status === 'AssignmentConflict') {
+              throw new ApiError(StatusCodes.CONFLICT, 'Resolve the patient assignment conflict before activation')
+            }
+            if (patientProfile?.account_status === 'Deceased') {
+              throw new ApiError(StatusCodes.CONFLICT, 'A deceased Patient account cannot be restored')
+            }
+            const doctor = await findDoctorByAssignment(patientProfile?.assigned_doctor_id)
+            if (!doctor?.is_active) {
+              throw new ApiError(StatusCodes.CONFLICT, 'Assigned doctor must be active before restoring the Patient')
+            }
+            const doctorProfile = await DoctorProfile.findById(doctor.profile_id).select('hospital_id').lean()
+            if (!doctorProfile?.hospital_id || String(doctorProfile.hospital_id) !== String(patientProfile?.hospital_id)) {
+              throw new ApiError(StatusCodes.CONFLICT, 'Assigned doctor must belong to the Patient hospital')
+            }
+          } else if (user.user_type === UserType.DOCTOR) {
+            if (user.is_active) {
+              results.push({
+                userId,
+                success: true,
+                message: 'User activated',
+                invalidated_sessions: 0,
+              })
+              break
+            }
+          } else {
+            throw new ApiError(StatusCodes.FORBIDDEN, 'Only Doctor and Patient accounts support operational status changes')
+          }
+
+          const hospitalId = user.user_type === UserType.DOCTOR
+            ? (await DoctorProfile.findById(user.profile_id).select('hospital_id').lean())?.hospital_id
+            : patientProfile?.hospital_id
+          if (!hospitalId) {
+            throw new ApiError(StatusCodes.CONFLICT, 'Operational account must belong to an active hospital before activation')
+          }
+
+          // Keep hospital membership lease + compensation (tests and prod races).
+          // Patients also restore account_status: Active for clinical consistency.
+          const patientLifecycleLease = user.user_type === UserType.PATIENT
+            ? await acquirePatientFileOperationLease(user.profile_id, { requireActive: false })
+            : undefined
+          try {
+            const guard = await acquireHospitalMembershipGuard(hospitalId)
+            let activationCommitted = false
+            let profileRestored = false
+            try {
+              await patientLifecycleLease?.assertOwned()
+              await guard.assertOwned()
+              if (needsLoginActivation) {
+                const activated = await User.findOneAndUpdate(
+                  { _id: user._id, is_active: false },
+                  { $set: { is_active: true }, $inc: { security_version: 1 } },
+                  { new: true, runValidators: true },
+                )
+                if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
+                activationCommitted = true
+              }
+              if (user.user_type === UserType.PATIENT && patientProfile?.account_status !== 'Active') {
+                // CAS on the preloaded status so concurrent clinical transitions win cleanly.
+                const restoredProfile = await PatientProfile.findOneAndUpdate(
+                  {
+                    _id: user.profile_id,
+                    account_status: previousAccountStatus ?? patientProfile?.account_status,
+                  },
+                  { $set: { account_status: 'Active' }, $unset: { assignment_conflict: 1 } },
+                  { new: true, runValidators: true },
+                )
+                if (!restoredProfile) {
+                  throw new ApiError(StatusCodes.CONFLICT, 'Patient clinical status changed concurrently')
                 }
-              } finally {
-                await patientLifecycleLease?.release()
+                profileRestored = true
               }
-            } else {
-              throw new ApiError(StatusCodes.CONFLICT, 'Operational account must belong to an active hospital before activation')
+              await patientLifecycleLease?.assertOwned()
+              await guard.assertOwned()
+            } catch (error) {
+              // Best-effort independent compensations so one rollback failure
+              // cannot skip the other or replace the original error reason.
+              if (activationCommitted) {
+                try {
+                  await User.updateOne(
+                    { _id: user._id, is_active: true },
+                    { $set: { is_active: false }, $inc: { security_version: 1 } },
+                  )
+                } catch (compensationError) {
+                  logger.error('batch_activate.login_rollback_failed', {
+                    user_id: String(user._id),
+                    error: compensationError instanceof Error ? compensationError.message : 'unknown_error',
+                  })
+                }
+              }
+              if (profileRestored) {
+                try {
+                  const rollbackStatus = previousAccountStatus && previousAccountStatus !== 'Active'
+                    ? previousAccountStatus
+                    : 'Discharged'
+                  const rollbackSet: Record<string, unknown> = { account_status: rollbackStatus }
+                  if (previousAssignmentConflict !== undefined) {
+                    rollbackSet.assignment_conflict = previousAssignmentConflict
+                  }
+                  await PatientProfile.updateOne(
+                    { _id: user.profile_id, account_status: 'Active' },
+                    previousAssignmentConflict !== undefined
+                      ? { $set: rollbackSet }
+                      : { $set: { account_status: rollbackStatus }, $unset: { assignment_conflict: 1 } },
+                  )
+                } catch (compensationError) {
+                  logger.error('batch_activate.profile_rollback_failed', {
+                    user_id: String(user._id),
+                    error: compensationError instanceof Error ? compensationError.message : 'unknown_error',
+                  })
+                }
+              }
+              throw error
+            } finally {
+              await guard.release()
             }
+          } finally {
+            await patientLifecycleLease?.release()
+          }
+
+          if (needsLoginActivation) {
             const revocation = await bestEffortRevokeSessionsAfterSecurityVersionBump(
               userId,
               AuthSessionRevocationReason.USER_REVOKED,
@@ -2536,12 +2673,26 @@ export async function performBatchOperation(
           break
         }
 
-        case 'deactivate':
-          const wasActive = user.is_active
-          const deactivatedUser = wasActive
-            ? await deactivateDoctorWithAssignmentGuard(user)
-            : user
-          const invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+        case 'deactivate': {
+          let invalidatedSessions = 0
+          if (user.user_type === UserType.PATIENT) {
+            const deactivated = await deactivatePatient(userId, actor)
+            invalidatedSessions = deactivated.invalidated_sessions || 0
+          } else {
+            const wasActive = user.is_active
+            const deactivatedUser = wasActive
+              ? await deactivateDoctorWithAssignmentGuard(user)
+              : user
+            try {
+              invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+            } catch (revocationError) {
+              logger.error('batch_deactivate.session_revocation_failed', {
+                user_id: String(user._id),
+                error: revocationError instanceof Error ? revocationError.message : 'unknown_error',
+              })
+              invalidatedSessions = 0
+            }
+          }
           results.push({
             userId,
             success: true,
@@ -2549,6 +2700,7 @@ export async function performBatchOperation(
             invalidated_sessions: invalidatedSessions,
           })
           break
+        }
 
         case 'reset_password': {
           const temporaryPassword = generateTemporaryPassword()

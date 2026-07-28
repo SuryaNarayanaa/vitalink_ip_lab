@@ -1,12 +1,25 @@
 import { Router } from "express";
 import { validate } from "@alias/middlewares/ValidateResource";
 import { authenticate } from "@alias/middlewares/authProvider.middleware";
-import { activateAdminTotpSchema, changePasswordSchema, loginSchema, refreshTokenSchema, resendLoginOtpSchema, revokeTokenSchema, verifyLoginOtpSchema, verifyLoginTotpSchema } from "@alias/validators/user.validator";
+import {
+  activateAdminTotpSchema,
+  changePasswordSchema,
+  enrollAdminTotpActivateSchema,
+  enrollAdminTotpSetupSchema,
+  loginSchema,
+  refreshTokenSchema,
+  resendLoginOtpSchema,
+  revokeTokenSchema,
+  verifyLoginOtpSchema,
+  verifyLoginTotpSchema,
+} from "@alias/validators/user.validator";
 import {
   changePasswordController,
   activateAdminTotpController,
+  activateAdminTotpEnrollmentController,
   getAdminTotpStatusController,
   setupAdminTotpController,
+  setupAdminTotpEnrollmentController,
   resendLoginOtpController,
   loginController,
   logoutController,
@@ -26,6 +39,11 @@ router.post("/login/otp/verify", validate(verifyLoginOtpSchema), verifyLoginOtpC
 router.post("/login/otp/resend", validate(resendLoginOtpSchema), resendLoginOtpController);
 
 router.post("/login/totp/verify", validate(verifyLoginTotpSchema), verifyLoginTotpController);
+
+// Password-bound MFA enrollment for production/staging unenrolled admins (no session yet).
+router.post("/login/totp/enroll/setup", validate(enrollAdminTotpSetupSchema), setupAdminTotpEnrollmentController);
+
+router.post("/login/totp/enroll/activate", validate(enrollAdminTotpActivateSchema), activateAdminTotpEnrollmentController);
 
 router.post("/refresh", validate(refreshTokenSchema), refreshTokenController);
 

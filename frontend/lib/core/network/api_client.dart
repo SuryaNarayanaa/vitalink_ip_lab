@@ -222,6 +222,7 @@ class ApiClient {
   }
 
   Future<String> _runRefreshAccessToken() async {
+    final generationBefore = SecureStorage.authSessionGeneration;
     final refreshToken = await _secureStorage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
       throw const _RefreshRejected('Refresh token is missing');
@@ -259,11 +260,20 @@ class ApiClient {
         );
       }
 
-      await _secureStorage.saveRefreshToken(rotatedRefreshToken);
-      await _secureStorage.saveToken(token);
       final session = body['session'];
-      if (session is Map<String, dynamic>) {
-        await _secureStorage.saveAuthSession(session);
+      final sessionMap = session is Map<String, dynamic>
+          ? session
+          : session is Map
+              ? Map<String, dynamic>.from(session)
+              : null;
+      final saved = await _secureStorage.saveRefreshedTokensIfCurrent(
+        expectedGeneration: generationBefore,
+        token: token,
+        refreshToken: rotatedRefreshToken,
+        session: sessionMap,
+      );
+      if (!saved) {
+        throw const _RefreshRejected('Session was cleared during refresh');
       }
       return token;
     } on DioException catch (e) {
@@ -319,8 +329,13 @@ class ApiClient {
     final extra = Map<String, dynamic>.from(request.extra);
     extra[_hasRetriedAfterRefreshExtra] = true;
 
+    // FormData streams are single-use after finalize; clone for the 401 retry.
+    final data = request.data is FormData
+        ? (request.data as FormData).clone()
+        : request.data;
+
     return _dio.fetch<dynamic>(
-      request.copyWith(headers: headers, extra: extra),
+      request.copyWith(headers: headers, extra: extra, data: data),
     );
   }
 
@@ -384,11 +399,15 @@ class ApiClient {
 
   Future<Map<String, dynamic>> post(
     String path, {
-    Map<String, dynamic>? data,
+    Object? data,
     bool authenticated = true,
   }) async {
     try {
-      final headers = await _buildHeaders(includeAuth: authenticated);
+      // FormData must not force application/json — Dio sets multipart boundary.
+      final headers = await _buildHeaders(
+        includeAuth: authenticated,
+        includeJsonContentType: data is! FormData,
+      );
       final response = await _sendWithRetry(
         () => _dio.post<Map<String, dynamic>>(
           path,
@@ -535,11 +554,16 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, String>> _buildHeaders({required bool includeAuth}) async {
+  Future<Map<String, String>> _buildHeaders({
+    required bool includeAuth,
+    bool includeJsonContentType = true,
+  }) async {
     final headers = <String, String>{
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
+    if (includeJsonContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (includeAuth) {
       final token = await _secureStorage.readToken();

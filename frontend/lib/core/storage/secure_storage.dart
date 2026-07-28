@@ -29,8 +29,31 @@ class SecureStorage {
   /// Bumped when user cache is written/cleared (independent of token).
   static int _userCacheGeneration = 0;
   /// Serializes all auth mutations (saveToken, clearToken, saveUser, clearUser,
-  /// clearAuthData) so disk writes and deletes cannot overlap.
+  /// clearAuthData, refresh-token writes) so disk writes and deletes cannot overlap.
   static Future<void>? _authMutationQueue;
+  /// Bumped on every [clearAuthData] so in-flight token refresh cannot re-persist
+  /// credentials after logout / forced session expiry.
+  static int _authSessionGeneration = 0;
+
+  /// Current auth session generation (increments on clear).
+  static int get authSessionGeneration => _authSessionGeneration;
+
+  Future<T> _enqueueAuthMutation<T>(Future<T> Function() op) {
+    final run = () async {
+      try {
+        return await op();
+      } catch (_) {
+        rethrow;
+      }
+    };
+    // Always continue the queue after a failure so one disk error cannot
+    // permanently poison later save/clear operations.
+    final next = (_authMutationQueue ?? Future<void>.value())
+        .catchError((_) {})
+        .then((_) => run());
+    _authMutationQueue = next.then<void>((_) {}, onError: (_) {});
+    return next;
+  }
 
   /// Clears process-local caches so tests can simulate an app restart.
   @visibleForTesting
@@ -42,6 +65,7 @@ class SecureStorage {
     _userHydrated = false;
     _tokenCacheGeneration++;
     _userCacheGeneration++;
+    _authSessionGeneration++;
     _authMutationQueue = null;
   }
 
@@ -50,18 +74,12 @@ class SecureStorage {
   }
 
   Future<void> saveToken(String token) async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
+      await _storage.write(key: AppStrings.tokenKey, value: token);
       _tokenCacheGeneration++;
       _cachedToken = token;
       _tokenHydrated = true;
-      await _storage.write(key: AppStrings.tokenKey, value: token);
-    }) ?? (() async {
-      _tokenCacheGeneration++;
-      _cachedToken = token;
-      _tokenHydrated = true;
-      await _storage.write(key: AppStrings.tokenKey, value: token);
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   Future<String?> readToken() async {
@@ -78,22 +96,18 @@ class SecureStorage {
   }
 
   Future<void> clearToken() async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
       _tokenCacheGeneration++;
       _cachedToken = null;
       _tokenHydrated = true;
       await _storage.delete(key: AppStrings.tokenKey);
-    }) ?? (() async {
-      _tokenCacheGeneration++;
-      _cachedToken = null;
-      _tokenHydrated = true;
-      await _storage.delete(key: AppStrings.tokenKey);
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   Future<void> saveRefreshToken(String refreshToken) async {
-    await _storage.write(key: AppStrings.refreshTokenKey, value: refreshToken);
+    await _enqueueAuthMutation(() async {
+      await _storage.write(key: AppStrings.refreshTokenKey, value: refreshToken);
+    });
   }
 
   Future<String?> readRefreshToken() async {
@@ -101,14 +115,49 @@ class SecureStorage {
   }
 
   Future<void> clearRefreshToken() async {
-    await _storage.delete(key: AppStrings.refreshTokenKey);
+    await _enqueueAuthMutation(() async {
+      await _storage.delete(key: AppStrings.refreshTokenKey);
+    });
   }
 
   Future<void> saveAuthSession(Map<String, dynamic> session) async {
-    await _storage.write(
-      key: AppStrings.authSessionKey,
-      value: jsonEncode(session),
-    );
+    await _enqueueAuthMutation(() async {
+      await _storage.write(
+        key: AppStrings.authSessionKey,
+        value: jsonEncode(session),
+      );
+    });
+  }
+
+  /// Persists refreshed tokens only if [expectedGeneration] still matches.
+  /// Returns false when logout/expiry cleared the session while refresh ran.
+  Future<bool> saveRefreshedTokensIfCurrent({
+    required int expectedGeneration,
+    required String token,
+    required String refreshToken,
+    Map<String, dynamic>? session,
+  }) {
+    return _enqueueAuthMutation(() async {
+      if (expectedGeneration != _authSessionGeneration) {
+        return false;
+      }
+      // Persist to disk first so a failed write never leaves memory ahead of storage.
+      await _storage.write(key: AppStrings.tokenKey, value: token);
+      await _storage.write(key: AppStrings.refreshTokenKey, value: refreshToken);
+      if (session != null) {
+        await _storage.write(
+          key: AppStrings.authSessionKey,
+          value: jsonEncode(session),
+        );
+      }
+      if (expectedGeneration != _authSessionGeneration) {
+        return false;
+      }
+      _tokenCacheGeneration++;
+      _cachedToken = token;
+      _tokenHydrated = true;
+      return true;
+    });
   }
 
   Future<Map<String, dynamic>?> readAuthSession() async {
@@ -136,18 +185,12 @@ class SecureStorage {
   }
 
   Future<void> saveUser(Map<String, dynamic> user) async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
+      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
       _userCacheGeneration++;
       _cachedUser = Map<String, dynamic>.from(user);
       _userHydrated = true;
-      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
-    }) ?? (() async {
-      _userCacheGeneration++;
-      _cachedUser = Map<String, dynamic>.from(user);
-      _userHydrated = true;
-      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   Future<Map<String, dynamic>?> readUser() async {
@@ -190,18 +233,12 @@ class SecureStorage {
   }
 
   Future<void> clearUser() async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
       _userCacheGeneration++;
       _cachedUser = null;
       _userHydrated = true;
       await _storage.delete(key: AppStrings.userKey);
-    }) ?? (() async {
-      _userCacheGeneration++;
-      _cachedUser = null;
-      _userHydrated = true;
-      await _storage.delete(key: AppStrings.userKey);
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   /// Onboarding completion flag ──────────────────────────────────────────────
@@ -264,46 +301,42 @@ class SecureStorage {
   }
 
   Future<void> clearAuthData({bool preserveOnboarding = true}) async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
+      _authSessionGeneration++;
       _tokenCacheGeneration++;
       _userCacheGeneration++;
       _cachedToken = null;
       _cachedUser = null;
       _tokenHydrated = true;
       _userHydrated = true;
-      await _storage.delete(key: AppStrings.tokenKey);
-      await _storage.delete(key: AppStrings.refreshTokenKey);
-      await _storage.delete(key: AppStrings.authSessionKey);
-      await _storage.delete(key: AppStrings.userKey);
+      // Best-effort: one failed delete must not leave sibling auth keys on disk.
+      Object? firstError;
+      Future<void> deleteKey(String key) async {
+        try {
+          await _storage.delete(key: key);
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+
+      await deleteKey(AppStrings.tokenKey);
+      await deleteKey(AppStrings.refreshTokenKey);
+      await deleteKey(AppStrings.authSessionKey);
+      await deleteKey(AppStrings.userKey);
       if (!preserveOnboarding) {
         _cachedOnboardingCompleted = false;
-        await _storage.delete(key: AppStrings.onboardingCompletedKey);
+        await deleteKey(AppStrings.onboardingCompletedKey);
         try {
           final prefs = await _prefs();
           await prefs.remove(AppStrings.onboardingCompletedKey);
-        } catch (_) {}
+        } catch (error) {
+          firstError ??= error;
+        }
       }
-    }) ?? (() async {
-      _tokenCacheGeneration++;
-      _userCacheGeneration++;
-      _cachedToken = null;
-      _cachedUser = null;
-      _tokenHydrated = true;
-      _userHydrated = true;
-      await _storage.delete(key: AppStrings.tokenKey);
-      await _storage.delete(key: AppStrings.refreshTokenKey);
-      await _storage.delete(key: AppStrings.authSessionKey);
-      await _storage.delete(key: AppStrings.userKey);
-      if (!preserveOnboarding) {
-        _cachedOnboardingCompleted = false;
-        await _storage.delete(key: AppStrings.onboardingCompletedKey);
-        try {
-          final prefs = await _prefs();
-          await prefs.remove(AppStrings.onboardingCompletedKey);
-        } catch (_) {}
+      if (firstError != null) {
+        throw firstError!;
       }
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   Future<void> clearAll() async {

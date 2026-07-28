@@ -15,7 +15,7 @@ class _FakeApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> post(
     String path, {
-    Map<String, dynamic>? data,
+    Object? data,
     bool authenticated = true,
   }) async {
     calls.add(_ApiCall(path, data, authenticated));
@@ -27,7 +27,7 @@ class _ApiCall {
   _ApiCall(this.path, this.data, this.authenticated);
 
   final String path;
-  final Map<String, dynamic>? data;
+  final Object? data;
   final bool authenticated;
 }
 

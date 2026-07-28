@@ -54,6 +54,10 @@ class AppDependencies {
     adminAccessController.clear();
   }
 
+  /// Clears in-memory session caches after forced logout / token expiry.
+  /// Mirrors [AuthRepository.clearLocalSession] feature teardown.
+  static void clearSessionCaches() => _resetSessionState();
+
   static QueryClient createQueryClient({
     void Function(String error)? onError,
     void Function()? onSuccess,

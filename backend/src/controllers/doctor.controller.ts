@@ -1135,6 +1135,7 @@ export const getDoctorNotifications = asyncHandler(async (
   const unreadCount = await Notification.countDocuments({
     user_id: doctorUser._id,
     is_read: false,
+    push_delivery_cancelled_at: { $exists: false },
   })
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notifications fetched successfully', {
@@ -1150,6 +1151,7 @@ export const getDoctorNotificationsUnreadCount = asyncHandler(async (req: Reques
   const unreadCount = await Notification.countDocuments({
     user_id: doctorUser._id,
     is_read: false,
+    push_delivery_cancelled_at: { $exists: false },
   })
   res.status(StatusCodes.OK).json(new ApiResponse(
     StatusCodes.OK,

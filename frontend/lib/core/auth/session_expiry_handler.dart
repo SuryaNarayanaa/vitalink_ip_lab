@@ -21,9 +21,10 @@ class SessionExpiryHandler {
       // Session expiry must still reach login if secure storage is unavailable.
     }
     try {
-      AppDependencies.patientRepository.resetSessionState();
+      // Same feature-cache teardown as explicit logout (admin capabilities, etc.).
+      AppDependencies.clearSessionCaches();
     } catch (_) {
-      // In-flight report state is best-effort cleanup.
+      // Feature cache cleanup must not block login navigation.
     }
     try {
       await QueryCache.instance.clear();
