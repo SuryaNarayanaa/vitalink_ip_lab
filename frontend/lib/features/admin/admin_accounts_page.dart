@@ -388,13 +388,14 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
                         ? null
                         : () async {
                             if (!formKey.currentState!.validate()) return;
+                            // System Auditors are global: omit hospital_id entirely.
+                            // Sending null fails backend Zod validation
+                            // (hospital_id is string|undefined, not null).
                             final payload = <String, dynamic>{
                               'name': nameController.text.trim(),
                               'role': role.wireValue,
                               if (role == AdminRole.hospitalAdmin)
                                 'hospital_id': hospitalId,
-                              if (role == AdminRole.auditor)
-                                'hospital_id': null,
                               if (account == null)
                                 'email': emailController.text.trim(),
                             };

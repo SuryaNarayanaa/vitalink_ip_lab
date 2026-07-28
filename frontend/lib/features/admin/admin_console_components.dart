@@ -27,43 +27,66 @@ class AdminListShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 340,
-                child: Column(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 720;
+              final titleBlock = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ],
+              );
+              final searchField = searchController == null
+                  ? null
+                  : TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        hintText: searchHint,
+                        prefixIcon: const Icon(Icons.search_rounded),
+                      ),
+                      onChanged: (_) => onSearch?.call(),
+                    );
+              if (wide) {
+                return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.titleLarge),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
+                    Expanded(flex: 3, child: titleBlock),
+                    if (searchField != null) ...[
+                      const SizedBox(width: 12),
+                      Expanded(flex: 2, child: searchField),
+                    ],
+                    if (actions.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Wrap(spacing: 8, runSpacing: 8, children: actions),
+                    ],
                   ],
-                ),
-              ),
-              if (searchController != null)
-                SizedBox(
-                  width: 320,
-                  child: TextField(
-                    controller: searchController,
-                    decoration: InputDecoration(
-                      hintText: searchHint,
-                      prefixIcon: const Icon(Icons.search_rounded),
-                    ),
-                    onChanged: (_) => onSearch?.call(),
-                  ),
-                ),
-              ...actions,
-            ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  titleBlock,
+                  if (searchField != null) ...[
+                    const SizedBox(height: 12),
+                    searchField,
+                  ],
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 8, runSpacing: 8, children: actions),
+                  ],
+                ],
+              );
+            },
           ),
         ),
         Expanded(child: child),

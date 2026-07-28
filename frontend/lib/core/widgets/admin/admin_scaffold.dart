@@ -64,15 +64,23 @@ class AdminScaffold extends StatelessWidget {
     );
 
     if (showSidebar) {
+      // Pin the rail width so long destination labels never let the rail
+      // consume the content pane (which collapses page titles to 1-glyph wrap).
+      final railWidth = isDesktop ? 248.0 : 72.0;
       return Scaffold(
         body: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _AdminNavigationRail(
-              destinations: destinations,
-              selectedIndex: safeIndex,
-              onDestinationSelected: (index) =>
-                  onDestinationSelected(destinations[index].id),
-              isExtended: isDesktop,
+            SizedBox(
+              width: railWidth,
+              child: _AdminNavigationRail(
+                destinations: destinations,
+                selectedIndex: safeIndex,
+                onDestinationSelected: (index) =>
+                    onDestinationSelected(destinations[index].id),
+                isExtended: isDesktop,
+                width: railWidth,
+              ),
             ),
             const VerticalDivider(thickness: 1, width: 1),
             Expanded(child: content),
@@ -121,23 +129,31 @@ class _AdminNavigationRail extends StatelessWidget {
     required this.selectedIndex,
     required this.onDestinationSelected,
     this.isExtended = true,
+    this.width,
   });
 
   final List<AdminNavigationItem> destinations;
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
   final bool isExtended;
+  /// When set (sidebar layout), keeps the rail from growing past the shell slot.
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Prefer an explicit shell width when provided; otherwise use Material defaults.
+    final collapsedWidth = 72.0;
+    final extendedWidth = width ?? 248.0;
     return NavigationRail(
       selectedIndex: selectedIndex,
       onDestinationSelected: onDestinationSelected,
       extended: isExtended,
       scrollable: true,
-      minWidth: 72,
-      minExtendedWidth: 248,
+      minWidth: collapsedWidth,
+      minExtendedWidth: extendedWidth < collapsedWidth
+          ? collapsedWidth
+          : extendedWidth,
       backgroundColor: theme.colorScheme.surface,
       selectedIconTheme: IconThemeData(color: theme.colorScheme.primary),
       unselectedIconTheme: IconThemeData(

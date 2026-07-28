@@ -292,11 +292,16 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final selectedDestination = allowedDestinations.firstWhere(
       (destination) => destination.id == selectedId,
     );
+    // SizedBox.expand forces each destination to fill the shell content pane.
+    // Without it, loose IndexedStack constraints can leave a page at its
+    // intrinsic min width so titles soft-wrap one character per line.
     final cachedPage =
         _pageCache[selectedId] ??
         KeyedSubtree(
           key: ValueKey('admin-page-$selectedId'),
-          child: Builder(builder: selectedDestination.builder),
+          child: SizedBox.expand(
+            child: Builder(builder: selectedDestination.builder),
+          ),
         );
     final visited = _visitedDestinationIds
         .where(allowedIds.contains)

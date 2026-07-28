@@ -201,11 +201,15 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
           context,
           AdminCapabilities.platformSystemConfigManage,
         );
-        final content = Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
+        // Single ListView (not Column + Expanded) so title/actions always lay
+        // out against the full content width of the admin shell.
+        final content = Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Column(
@@ -215,18 +219,26 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
                           'Platform Configuration',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                        const Text(
+                        Text(
                           'Global runtime settings. Personal MFA and service health are separate surfaces.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 12),
                   IconButton(
                     onPressed: _isLoading ? null : _load,
                     tooltip: 'Reload platform configuration',
                     icon: const Icon(Icons.refresh_rounded),
                   ),
-                  if (canManage)
+                  if (canManage) ...[
+                    const SizedBox(width: 4),
                     FilledButton.icon(
                       key: const Key('save-platform-configuration'),
                       onPressed: _isLoading || !_hasUnsavedChanges
@@ -235,74 +247,83 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
                       icon: const Icon(Icons.save_outlined),
                       label: const Text('Save'),
                     ),
+                  ],
                 ],
               ),
-            ),
-            Expanded(child: _buildBody(canManage)),
-          ],
+              const SizedBox(height: 16),
+              ..._buildBodyChildren(canManage),
+              const SizedBox(height: 48),
+            ],
+          ),
         );
         return adminPageScaffold(context, 'Platform Configuration', content);
       },
     );
   }
 
-  Widget _buildBody(bool canManage) {
+  List<Widget> _buildBodyChildren(bool canManage) {
     if (_isLoading && !_hasLoaded) {
-      return const Center(child: CircularProgressIndicator());
+      return const [
+        SizedBox(
+          height: 160,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
     }
     if (_error != null && !_hasLoaded) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Could not load platform configuration.'),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _isLoading ? null : () => _load(discardDraft: true),
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try again'),
-            ),
-          ],
-        ),
-      );
-    }
-    return Form(
-      key: _formKey,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (!canManage)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(14),
-                child: Text(
-                  'Read-only configuration access. Change controls are hidden.',
+      return [
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Could not load platform configuration.'),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _isLoading
+                      ? null
+                      : () => _load(discardDraft: true),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Try again'),
                 ),
-              ),
+              ],
             ),
-          if (_hasUnsavedChanges)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Text('You have unsaved configuration changes.'),
-            ),
-          PlatformConfigurationSection(
-            inrLowController: _inrLowController,
-            inrHighController: _inrHighController,
-            sessionTimeoutController: _sessionTimeoutController,
-            maxRequestsController: _maxRequestsController,
-            windowDurationController: _windowDurationController,
-            featureFlags: _featureFlags,
-            readOnly: !canManage,
-            onFieldChanged: _markChanged,
-            onFeatureFlagChanged: (key, value) => setState(() {
-              _featureFlags = {..._featureFlags, key: value};
-              _hasUnsavedChanges = true;
-            }),
           ),
-          const SizedBox(height: 48),
-        ],
+        ),
+      ];
+    }
+    return [
+      if (!canManage)
+        const Card(
+          child: Padding(
+            padding: EdgeInsets.all(14),
+            child: Text(
+              'Read-only configuration access. Change controls are hidden.',
+            ),
+          ),
+        ),
+      if (!canManage) const SizedBox(height: 12),
+      if (_hasUnsavedChanges)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 12),
+          child: Text('You have unsaved configuration changes.'),
+        ),
+      PlatformConfigurationSection(
+        inrLowController: _inrLowController,
+        inrHighController: _inrHighController,
+        sessionTimeoutController: _sessionTimeoutController,
+        maxRequestsController: _maxRequestsController,
+        windowDurationController: _windowDurationController,
+        featureFlags: _featureFlags,
+        readOnly: !canManage,
+        onFieldChanged: _markChanged,
+        onFeatureFlagChanged: (key, value) => setState(() {
+          _featureFlags = {..._featureFlags, key: value};
+          _hasUnsavedChanges = true;
+        }),
       ),
-    );
+    ];
   }
 }
 

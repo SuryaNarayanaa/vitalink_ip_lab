@@ -778,7 +778,11 @@ void main() {
     await tester.pump();
 
     expect(repository.createdAccountPayload?['role'], 'auditor');
-    expect(repository.createdAccountPayload?['hospital_id'], isNull);
+    // Omit hospital_id entirely — null fails backend Zod (string|undefined only).
+    expect(
+      repository.createdAccountPayload?.containsKey('hospital_id'),
+      isFalse,
+    );
   });
 
   testWidgets('hospital administrator form requires an active hospital scope', (

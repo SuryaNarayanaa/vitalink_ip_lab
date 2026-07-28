@@ -18,8 +18,10 @@ import {
 import * as authSessionService from '@alias/services/auth-session.service'
 import * as doctorAssignmentService from '@alias/services/doctor-assignment.service'
 import {
+  createAdminAccountSchema,
   createDoctorSchema,
   createPatientSchema,
+  updateAdminAccountSchema,
   updateDoctorSchema,
   updatePatientSchema,
 } from '@alias/validators/admin.validator'
@@ -166,6 +168,40 @@ describe('dedicated administrator account lifecycle', () => {
     expect(() => assertAdminRoleScopePayload('auditor', { hospital_id: 'H001' })).toThrow(/must not/)
     expect(() => assertAdminRoleScopePayload('hospital_admin', { hospital_id: 'H001' })).not.toThrow()
     expect(() => assertAdminRoleScopePayload('auditor', {})).not.toThrow()
+  })
+
+  test('create/update schemas accept omitted or null hospital_id for System Auditor', () => {
+    // Frontend historically sent hospital_id: null for auditors; that must not 400.
+    expect(createAdminAccountSchema.safeParse({
+      body: {
+        name: 'Audit User',
+        email: 'audit@example.com',
+        role: 'auditor',
+        hospital_id: null,
+      },
+    }).success).toBe(true)
+
+    expect(createAdminAccountSchema.safeParse({
+      body: {
+        name: 'Audit User',
+        email: 'audit@example.com',
+        role: 'auditor',
+      },
+    }).success).toBe(true)
+
+    expect(createAdminAccountSchema.safeParse({
+      body: {
+        name: 'Audit User',
+        email: 'audit@example.com',
+        role: 'auditor',
+        hospital_id: 'H001',
+      },
+    }).success).toBe(false)
+
+    expect(updateAdminAccountSchema.safeParse({
+      params: { id: new mongoose.Types.ObjectId().toString() },
+      body: { role: 'auditor', hospital_id: null },
+    }).success).toBe(true)
   })
 
   test('hard-denies administrator lifecycle to a Hospital Admin before target access', async () => {

@@ -259,11 +259,14 @@ export const updateHospitalStatusSchema = z.object({
   body: z.object({ status: hospitalStatusSchema }).strict(),
 })
 
+// Clients sometimes send hospital_id: null for global auditors; treat null as omitted.
+const optionalHospitalIdSchema = z.string().min(1).nullish()
+
 const createAdminAccountBodySchema = z.object({
   name: z.string().min(1).max(200),
   email: z.string().email(),
   role: adminRoleSchema,
-  hospital_id: z.string().min(1).optional(),
+  hospital_id: optionalHospitalIdSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.role === 'hospital_admin' && !value.hospital_id) {
     ctx.addIssue({
@@ -301,8 +304,8 @@ export const updateAdminAccountSchema = z.object({
   body: z.object({
     role: adminRoleSchema.optional(),
     name: z.string().min(1).optional(),
-    hospital_id: z.string().min(1).optional(),
-    hospital: z.string().min(1).optional(),
+    hospital_id: optionalHospitalIdSchema,
+    hospital: z.string().min(1).nullish(),
     is_active: z.boolean().optional(),
     status: z.enum(['active', 'inactive']).optional(),
   }).strict().refine(value => Object.keys(value).length > 0, 'At least one field is required')
