@@ -141,9 +141,7 @@ class SecureStorage {
       if (expectedGeneration != _authSessionGeneration) {
         return false;
       }
-      _tokenCacheGeneration++;
-      _cachedToken = token;
-      _tokenHydrated = true;
+      // Persist to disk first so a failed write never leaves memory ahead of storage.
       await _storage.write(key: AppStrings.tokenKey, value: token);
       await _storage.write(key: AppStrings.refreshTokenKey, value: refreshToken);
       if (session != null) {
@@ -152,6 +150,12 @@ class SecureStorage {
           value: jsonEncode(session),
         );
       }
+      if (expectedGeneration != _authSessionGeneration) {
+        return false;
+      }
+      _tokenCacheGeneration++;
+      _cachedToken = token;
+      _tokenHydrated = true;
       return true;
     });
   }

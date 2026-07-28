@@ -196,6 +196,18 @@ const notifyDoctorOfInrReport = async (input: {
 			await cancelNotificationPush(String(created._id), 'notifications_paused')
 			return
 		}
+		// Revalidate recipient immediately before outbox enqueue so a role or
+		// hospital transition after realtime publish cannot deliver INR payload.
+		const enqueueEligible = await User.findById(doctorUserId)
+			.select('is_active user_type profile_id')
+			.lean()
+		const enqueueDoctorOk = enqueueEligible?.is_active
+			&& enqueueEligible.user_type === UserType.DOCTOR
+			&& await hasActiveClinicalHospitalAccess(enqueueEligible)
+		if (!enqueueDoctorOk) {
+			await cancelNotificationPush(String(created._id), 'recipient_became_ineligible')
+			return
+		}
 		await enqueueNotificationPush({
 			notificationId: String(created._id),
 			userId: doctorUserId,

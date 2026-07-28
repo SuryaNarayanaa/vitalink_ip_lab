@@ -99,7 +99,7 @@ void main() {
         client.requests.single,
         'POST ${AppStrings.adminRolePoliciesPath}/auditor/preview',
       );
-      expect(client.bodies.single, {
+      expect(client.bodies.single as Map<String, dynamic>, {
         'capabilities': capabilities,
         'expected_version': 4,
       });
@@ -127,8 +127,9 @@ void main() {
         client.requests.last,
         'PUT ${AppStrings.adminRolePoliciesPath}/auditor',
       );
-      expect(client.bodies.last?['expected_version'], 4);
-      expect(client.bodies.last?['change_reason'], 'Enable audit review');
+      final updateBody = client.bodies.last as Map<String, dynamic>;
+      expect(updateBody['expected_version'], 4);
+      expect(updateBody['change_reason'], 'Enable audit review');
     },
   );
 
@@ -158,8 +159,9 @@ void main() {
         client.requests.single,
         'POST ${AppStrings.adminRolePoliciesPath}/hospital_admin/restore-preview',
       );
-      expect(client.bodies.single?['expected_version'], 6);
-      expect(client.bodies.single?['revision_id'], '507f1f77bcf86cd799439011');
+      final previewBody = client.bodies.single as Map<String, dynamic>;
+      expect(previewBody['expected_version'], 6);
+      expect(previewBody['revision_id'], '507f1f77bcf86cd799439011');
 
       client.response = {
         'schema_version': 2,
@@ -184,7 +186,7 @@ void main() {
         client.requests.last,
         'POST ${AppStrings.adminRolePoliciesPath}/hospital_admin/restore',
       );
-      expect(client.bodies.last, {
+      expect(client.bodies.last as Map<String, dynamic>, {
         'revision_id': '507f1f77bcf86cd799439011',
         'expected_version': 6,
         'change_reason': 'Restore reviewed policy',

@@ -329,8 +329,13 @@ class ApiClient {
     final extra = Map<String, dynamic>.from(request.extra);
     extra[_hasRetriedAfterRefreshExtra] = true;
 
+    // FormData streams are single-use after finalize; clone for the 401 retry.
+    final data = request.data is FormData
+        ? (request.data as FormData).clone()
+        : request.data;
+
     return _dio.fetch<dynamic>(
-      request.copyWith(headers: headers, extra: extra),
+      request.copyWith(headers: headers, extra: extra, data: data),
     );
   }
 

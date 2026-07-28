@@ -486,7 +486,8 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
         updatedAt: { $gte: accountLockoutWindowStart(now) },
       }).sort({ updatedAt: -1 })
       if (recentLocked) {
-        await recordFailedLoginAttempt(user._id)
+        // Do not mutate account lockout here: the challenge is already locked;
+        // password re-login must not burn extra durable failure budget.
         await bestEffortCreateAuthAuditLog(
           req,
           user,
@@ -634,10 +635,9 @@ export const verifyLoginOtpController = asyncHandler(
     }
 
     if (!result.verified) {
-      if (
-        result.result === OtpVerificationResult.INVALID
-        || result.result === OtpVerificationResult.LOCKED
-      ) {
+      // Only count genuine wrong codes against the account budget. LOCKED is a
+      // terminal challenge state (already budget-exhausted) and must not double-count.
+      if (result.result === OtpVerificationResult.INVALID) {
         await recordFailedLoginAttempt(user._id)
       }
       const statusByResult: Partial<Record<OtpVerificationResult, StatusCodes>> = {
@@ -948,22 +948,70 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
   const { challenge_id: challengeId, code } = req.body as { challenge_id: string; code: string }
   const { challenge, user } = await getAdminMfaEnrollmentChallengeOrThrow(challengeId)
 
+  // Consume the enrollment challenge first so only one concurrent activator
+  // proceeds; activation of the TOTP factor runs only after this CAS succeeds.
+  const factorGeneration = Number(challenge.factor_generation || 0)
+  const securityVersion = Number(challenge.security_version || 0)
+  const verifiedAt = new Date()
+  const consumed = await AdminMfaChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      status: AdminMfaChallengeStatus.PENDING,
+      expires_at: { $gt: new Date() },
+      $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+      factor_generation: factorGeneration,
+      security_version: securityVersion,
+    },
+    {
+      $set: {
+        status: AdminMfaChallengeStatus.VERIFIED,
+        verified_at: verifiedAt,
+      },
+    },
+    { new: true },
+  )
+  if (!consumed) {
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
+  }
+
   let invalidatedSessionResult
   try {
     invalidatedSessionResult = await activateAdminTotpEnrollment(user, code)
   } catch (caught) {
-    // Invalid codes count against both challenge attempts (via activate) and
-    // durable account lockout. activateAdminTotpEnrollment only throws on bad code.
+    // If the factor was not enabled, reopen the challenge so a bad code does
+    // not leave enrollment stuck VERIFIED without a usable authenticator.
+    const freshUser = await User.findById(user._id)
+    const factorEnabled = freshUser ? isAdminTotpEnabled(freshUser) : false
+    if (!factorEnabled) {
+      await AdminMfaChallenge.updateOne(
+        {
+          _id: challenge._id,
+          status: AdminMfaChallengeStatus.VERIFIED,
+          verified_at: verifiedAt,
+          factor_generation: factorGeneration,
+          security_version: securityVersion,
+        },
+        {
+          $set: { status: AdminMfaChallengeStatus.PENDING },
+          $unset: { verified_at: 1 },
+        },
+      )
+    }
+
     let error: unknown = caught
-    if (error instanceof ApiError && error.statusCode === StatusCodes.UNAUTHORIZED) {
+    if (
+      !factorEnabled
+      && error instanceof ApiError
+      && error.statusCode === StatusCodes.UNAUTHORIZED
+    ) {
       const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
         {
           _id: challenge._id,
           status: AdminMfaChallengeStatus.PENDING,
           expires_at: { $gt: new Date() },
           $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-          factor_generation: Number(challenge.factor_generation || 0),
-          security_version: Number(challenge.security_version || 0),
+          factor_generation: factorGeneration,
+          security_version: securityVersion,
         },
         [
           { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
@@ -982,8 +1030,6 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
         { new: true, updatePipeline: true },
       )
       await recordFailedLoginAttempt(user._id)
-      // Prefer LOCKED status but still fall through to the failure audit below —
-      // lockout is the most security-relevant outcome and must be recorded.
       if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
         error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
       }
@@ -992,29 +1038,6 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
       await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, false, 'Admin TOTP enrollment activation failed', 'mfa_enrollment_activation_failed')
     } catch { logger.error('MFA enrollment activation failure audit persistence failed', { user_id: String(user._id) }) }
     throw error
-  }
-
-  const factorGeneration = Number(challenge.factor_generation || 0)
-  const securityVersion = Number(challenge.security_version || 0)
-  const consumed = await AdminMfaChallenge.findOneAndUpdate(
-    {
-      _id: challenge._id,
-      status: AdminMfaChallengeStatus.PENDING,
-      expires_at: { $gt: new Date() },
-      $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-      factor_generation: factorGeneration,
-      security_version: securityVersion,
-    },
-    {
-      $set: {
-        status: AdminMfaChallengeStatus.VERIFIED,
-        verified_at: new Date(),
-      },
-    },
-    { new: true },
-  )
-  if (!consumed) {
-    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
   }
 
   const loggedInAt = new Date()

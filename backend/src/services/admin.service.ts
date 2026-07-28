@@ -2116,12 +2116,23 @@ export async function deactivatePatient(userId: string, actor?: AdminActorInput)
     )
     if (!deactivated) throw new ApiError(StatusCodes.CONFLICT, 'Patient account changed concurrently')
     user.is_active = false
+    // Never overwrite a terminal Deceased status with Discharged.
     const profileUpdate = await PatientProfile.findOneAndUpdate(
-      { _id: user.profile_id },
+      {
+        _id: user.profile_id,
+        account_status: { $ne: 'Deceased' },
+      },
       { $set: { account_status: 'Discharged' } },
       { new: true, session, runValidators: true },
     )
     if (!profileUpdate) {
+      const currentProfile = await PatientProfile.findById(user.profile_id).session(session).lean()
+      if (currentProfile?.account_status === 'Deceased') {
+        throw new ApiError(
+          StatusCodes.CONFLICT,
+          'A deceased Patient account cannot be discharged through deactivation',
+        )
+      }
       throw new ApiError(StatusCodes.CONFLICT, 'Patient profile changed concurrently')
     }
     await session.commitTransaction()
@@ -2500,10 +2511,15 @@ export async function performBatchOperation(
             account_status?: string
             assigned_doctor_id?: unknown
           } | null = null
+          let previousAccountStatus: string | undefined
+          let previousAssignmentConflict: unknown
           if (user.user_type === UserType.PATIENT) {
             patientProfile = await PatientProfile.findById(user.profile_id)
-              .select('hospital_id account_status assigned_doctor_id')
+              .select('hospital_id account_status assigned_doctor_id assignment_conflict')
               .lean()
+            previousAccountStatus = patientProfile?.account_status
+            previousAssignmentConflict = (patientProfile as { assignment_conflict?: unknown } | null)
+              ?.assignment_conflict
             if (user.is_active && patientProfile?.account_status === 'Active') {
               results.push({
                 userId,
@@ -2570,11 +2586,18 @@ export async function performBatchOperation(
                 activationCommitted = true
               }
               if (user.user_type === UserType.PATIENT && patientProfile?.account_status !== 'Active') {
-                await PatientProfile.findByIdAndUpdate(
-                  user.profile_id,
+                // CAS on the preloaded status so concurrent clinical transitions win cleanly.
+                const restoredProfile = await PatientProfile.findOneAndUpdate(
+                  {
+                    _id: user.profile_id,
+                    account_status: previousAccountStatus ?? patientProfile?.account_status,
+                  },
                   { $set: { account_status: 'Active' }, $unset: { assignment_conflict: 1 } },
-                  { runValidators: true },
+                  { new: true, runValidators: true },
                 )
+                if (!restoredProfile) {
+                  throw new ApiError(StatusCodes.CONFLICT, 'Patient clinical status changed concurrently')
+                }
                 profileRestored = true
               }
               await patientLifecycleLease?.assertOwned()
@@ -2597,9 +2620,18 @@ export async function performBatchOperation(
               }
               if (profileRestored) {
                 try {
+                  const rollbackStatus = previousAccountStatus && previousAccountStatus !== 'Active'
+                    ? previousAccountStatus
+                    : 'Discharged'
+                  const rollbackSet: Record<string, unknown> = { account_status: rollbackStatus }
+                  if (previousAssignmentConflict !== undefined) {
+                    rollbackSet.assignment_conflict = previousAssignmentConflict
+                  }
                   await PatientProfile.updateOne(
                     { _id: user.profile_id, account_status: 'Active' },
-                    { $set: { account_status: 'Discharged' } },
+                    previousAssignmentConflict !== undefined
+                      ? { $set: rollbackSet }
+                      : { $set: { account_status: rollbackStatus }, $unset: { assignment_conflict: 1 } },
                   )
                 } catch (compensationError) {
                   logger.error('batch_activate.profile_rollback_failed', {

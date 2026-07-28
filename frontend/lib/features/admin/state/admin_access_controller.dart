@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/features/admin/data/admin_access_repository.dart';
 import 'package:frontend/features/admin/models/admin_access_model.dart';
 
@@ -115,8 +116,12 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
       _errorStackTrace = null;
     } catch (error, stackTrace) {
       if (_isDisposed || generation != _sessionGeneration) return;
-      // Keep the last good snapshot on transient load failures; session teardown
-      // paths call clear() so capabilities cannot outlive logout/expiry.
+      // Terminal auth denials must not leave a stale capability snapshot that
+      // can still pass can(); transient network errors keep the last good map.
+      final statusCode = error is ApiException ? error.statusCode : null;
+      if (statusCode == 401 || statusCode == 403) {
+        _access = null;
+      }
       _error = error;
       _errorStackTrace = stackTrace;
     }
