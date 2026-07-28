@@ -181,23 +181,34 @@ const notifyDoctorOfInrReport = async (input: {
 			return
 		}
 
-		await publishClinicalNotificationToUser(doctorUserId, 'notification', {
-			id: String(created._id),
-			title: created.title,
-			message: created.message,
-			type: created.type,
-			priority: created.priority,
-			is_read: created.is_read,
-			created_at: created.createdAt,
-			data: created.data,
-		})
+		// Realtime path revalidates active + DOCTOR + clinical hospital before SSE
+		// disclosure. Fail closed and cancel push if the recipient is no longer eligible.
+		const published = await publishClinicalNotificationToUser(
+			doctorUserId,
+			'notification',
+			{
+				id: String(created._id),
+				title: created.title,
+				message: created.message,
+				type: created.type,
+				priority: created.priority,
+				is_read: created.is_read,
+				created_at: created.createdAt,
+				data: created.data,
+			},
+			{ requireUserType: UserType.DOCTOR },
+		)
+		if (!published) {
+			await cancelNotificationPush(String(created._id), 'clinical_realtime_ineligible')
+			return
+		}
 
 		if (!await isFeatureEnabled('notifications_enabled')) {
 			await cancelNotificationPush(String(created._id), 'notifications_paused')
 			return
 		}
-		// Revalidate recipient immediately before outbox enqueue so a role or
-		// hospital transition after realtime publish cannot deliver INR payload.
+		// Independent outbox boundary: revalidate again before enqueue so push
+		// cannot continue after a post-realtime eligibility loss.
 		const enqueueEligible = await User.findById(doctorUserId)
 			.select('is_active user_type profile_id')
 			.lean()

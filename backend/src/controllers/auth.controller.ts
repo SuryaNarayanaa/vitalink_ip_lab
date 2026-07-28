@@ -978,61 +978,72 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
   try {
     invalidatedSessionResult = await activateAdminTotpEnrollment(user, code)
   } catch (caught) {
-    // If the factor was not enabled, reopen the challenge so a bad code does
-    // not leave enrollment stuck VERIFIED without a usable authenticator.
-    const freshUser = await User.findById(user._id)
-    const factorEnabled = freshUser ? isAdminTotpEnabled(freshUser) : false
-    if (!factorEnabled) {
-      await AdminMfaChallenge.updateOne(
-        {
-          _id: challenge._id,
-          status: AdminMfaChallengeStatus.VERIFIED,
-          verified_at: verifiedAt,
-          factor_generation: factorGeneration,
-          security_version: securityVersion,
-        },
-        {
-          $set: { status: AdminMfaChallengeStatus.PENDING },
-          $unset: { verified_at: 1 },
-        },
-      )
-    }
-
+    // Always surface the activation failure; compensation must never mask it.
     let error: unknown = caught
-    if (
-      !factorEnabled
-      && error instanceof ApiError
-      && error.statusCode === StatusCodes.UNAUTHORIZED
-    ) {
-      const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
-        {
-          _id: challenge._id,
-          status: AdminMfaChallengeStatus.PENDING,
-          expires_at: { $gt: new Date() },
-          $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-          factor_generation: factorGeneration,
-          security_version: securityVersion,
-        },
-        [
-          { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
+    try {
+      // If the factor was not enabled, reopen the challenge so a bad code does
+      // not leave enrollment stuck VERIFIED without a usable authenticator.
+      // (A process crash between consume and reopen leaves VERIFIED only; re-login
+      // can still mint a new PENDING enrollment challenge — unique index is
+      // partial on status PENDING.)
+      const freshUser = await User.findById(user._id)
+      const factorEnabled = freshUser ? isAdminTotpEnabled(freshUser) : false
+      if (!factorEnabled) {
+        await AdminMfaChallenge.updateOne(
           {
-            $set: {
-              status: {
-                $cond: [
-                  { $gte: ['$attempt_count', '$max_attempts'] },
-                  AdminMfaChallengeStatus.LOCKED,
-                  AdminMfaChallengeStatus.PENDING,
-                ],
+            _id: challenge._id,
+            status: AdminMfaChallengeStatus.VERIFIED,
+            verified_at: verifiedAt,
+            factor_generation: factorGeneration,
+            security_version: securityVersion,
+          },
+          {
+            $set: { status: AdminMfaChallengeStatus.PENDING },
+            $unset: { verified_at: 1 },
+          },
+        )
+      }
+      if (
+        !factorEnabled
+        && error instanceof ApiError
+        && error.statusCode === StatusCodes.UNAUTHORIZED
+      ) {
+        const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
+          {
+            _id: challenge._id,
+            status: AdminMfaChallengeStatus.PENDING,
+            expires_at: { $gt: new Date() },
+            $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+            factor_generation: factorGeneration,
+            security_version: securityVersion,
+          },
+          [
+            { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
+            {
+              $set: {
+                status: {
+                  $cond: [
+                    { $gte: ['$attempt_count', '$max_attempts'] },
+                    AdminMfaChallengeStatus.LOCKED,
+                    AdminMfaChallengeStatus.PENDING,
+                  ],
+                },
               },
             },
-          },
-        ],
-        { new: true, updatePipeline: true },
-      )
-      await recordFailedLoginAttempt(user._id)
-      if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
-        error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
+          ],
+          { new: true, updatePipeline: true },
+        )
+        await recordFailedLoginAttempt(user._id)
+        if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
+          error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
+        }
       }
+    } catch (compensationError) {
+      logger.error('MFA enrollment challenge compensation failed', {
+        user_id: String(user._id),
+        challenge_id: String(challenge._id),
+        error: compensationError instanceof Error ? compensationError.message : 'unknown_error',
+      })
     }
     try {
       await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, false, 'Admin TOTP enrollment activation failed', 'mfa_enrollment_activation_failed')
