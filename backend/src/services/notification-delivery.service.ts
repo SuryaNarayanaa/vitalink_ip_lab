@@ -199,7 +199,18 @@ function payloadDataAsRecord(
   for (const [key, value] of Object.entries(raw)) {
     if (value === undefined || value === null) continue
     if (Array.isArray(value)) {
-      result[key] = value.map(String).join(',')
+      const hasNested = value.some(
+        (item) => item !== null && typeof item === 'object',
+      )
+      if (hasNested) {
+        try {
+          result[key] = JSON.stringify(value)
+        } catch {
+          // Skip values that cannot be serialized rather than persist garbage.
+        }
+      } else {
+        result[key] = value.map(String).join(',')
+      }
       continue
     }
     if (typeof value === 'object') {

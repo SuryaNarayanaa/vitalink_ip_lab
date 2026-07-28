@@ -268,23 +268,16 @@ const buildOtpChallengeResponse = (challenge: any, phoneNumber: string) => ({
   },
 })
 
-const buildAdminTotpChallengeResponse = (challenge: any) => ({
-  auth_status: 'TOTP_REQUIRED',
+const buildAdminMfaChallengeResponse = (
+  challenge: any,
+  authStatus: 'TOTP_REQUIRED' | 'TOTP_ENROLLMENT_REQUIRED',
+  purpose?: 'ENROLLMENT' | 'LOGIN',
+) => ({
+  auth_status: authStatus,
   challenge: {
     challenge_id: challenge._id.toString(),
     factor_type: 'AUTHENTICATOR_APP',
-    expires_at: challenge.expires_at,
-    attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
-    max_attempts: challenge.max_attempts,
-  },
-})
-
-const buildAdminTotpEnrollmentChallengeResponse = (challenge: any) => ({
-  auth_status: 'TOTP_ENROLLMENT_REQUIRED',
-  challenge: {
-    challenge_id: challenge._id.toString(),
-    factor_type: 'AUTHENTICATOR_APP',
-    purpose: 'ENROLLMENT',
+    ...(purpose ? { purpose } : {}),
     expires_at: challenge.expires_at,
     attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
     max_attempts: challenge.max_attempts,
@@ -588,7 +581,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
         StatusCodes.ACCEPTED,
         'Admin authenticator MFA required',
-        buildAdminTotpChallengeResponse(challenge)
+        buildAdminMfaChallengeResponse(challenge, 'TOTP_REQUIRED')
       ))
       return
     }
@@ -610,7 +603,7 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
         StatusCodes.ACCEPTED,
         'Admin authenticator MFA enrollment is required',
-        buildAdminTotpEnrollmentChallengeResponse(challenge)
+        buildAdminMfaChallengeResponse(challenge, 'TOTP_ENROLLMENT_REQUIRED', 'ENROLLMENT')
       ))
       return
     }
@@ -969,6 +962,8 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
           status: AdminMfaChallengeStatus.PENDING,
           expires_at: { $gt: new Date() },
           $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+          factor_generation: Number(challenge.factor_generation || 0),
+          security_version: Number(challenge.security_version || 0),
         },
         [
           { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },

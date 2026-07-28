@@ -192,7 +192,10 @@ const notifyDoctorOfInrReport = async (input: {
 			data: created.data,
 		})
 
-		if (!await isFeatureEnabled('notifications_enabled')) return
+		if (!await isFeatureEnabled('notifications_enabled')) {
+			await cancelNotificationPush(String(created._id), 'notifications_paused')
+			return
+		}
 		await enqueueNotificationPush({
 			notificationId: String(created._id),
 			userId: doctorUserId,
