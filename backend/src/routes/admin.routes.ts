@@ -102,8 +102,15 @@ registerAdminRoute(router, {
 }, updateRole)
 
 // ─── Hospitals ───
+// App admins list the platform catalog; hospital admins may list only their
+// assigned hospital (service-layer tenant filter) so operational dialogs work.
 registerAdminRoute(router, {
-  method: 'get', path: '/hospitals', capability: 'platform.hospitals.read', scope: 'global', mutation: false, surface: 'admin',
+  method: 'get',
+  path: '/hospitals',
+  anyOfCapabilities: ['platform.hospitals.read', 'tenant.dashboard.read'],
+  scope: 'either',
+  mutation: false,
+  surface: 'admin',
 }, validate(hospitalListQuerySchema), listHospitals)
 registerAdminRoute(router, {
   method: 'post', path: '/hospitals', capability: 'platform.hospitals.manage', scope: 'global', mutation: true, surface: 'admin',

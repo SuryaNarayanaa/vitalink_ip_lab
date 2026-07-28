@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
+import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/utils/phone_utils.dart';
+import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
+import 'package:frontend/features/admin/models/admin_access_model.dart';
 
 /// Reusable dialog helpers for admin CRUD operations.
 /// These use the [AdminRepository] directly via [AppDependencies] instead of
@@ -25,6 +28,29 @@ void _disposeControllers(Iterable<TextEditingController> controllers) {
   }
 }
 
+String _errorMessage(Object error) {
+  if (error is ApiException) return error.message;
+  return error.toString();
+}
+
+/// Tenant hospital admins are bound to one hospital; app admins pick from the catalog.
+({bool isTenant, String? hospitalId, String hospitalLabel}) _hospitalBinding(
+  BuildContext context,
+) {
+  final access = AdminAccessScope.accessOf(context);
+  if (access != null &&
+      access.scope == AdminScope.tenant &&
+      access.hospital != null) {
+    final hospital = access.hospital!;
+    final label = [
+      if (hospital.name != null && hospital.name!.trim().isNotEmpty) hospital.name!.trim(),
+      hospital.code,
+    ].join(' · ');
+    return (isTenant: true, hospitalId: hospital.id, hospitalLabel: label);
+  }
+  return (isTenant: false, hospitalId: null, hospitalLabel: '');
+}
+
 // =============================================================================
 // DOCTOR DIALOGS
 // =============================================================================
@@ -45,16 +71,17 @@ Future<bool> showAddDoctorDialog(
 }) async {
   final formKey = GlobalKey<FormState>();
   final loginId = TextEditingController();
-  final password = TextEditingController();
   final name = TextEditingController();
   final department = TextEditingController();
   final contact = TextEditingController();
+  final binding = _hospitalBinding(context);
   bool loading = false;
-  String? selectedHospitalId;
+  String? selectedHospitalId = binding.hospitalId;
   List<Map<String, dynamic>> hospitalList = [];
-  bool hospitalsLoading = true;
-  bool hospitalsRequested = false;
+  bool hospitalsLoading = !binding.isTenant;
+  bool hospitalsRequested = binding.isTenant;
   String? hospitalsError;
+  String? formError;
 
   final result = await showDialog<bool>(
     context: context,
@@ -62,18 +89,24 @@ Future<bool> showAddDoctorDialog(
       builder: (ctx, setState) {
         if (!hospitalsRequested) {
           hospitalsRequested = true;
-          _repo.getHospitals().then((response) {
+          _repo.getHospitals(status: 'active').then((response) {
             final items = response['hospitals'] as List? ?? [];
             if (ctx.mounted) {
               setState(() {
                 hospitalList = items.cast<Map<String, dynamic>>();
                 hospitalsLoading = false;
+                // Prefer a single catalog entry when only one hospital is returned.
+                if (selectedHospitalId == null && hospitalList.length == 1) {
+                  final only = hospitalList.first;
+                  selectedHospitalId =
+                      (only['_id'] ?? only['id'])?.toString();
+                }
               });
             }
           }).catchError((e) {
             if (ctx.mounted) {
               setState(() {
-                hospitalsError = e.toString();
+                hospitalsError = _errorMessage(e);
                 hospitalsLoading = false;
               });
             }
@@ -87,6 +120,7 @@ Future<bool> showAddDoctorDialog(
               key: formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   TextFormField(
                     controller: loginId,
@@ -97,17 +131,6 @@ Future<bool> showAddDoctorDialog(
                     enabled: !loading,
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: password,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock_outline_rounded),
-                    ),
-                    obscureText: true,
-                    enabled: !loading,
-                    validator: _validateStrongPassword,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -141,47 +164,81 @@ Future<bool> showAddDoctorDialog(
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !loading,
-                    validator: (v) => PhoneUtils.validate(v, label: 'Contact'),
+                    validator: (v) => PhoneUtils.validate(
+                      v,
+                      label: 'Contact',
+                      required: true,
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String?>(
-                    initialValue: selectedHospitalId,
-                    decoration: const InputDecoration(
-                      labelText: 'Hospital',
-                      prefixIcon: Icon(Icons.local_hospital_outlined),
-                      hintText: 'Select hospital',
-                    ),
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('No hospital'),
+                  if (binding.isTenant)
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Hospital',
+                        prefixIcon: Icon(Icons.local_hospital_outlined),
+                        helperText:
+                            'Doctors are registered under your assigned hospital.',
                       ),
-                      ...hospitalList.map((hospital) {
-                        final id =
-                            (hospital['_id'] ?? hospital['id'])?.toString() ??
-                                '';
-                        final name = hospital['name'] as String? ??
-                            hospital['code'] as String? ??
-                            'Hospital';
-                        return DropdownMenuItem<String?>(
-                          value: id.isNotEmpty ? id : null,
-                          child: Text(name),
-                        );
-                      }),
-                    ],
-                    onChanged: hospitalsLoading
-                        ? null
-                        : (value) => setState(() => selectedHospitalId = value),
-                    hint: hospitalsLoading
-                        ? const Text('Loading hospitals...')
-                        : const Text('Select hospital'),
-                  ),
+                      child: Text(binding.hospitalLabel),
+                    )
+                  else
+                    DropdownButtonFormField<String?>(
+                      initialValue: selectedHospitalId,
+                      decoration: const InputDecoration(
+                        labelText: 'Hospital',
+                        prefixIcon: Icon(Icons.local_hospital_outlined),
+                        hintText: 'Select hospital',
+                      ),
+                      isExpanded: true,
+                      items: [
+                        ...hospitalList.map((hospital) {
+                          final id =
+                              (hospital['_id'] ?? hospital['id'])?.toString() ??
+                                  '';
+                          final label = hospital['name'] as String? ??
+                              hospital['code'] as String? ??
+                              'Hospital';
+                          return DropdownMenuItem<String?>(
+                            value: id.isNotEmpty ? id : null,
+                            child: Text(label),
+                          );
+                        }),
+                      ],
+                      onChanged: hospitalsLoading
+                          ? null
+                          : (value) =>
+                              setState(() => selectedHospitalId = value),
+                      validator: (value) =>
+                          (value == null || value.isEmpty)
+                              ? 'Hospital is required'
+                              : null,
+                      hint: hospitalsLoading
+                          ? const Text('Loading hospitals...')
+                          : const Text('Select hospital'),
+                    ),
                   if (hospitalsError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         hospitalsError!,
+                        style: TextStyle(
+                          color: Theme.of(ctx).colorScheme.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'A temporary password is generated after registration. The doctor must change it on first login.',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  if (formError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        formError!,
                         style: TextStyle(
                           color: Theme.of(ctx).colorScheme.error,
                           fontSize: 12,
@@ -202,33 +259,52 @@ Future<bool> showAddDoctorDialog(
                   ? null
                   : () async {
                       if (!formKey.currentState!.validate()) return;
-                      setState(() => loading = true);
+                      final hospitalId =
+                          binding.isTenant ? binding.hospitalId : selectedHospitalId;
+                      if (hospitalId == null || hospitalId.isEmpty) {
+                        setState(() {
+                          formError = 'Hospital is required to register a doctor.';
+                        });
+                        return;
+                      }
+                      setState(() {
+                        loading = true;
+                        formError = null;
+                      });
                       try {
                         final contactNumber =
                             PhoneUtils.formatForApi(contact.text);
+                        if (contactNumber == null) {
+                          setState(() {
+                            loading = false;
+                            formError = 'Enter a valid 10-digit contact number.';
+                          });
+                          return;
+                        }
+                        // Do not send password — backend generates a temporary one
+                        // and createDoctorSchema rejects unknown fields (strict).
                         await _repo.createDoctor({
                           'login_id': loginId.text.trim(),
-                          'password': password.text,
                           'name': name.text.trim(),
                           'department': department.text.trim().isNotEmpty
                               ? department.text.trim()
                               : 'General',
-                          if (contactNumber != null)
-                            'contact_number': contactNumber,
-                          if (selectedHospitalId != null &&
-                              selectedHospitalId!.isNotEmpty)
-                            'hospital_id': selectedHospitalId,
+                          'contact_number': contactNumber,
+                          'hospital_id': hospitalId,
                         });
                         if (ctx.mounted) Navigator.pop(ctx, true);
                       } catch (e) {
                         if (ctx.mounted) {
+                          setState(() {
+                            loading = false;
+                            formError = _errorMessage(e);
+                          });
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             SnackBar(
-                              content: Text('Error: $e'),
+                              content: Text(formError!),
                               backgroundColor: Colors.red,
                             ),
                           );
-                          setState(() => loading = false);
                         }
                       }
                     },
@@ -246,12 +322,14 @@ Future<bool> showAddDoctorDialog(
     ),
   );
 
-  _disposeControllers([loginId, password, name, department, contact]);
+  _disposeControllers([loginId, name, department, contact]);
 
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Doctor registered successfully'),
+        content: Text(
+          'Doctor registered successfully. Share the temporary password from the response with the doctor.',
+        ),
         backgroundColor: Colors.green,
       ),
     );
@@ -466,7 +544,6 @@ Future<bool> showAddPatientDialog(
 }) async {
   final formKey = GlobalKey<FormState>();
   final loginId = TextEditingController();
-  final password = TextEditingController();
   final name = TextEditingController();
   final age = TextEditingController();
   final phone = TextEditingController();
@@ -498,7 +575,7 @@ Future<bool> showAddPatientDialog(
           }).catchError((e) {
             if (ctx.mounted) {
               setState(() {
-                doctorsError = e.toString();
+                doctorsError = _errorMessage(e);
                 doctorsLoading = false;
               });
             }
@@ -522,17 +599,6 @@ Future<bool> showAddPatientDialog(
                     enabled: !loading,
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: password,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock_outline_rounded),
-                    ),
-                    obscureText: true,
-                    enabled: !loading,
-                    validator: _validateStrongPassword,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -565,8 +631,8 @@ Future<bool> showAddPatientDialog(
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Text(
-                        'Failed to load doctors',
-                        style: TextStyle(color: Colors.red[700]),
+                        doctorsError!,
+                        style: TextStyle(color: Colors.red[700], fontSize: 12),
                       ),
                     )
                   else
@@ -642,6 +708,13 @@ Future<bool> showAddPatientDialog(
                       required: true,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'A temporary password is generated after onboarding.',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
                 ],
               ),
             ),
@@ -662,9 +735,19 @@ Future<bool> showAddPatientDialog(
                       setState(() => loading = true);
                       try {
                         final phoneNumber = PhoneUtils.formatForApi(phone.text);
+                        if (phoneNumber == null) {
+                          setState(() => loading = false);
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(
+                              content: Text('Enter a valid phone number.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        // Backend rejects unknown password field (strict body).
                         await _repo.createPatient({
                           'login_id': loginId.text.trim(),
-                          'password': password.text,
                           'assigned_doctor_id': selectedDoctorId,
                           'demographics': {
                             'name': name.text.trim(),
@@ -672,7 +755,7 @@ Future<bool> showAddPatientDialog(
                               'age': int.tryParse(age.text),
                             if (selectedGender != null)
                               'gender': selectedGender,
-                            if (phoneNumber != null) 'phone': phoneNumber,
+                            'phone': phoneNumber,
                           },
                         });
                         if (ctx.mounted) Navigator.pop(ctx, true);
@@ -680,7 +763,7 @@ Future<bool> showAddPatientDialog(
                         if (ctx.mounted) {
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             SnackBar(
-                              content: Text('Error: $e'),
+                              content: Text(_errorMessage(e)),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -702,7 +785,7 @@ Future<bool> showAddPatientDialog(
     ),
   );
 
-  _disposeControllers([loginId, password, name, age, phone]);
+  _disposeControllers([loginId, name, age, phone]);
 
   if (result == true && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
