@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
+import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/features/admin/admin_capabilities.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 
 class DoctorManagementPage extends StatefulWidget {
@@ -33,6 +35,18 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
   @override
   Widget build(BuildContext context) {
     final search = _searchController.text.trim();
+    final canManage = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantDoctorsManage,
+    );
+    final canStatus = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantAccountsStatusManage,
+    );
+    final canResetCredentials = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantCredentialsReset,
+    );
 
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
@@ -60,11 +74,14 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
             pagination['pages'] as int? ?? (total / pageSize).ceil();
         final showPageScaffold = !AdminScaffold.usesShellAppBar(context);
 
-        final addDoctorFab = FloatingActionButton.extended(
-          onPressed: () => showAddDoctorDialog(context, onSuccess: _refresh),
-          icon: const Icon(Icons.add),
-          label: const Text('Add Doctor'),
-        );
+        final addDoctorFab = canManage
+            ? FloatingActionButton.extended(
+                onPressed: () =>
+                    showAddDoctorDialog(context, onSuccess: _refresh),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Doctor'),
+              )
+            : null;
 
         final content = Column(
           children: [
@@ -223,7 +240,9 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
                               ),
                             )
                           : ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 80),
+                              padding: EdgeInsets.only(
+                                bottom: canManage ? 80 : 16,
+                              ),
                               itemCount: doctorsList.length,
                               itemBuilder: (context, index) {
                                 final doc =
@@ -231,6 +250,9 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
                                 return _DoctorListTile(
                                   doctor: doc,
                                   onRefresh: _refresh,
+                                  canManage: canManage,
+                                  canStatus: canStatus,
+                                  canResetCredentials: canResetCredentials,
                                 );
                               },
                             ),
@@ -269,7 +291,7 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
         if (showPageScaffold) {
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Manage Doctors'),
+              title: Text(canManage ? 'Manage Doctors' : 'Doctors'),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.refresh_rounded),
@@ -280,6 +302,10 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
             floatingActionButton: addDoctorFab,
             body: content,
           );
+        }
+
+        if (addDoctorFab == null) {
+          return content;
         }
 
         return Stack(
@@ -304,8 +330,17 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
 class _DoctorListTile extends StatelessWidget {
   final Map<String, dynamic> doctor;
   final VoidCallback onRefresh;
+  final bool canManage;
+  final bool canStatus;
+  final bool canResetCredentials;
 
-  const _DoctorListTile({required this.doctor, required this.onRefresh});
+  const _DoctorListTile({
+    required this.doctor,
+    required this.onRefresh,
+    required this.canManage,
+    required this.canStatus,
+    required this.canResetCredentials,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -322,6 +357,7 @@ class _DoctorListTile extends StatelessWidget {
         doctor['id'] as String? ??
         doctor['user_id'] as String? ??
         '';
+    final hasActions = canManage || canStatus || canResetCredentials;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -361,50 +397,55 @@ class _DoctorListTile extends StatelessWidget {
                 ),
               ),
             ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded),
-              onSelected: (action) =>
-                  _handleAction(context, action, id, name, profile, isActive),
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'edit',
-                  child: ListTile(
-                    leading: Icon(Icons.edit_rounded, size: 20),
-                    title: Text('Edit'),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'password',
-                  child: ListTile(
-                    leading: Icon(Icons.lock_reset_rounded, size: 20),
-                    title: Text('Reset Password'),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'status',
-                  child: ListTile(
-                    leading: Icon(
-                      isActive
-                          ? Icons.block_rounded
-                          : Icons.check_circle_outline_rounded,
-                      size: 20,
-                      color: isActive ? Colors.red : Colors.green,
+            if (hasActions)
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded),
+                onSelected: (action) =>
+                    _handleAction(context, action, id, name, profile, isActive),
+                itemBuilder: (_) => [
+                  if (canManage)
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(
+                        leading: Icon(Icons.edit_rounded, size: 20),
+                        title: Text('Edit'),
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
-                    title: Text(
-                      isActive ? 'Deactivate' : 'Activate',
-                      style: TextStyle(
-                          color: isActive ? Colors.red : Colors.green),
+                  if (canResetCredentials)
+                    const PopupMenuItem(
+                      value: 'password',
+                      child: ListTile(
+                        leading: Icon(Icons.lock_reset_rounded, size: 20),
+                        title: Text('Reset Password'),
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
-            ),
+                  if (canStatus)
+                    PopupMenuItem(
+                      value: 'status',
+                      child: ListTile(
+                        leading: Icon(
+                          isActive
+                              ? Icons.block_rounded
+                              : Icons.check_circle_outline_rounded,
+                          size: 20,
+                          color: isActive ? Colors.red : Colors.green,
+                        ),
+                        title: Text(
+                          isActive ? 'Deactivate' : 'Activate',
+                          style: TextStyle(
+                            color: isActive ? Colors.red : Colors.green,
+                          ),
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                ],
+              ),
           ],
         ),
       ),
@@ -433,6 +474,12 @@ class _DoctorListTile extends StatelessWidget {
           context,
           userId: id,
           userName: name,
+          onReset: (password) async {
+            await AppDependencies.adminRepository.resetDoctorCredentials(
+              id,
+              newPassword: password,
+            );
+          },
           onSuccess: onRefresh,
         );
         break;
@@ -443,9 +490,10 @@ class _DoctorListTile extends StatelessWidget {
           userName: name,
           userType: 'Doctor',
           onConfirm: () async {
-            await AppDependencies.adminRepository.updateDoctor(id, {
-              'is_active': !isActive,
-            });
+            await AppDependencies.adminRepository.updateDoctorStatus(
+              id,
+              isActive: !isActive,
+            );
           },
           onSuccess: onRefresh,
         );

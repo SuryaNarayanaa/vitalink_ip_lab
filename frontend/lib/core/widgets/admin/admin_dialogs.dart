@@ -1035,6 +1035,9 @@ Future<bool> showResetPasswordDialog(
   BuildContext context, {
   required String userId,
   required String userName,
+  /// Prefer a V2 credentials-reset callback when available so callers hit the
+  /// capability-scoped doctor/patient endpoints instead of the legacy bulk path.
+  Future<void> Function(String newPassword)? onReset,
   VoidCallback? onSuccess,
 }) async {
   final formKey = GlobalKey<FormState>();
@@ -1072,10 +1075,15 @@ Future<bool> showResetPasswordDialog(
                       if (!formKey.currentState!.validate()) return;
                       setState(() => loading = true);
                       try {
-                        await _repo.resetUserPassword(
-                          userId,
-                          newPassword: passwordCtrl.text,
-                        );
+                        final password = passwordCtrl.text;
+                        if (onReset != null) {
+                          await onReset(password);
+                        } else {
+                          await _repo.resetUserPassword(
+                            userId,
+                            newPassword: password,
+                          );
+                        }
                         if (ctx.mounted) Navigator.pop(ctx, true);
                       } catch (e) {
                         if (ctx.mounted) {

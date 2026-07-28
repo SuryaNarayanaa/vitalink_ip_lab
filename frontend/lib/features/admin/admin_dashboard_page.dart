@@ -56,6 +56,14 @@ class AdminDestination {
     return readCapabilities.isEmpty || access.canAny(readCapabilities);
   }
 
+  /// Whether the destination's primary mutation capability is granted.
+  /// Pages still re-check finer-grained capabilities for individual actions.
+  bool canAct(AdminAccessModel access) {
+    final capability = actionCapability;
+    if (capability == null) return false;
+    return access.can(capability);
+  }
+
   AdminNavigationItem get navigationItem => AdminNavigationItem(
     id: id,
     label: label,

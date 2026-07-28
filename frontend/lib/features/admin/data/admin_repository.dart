@@ -55,6 +55,28 @@ class AdminRepository {
     );
   }
 
+  /// V2 status surface (`PATCH /admin/doctors/:id/status`).
+  Future<Map<String, dynamic>> updateDoctorStatus(
+    String id, {
+    required bool isActive,
+  }) async {
+    return await _apiClient.patch(
+      '${AppStrings.adminDoctorsPath}/$id/status',
+      data: {'is_active': isActive},
+    );
+  }
+
+  /// V2 credentials surface (`POST /admin/doctors/:id/credentials/reset`).
+  Future<Map<String, dynamic>> resetDoctorCredentials(
+    String id, {
+    String? newPassword,
+  }) async {
+    return await _apiClient.post(
+      '${AppStrings.adminDoctorsPath}/$id/credentials/reset',
+      data: {if (newPassword != null) 'new_password': newPassword},
+    );
+  }
+
   Future<void> deactivateDoctor(String id) async {
     await _apiClient.delete('${AppStrings.adminDoctorsPath}/$id');
   }
@@ -93,6 +115,32 @@ class AdminRepository {
     return await _apiClient.put(
       '${AppStrings.adminPatientsPath}/$id',
       data: data,
+    );
+  }
+
+  /// V2 status surface (`PATCH /admin/patients/:id/status`).
+  Future<Map<String, dynamic>> updatePatientStatus(
+    String id, {
+    bool? isActive,
+    String? accountStatus,
+  }) async {
+    return await _apiClient.patch(
+      '${AppStrings.adminPatientsPath}/$id/status',
+      data: {
+        if (isActive != null) 'is_active': isActive,
+        if (accountStatus != null) 'account_status': accountStatus,
+      },
+    );
+  }
+
+  /// V2 credentials surface (`POST /admin/patients/:id/credentials/reset`).
+  Future<Map<String, dynamic>> resetPatientCredentials(
+    String id, {
+    String? newPassword,
+  }) async {
+    return await _apiClient.post(
+      '${AppStrings.adminPatientsPath}/$id/credentials/reset',
+      data: {if (newPassword != null) 'new_password': newPassword},
     );
   }
 

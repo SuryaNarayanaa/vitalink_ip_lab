@@ -15,6 +15,7 @@ import {
   translateLegacyAdminPermissions,
 } from '@alias/constants/admin-capabilities'
 import AdminRolePolicy from '@alias/models/adminrolepolicy.model'
+import AdminRolePolicyRevision from '@alias/models/adminrolepolicyrevision.model'
 import AdminProfile from '@alias/models/adminprofile.model'
 import Hospital, { HospitalStatus } from '@alias/models/hospital.model'
 import RoleDefinition from '@alias/models/roledefinition.model'
@@ -360,10 +361,14 @@ async function main() {
   mongoose.set('autoIndex', false)
   await connectDB()
   // autoIndex is off for migration processes; ensure declared indexes (including
-  // unique role_key) exist before execute-path inserts. Use createIndexes() so
-  // we only ensure schema-declared indexes and never prune unrelated ones.
+  // unique role_key and revision history uniqueness) exist before execute-path
+  // inserts. Use createIndexes() so we only ensure schema-declared indexes and
+  // never prune unrelated ones.
   if (options.execute) {
-    await AdminRolePolicy.createIndexes()
+    await Promise.all([
+      AdminRolePolicy.createIndexes(),
+      AdminRolePolicyRevision.createIndexes(),
+    ])
   }
   const report = await runAdminRbacV2Migration(options)
   console.log('--- Admin RBAC V2 Migration ---')

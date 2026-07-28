@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/admin_query_keys.dart';
+import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/core/widgets/admin/admin_dialogs.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/core/widgets/common/api_error_state.dart';
+import 'package:frontend/features/admin/admin_capabilities.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 
 class PatientManagementPage extends StatefulWidget {
@@ -33,6 +35,22 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
   @override
   Widget build(BuildContext context) {
     final search = _searchController.text.trim();
+    final canManage = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantPatientsManage,
+    );
+    final canAssign = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantPatientsAssign,
+    );
+    final canStatus = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantAccountsStatusManage,
+    );
+    final canResetCredentials = AdminAccessScope.can(
+      context,
+      AdminCapabilities.tenantCredentialsReset,
+    );
 
     return UseQuery<Map<String, dynamic>>(
       options: QueryOptions<Map<String, dynamic>>(
@@ -60,11 +78,14 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
             pagination['pages'] as int? ?? (total / pageSize).ceil();
         final showPageScaffold = !AdminScaffold.usesShellAppBar(context);
 
-        final addPatientFab = FloatingActionButton.extended(
-          onPressed: () => showAddPatientDialog(context, onSuccess: _refresh),
-          icon: const Icon(Icons.person_add_alt_1_rounded),
-          label: const Text('Add Patient'),
-        );
+        final addPatientFab = canManage
+            ? FloatingActionButton.extended(
+                onPressed: () =>
+                    showAddPatientDialog(context, onSuccess: _refresh),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Add Patient'),
+              )
+            : null;
 
         final content = Column(
           children: [
@@ -194,7 +215,9 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
                               ),
                             )
                           : ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 80),
+                              padding: EdgeInsets.only(
+                                bottom: canManage ? 80 : 16,
+                              ),
                               itemCount: patientsList.length,
                               itemBuilder: (context, index) {
                                 final patient =
@@ -202,6 +225,10 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
                                 return _PatientListTile(
                                   patient: patient,
                                   onRefresh: _refresh,
+                                  canManage: canManage,
+                                  canAssign: canAssign,
+                                  canStatus: canStatus,
+                                  canResetCredentials: canResetCredentials,
                                 );
                               },
                             ),
@@ -240,7 +267,9 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
         if (showPageScaffold) {
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Patient Management'),
+              title: Text(
+                canManage ? 'Patient Management' : 'Patients',
+              ),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.filter_list_rounded),
@@ -255,6 +284,10 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
             floatingActionButton: addPatientFab,
             body: content,
           );
+        }
+
+        if (addPatientFab == null) {
+          return content;
         }
 
         return Stack(
@@ -363,8 +396,19 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
 class _PatientListTile extends StatelessWidget {
   final Map<String, dynamic> patient;
   final VoidCallback onRefresh;
+  final bool canManage;
+  final bool canAssign;
+  final bool canStatus;
+  final bool canResetCredentials;
 
-  const _PatientListTile({required this.patient, required this.onRefresh});
+  const _PatientListTile({
+    required this.patient,
+    required this.onRefresh,
+    required this.canManage,
+    required this.canAssign,
+    required this.canStatus,
+    required this.canResetCredentials,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -393,6 +437,8 @@ class _PatientListTile extends StatelessWidget {
       if (age != null) 'Age: $age',
       if (gender.isNotEmpty) gender,
     ].join(' | ');
+    final hasActions =
+        canManage || canAssign || canStatus || canResetCredentials;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -425,69 +471,77 @@ class _PatientListTile extends StatelessWidget {
                           style: theme.textTheme.titleMedium,
                         ),
                       ),
-                      PopupMenuButton<String>(
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(Icons.more_vert_rounded),
-                        onSelected: (action) => _handleAction(
-                          context,
-                          action,
-                          id,
-                          name,
-                          opNum,
-                          demographics,
-                          isActive,
-                          currentDoctorId,
-                        ),
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                            value: 'edit',
-                            child: ListTile(
-                              leading: Icon(Icons.edit_rounded, size: 20),
-                              title: Text('Edit'),
-                              contentPadding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                            ),
+                      if (hasActions)
+                        PopupMenuButton<String>(
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.more_vert_rounded),
+                          onSelected: (action) => _handleAction(
+                            context,
+                            action,
+                            id,
+                            name,
+                            opNum,
+                            demographics,
+                            isActive,
+                            currentDoctorId,
                           ),
-                          const PopupMenuItem(
-                            value: 'reassign',
-                            child: ListTile(
-                              leading: Icon(Icons.swap_horiz_rounded, size: 20),
-                              title: Text('Reassign Doctor'),
-                              contentPadding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'password',
-                            child: ListTile(
-                              leading: Icon(Icons.lock_reset_rounded, size: 20),
-                              title: Text('Reset Password'),
-                              contentPadding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: 'status',
-                            child: ListTile(
-                              leading: Icon(
-                                isActive
-                                    ? Icons.block_rounded
-                                    : Icons.check_circle_outline_rounded,
-                                size: 20,
-                                color: isActive ? Colors.red : Colors.green,
-                              ),
-                              title: Text(
-                                isActive ? 'Deactivate' : 'Activate',
-                                style: TextStyle(
-                                  color: isActive ? Colors.red : Colors.green,
+                          itemBuilder: (_) => [
+                            if (canManage)
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: ListTile(
+                                  leading: Icon(Icons.edit_rounded, size: 20),
+                                  title: Text('Edit'),
+                                  contentPadding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
                                 ),
                               ),
-                              contentPadding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                        ],
-                      ),
+                            if (canAssign)
+                              const PopupMenuItem(
+                                value: 'reassign',
+                                child: ListTile(
+                                  leading:
+                                      Icon(Icons.swap_horiz_rounded, size: 20),
+                                  title: Text('Reassign Doctor'),
+                                  contentPadding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                            if (canResetCredentials)
+                              const PopupMenuItem(
+                                value: 'password',
+                                child: ListTile(
+                                  leading:
+                                      Icon(Icons.lock_reset_rounded, size: 20),
+                                  title: Text('Reset Password'),
+                                  contentPadding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                            if (canStatus)
+                              PopupMenuItem(
+                                value: 'status',
+                                child: ListTile(
+                                  leading: Icon(
+                                    isActive
+                                        ? Icons.block_rounded
+                                        : Icons.check_circle_outline_rounded,
+                                    size: 20,
+                                    color: isActive ? Colors.red : Colors.green,
+                                  ),
+                                  title: Text(
+                                    isActive ? 'Deactivate' : 'Activate',
+                                    style: TextStyle(
+                                      color:
+                                          isActive ? Colors.red : Colors.green,
+                                    ),
+                                  ),
+                                  contentPadding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                          ],
+                        ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -578,6 +632,12 @@ class _PatientListTile extends StatelessWidget {
           context,
           userId: id,
           userName: name,
+          onReset: (password) async {
+            await AppDependencies.adminRepository.resetPatientCredentials(
+              id,
+              newPassword: password,
+            );
+          },
           onSuccess: onRefresh,
         );
         break;
@@ -596,10 +656,11 @@ class _PatientListTile extends StatelessWidget {
           userName: name,
           userType: 'Patient',
           onConfirm: () async {
-            await AppDependencies.adminRepository.updatePatient(id, {
-              'is_active': !isActive,
-              'account_status': !isActive ? 'Active' : 'Discharged',
-            });
+            await AppDependencies.adminRepository.updatePatientStatus(
+              id,
+              isActive: !isActive,
+              accountStatus: !isActive ? 'Active' : 'Discharged',
+            );
           },
           onSuccess: onRefresh,
         );

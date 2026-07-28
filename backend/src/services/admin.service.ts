@@ -257,6 +257,21 @@ export function requirePermission(ctx: Awaited<ReturnType<typeof getAdminContext
   }
 }
 
+/** Fail closed when the actor lacks a required V2 capability (service-layer re-check). */
+function requireCapability(
+  ctx: Awaited<ReturnType<typeof getAdminContext>>,
+  capability: AdminCapability,
+) {
+  if (!hasAdminCapability({ permissions: ctx.permissions as AdminCapabilityMap }, capability)) {
+    const error = new ApiError(
+      StatusCodes.FORBIDDEN,
+      'Administrator access is not permitted for this operation.',
+    )
+    Object.assign(error, { requiredCapability: capability })
+    throw error
+  }
+}
+
 function requireAppAdmin(ctx: Awaited<ReturnType<typeof getAdminContext>>) {
   if (!ctx.isAppAdmin) {
     throw new ApiError(StatusCodes.FORBIDDEN, 'App Admin access is required')
@@ -456,7 +471,9 @@ function legacyPermissionsFromV2Capabilities(
   const has = (capability: AdminCapability) => capabilities[capability] === true
   if (roleKey === 'hospital_admin') {
     return {
-      manage_hospitals: true,
+      // Hospital admins are tenant-scoped and cannot hold platform.hospitals.*
+      // capabilities; never advertise manage_hospitals as a true legacy right.
+      manage_hospitals: false,
       manage_users: has('tenant.credentials.reset'),
       manage_roles: false,
       view_audit: has('tenant.audit.read'),
@@ -1050,6 +1067,9 @@ function readCheckoutSession(
  */
 export async function createCheckout(invoiceId: string, actor?: AdminActorInput) {
   const ctx = await getAdminContext(actor)
+  requireCanMutate(ctx)
+  requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.billing.checkout')
   const invoice = await Invoice.findOne(mongoose.Types.ObjectId.isValid(invoiceId) ? { _id: invoiceId } : { invoice_number: invoiceId })
   if (!invoice) throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice not found')
   ensureTenantAccess(ctx, invoice.hospital_id)
@@ -1395,6 +1415,7 @@ export async function registerDoctor(data: {
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.doctors.manage')
   const hospitalId = await resolveHospitalId(data.hospital_id || data.hospital, ctx)
   if (!hospitalId) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Doctor must be assigned to an active hospital')
@@ -1515,6 +1536,7 @@ export async function updateDoctor(
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdminOrAppAdmin(ctx)
+  requireCapability(ctx, 'tenant.doctors.manage')
   // Find user by _id or login_id
   let user = await User.findById(userId).populate('profile_id')
   if (!user) {
@@ -1640,6 +1662,7 @@ export async function deactivateDoctor(userId: string, actor?: AdminActorInput) 
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.accounts.status.manage')
   let user = await User.findById(userId)
   if (!user) {
     user = await User.findOne({ login_id: userId })
@@ -1666,6 +1689,7 @@ export async function setDoctorAccountStatus(userId: string, isActive: boolean, 
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.accounts.status.manage')
   let user = await User.findById(userId)
   if (!user) user = await User.findOne({ login_id: userId })
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Doctor not found')
@@ -1705,6 +1729,7 @@ export async function onboardPatient(data: {
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.patients.manage')
   const existingUser = await User.findOne({ login_id: data.login_id })
   if (existingUser) {
     throw new ApiError(StatusCodes.CONFLICT, 'A user with this login ID already exists')
@@ -1884,6 +1909,7 @@ export async function updatePatient(
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.patients.manage')
   let user = await User.findById(userId).populate('profile_id')
   if (!user) {
     user = await User.findOne({ login_id: userId }).populate('profile_id')
@@ -1997,6 +2023,7 @@ export async function deactivatePatient(userId: string, actor?: AdminActorInput)
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.accounts.status.manage')
   let user = await User.findById(userId)
   if (!user) {
     user = await User.findOne({ login_id: userId })
@@ -2033,6 +2060,7 @@ export async function setPatientAccountStatus(
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.accounts.status.manage')
   let user = await User.findById(userId)
   if (!user) user = await User.findOne({ login_id: userId })
   if (!user) throw new ApiError(StatusCodes.NOT_FOUND, 'Patient not found')
@@ -2091,6 +2119,7 @@ export async function reassignPatient(patientLoginId: string, newDoctorId: strin
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.patients.assign')
   let patientUser = mongoose.Types.ObjectId.isValid(patientLoginId)
     ? await User.findById(patientLoginId).populate('profile_id')
     : null
@@ -2293,6 +2322,10 @@ export async function performBatchOperation(
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(
+    ctx,
+    operation === 'reset_password' ? 'tenant.credentials.reset' : 'tenant.accounts.status.manage',
+  )
   const results: {
     userId: string
     success: boolean
@@ -2447,6 +2480,7 @@ export async function resetUserPassword(actor: AdminActorInput, targetUserId: st
   const ctx = await getAdminContext(actor)
   requireCanMutate(ctx)
   requireHospitalAdmin(ctx)
+  requireCapability(ctx, 'tenant.credentials.reset')
   await ensureOperationalUserTenantAccess(ctx, targetUserId)
   const adminUserId = actorUserId(actor)
   if (!adminUserId) throw new ApiError(StatusCodes.FORBIDDEN, 'Valid admin profile is required')
