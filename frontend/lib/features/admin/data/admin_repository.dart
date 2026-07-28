@@ -231,14 +231,21 @@ class AdminRepository {
 
   Future<List<AdminAccountModel>> getAdminAccounts() async {
     final response = await _apiClient.get(AppStrings.adminAccountsPath);
-    return _extractItems(response, const [
-          'admin_accounts',
-          'accounts',
-          'items',
-        ])
-        .map(_normalizeAdminAccount)
-        .map(AdminAccountModel.fromJson)
-        .toList(growable: false);
+    final accounts = <AdminAccountModel>[];
+    for (final raw in _extractItems(response, const [
+      'admin_accounts',
+      'accounts',
+      'items',
+    ])) {
+      try {
+        accounts.add(AdminAccountModel.fromJson(_normalizeAdminAccount(raw)));
+      } catch (_) {
+        // One unreadable row must not blank the whole directory (matches
+        // backend list soft-fail for degraded hospital assignments).
+        continue;
+      }
+    }
+    return accounts;
   }
 
   Future<AdminAccountMutationResult> createAdminAccount(

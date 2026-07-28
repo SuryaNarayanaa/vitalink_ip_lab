@@ -240,6 +240,31 @@ void main() {
       expect(account.hospital?.code, 'PSG-01');
       expect(account.isActive, isTrue);
       expect(account.mfaEnabled, isTrue);
+      expect(account.hasBrokenHospitalAssignment, isFalse);
+    });
+
+    test('parses degraded hospital admin with null hospital from list API', () {
+      final account = AdminAccountModel.fromJson({
+        'id': 'account-2',
+        'login_id': 'broken.admin@example.test',
+        'name': 'Broken Hospital Admin',
+        'email': 'broken.admin@example.test',
+        'role': 'hospital_admin',
+        'hospital': null,
+        'is_active': true,
+        'mfa_enabled': false,
+        'assignment_status': 'invalid',
+        'assignment_error':
+            'Hospital Admin account is not assigned to an active hospital',
+      });
+
+      expect(account.role, AdminRole.hospitalAdmin);
+      expect(account.hospital, isNull);
+      expect(account.hasBrokenHospitalAssignment, isTrue);
+      expect(
+        account.hospitalDisplayLabel,
+        'Hospital Admin account is not assigned to an active hospital',
+      );
     });
   });
 }

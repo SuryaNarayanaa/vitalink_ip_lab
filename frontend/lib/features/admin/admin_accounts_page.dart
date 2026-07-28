@@ -125,7 +125,10 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _accounts.isEmpty) {
-      return _InlineLoadError(onRetry: _load);
+      final message = _error is ApiException
+          ? (_error as ApiException).message
+          : 'Could not load administrator accounts.';
+      return _InlineLoadError(message: message, onRetry: _load);
     }
     if (accounts.isEmpty) {
       return RefreshIndicator(
@@ -137,6 +140,14 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
             Icon(Icons.manage_accounts_outlined, size: 48),
             SizedBox(height: 12),
             Center(child: Text('No administrator accounts found')),
+            SizedBox(height: 8),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                'This list only shows Hospital Admin and System Auditor accounts. Application Admin accounts are not listed here. Use Invite to create one.',
+                textAlign: TextAlign.center,
+              ),
+            ),
           ],
         ),
       );
@@ -159,8 +170,10 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
               if (account.email != null)
                 AdminDetail(Icons.mail_outline_rounded, account.email!),
               AdminDetail(
-                Icons.local_hospital_outlined,
-                account.hospital?.name ?? account.hospital?.code ?? 'Global',
+                account.hasBrokenHospitalAssignment
+                    ? Icons.warning_amber_rounded
+                    : Icons.local_hospital_outlined,
+                account.hospitalDisplayLabel,
               ),
               AdminDetail(
                 account.isActive
@@ -172,6 +185,11 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
                 Icons.phonelink_lock_outlined,
                 account.mfaEnabled ? 'MFA enabled' : 'MFA not enabled',
               ),
+              if (account.assignmentError != null)
+                AdminDetail(
+                  Icons.error_outline_rounded,
+                  account.assignmentError!,
+                ),
             ],
             menu: canManage
                 ? [
@@ -590,24 +608,36 @@ class _AdminAccountsPageState extends State<AdminAccountsPage> {
 }
 
 class _InlineLoadError extends StatelessWidget {
-  const _InlineLoadError({required this.onRetry});
+  const _InlineLoadError({required this.onRetry, required this.message});
 
   final Future<void> Function() onRetry;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('Could not load administrator accounts.'),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Try again'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, size: 40),
+            const SizedBox(height: 12),
+            const Text(
+              'Could not load administrator accounts.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
       ),
     );
   }

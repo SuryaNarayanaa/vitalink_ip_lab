@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VitaLink Admin — Access Control Overview</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #e2e8f0;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --teal: #0d9488;
+      --teal-soft: #f0fdfa;
+      --amber: #d97706;
+      --amber-soft: #fffbeb;
+      --violet: #7c3aed;
+      --violet-soft: #f5f3ff;
+      --rose: #e11d48;
+      --rose-soft: #fff1f2;
+      --green: #059669;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eef4ff 0%, var(--bg) 40%, #fff 100%);
+      padding: 32px 24px 48px;
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 620px;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    .badge {
+      background: var(--blue);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 12px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .roles {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .card .sub {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.4;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    .app { background: var(--violet-soft); color: var(--violet); }
+    .hospital { background: var(--teal-soft); color: var(--teal); }
+    .auditor { background: var(--amber-soft); color: var(--amber); }
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+    li { margin-bottom: 4px; }
+    .locked {
+      color: var(--rose);
+      font-weight: 700;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .editable {
+      color: var(--green);
+      font-weight: 700;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 14px;
+    }
+    .section-title {
+      margin: 8px 0 0;
+      font-size: 15px;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .step {
+      background: var(--blue-soft);
+      border: 1px solid #dbeafe;
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 92px;
+    }
+    .step .n {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .step strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .step span {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .caps {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .cap-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafafa;
+    }
+    .cap-box h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+    }
+    .cap-box ul { font-size: 12px; }
+    .not {
+      background: var(--rose-soft);
+      border-color: #fecdd3;
+    }
+    footer {
+      margin-top: 18px;
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    @media (max-width: 900px) {
+      .roles, .two-col, .flow, .caps { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="brand">
+        <h1>VitaLink Admin · Access Control</h1>
+        <p>
+          What Application Admins can do in <strong>Access Control</strong> (RBAC V2).
+          This page manages <em>administrator</em> capabilities only — not Doctor or Patient clinical rights.
+        </p>
+      </div>
+      <div class="badge">Mentor overview</div>
+    </header>
+
+    <div class="grid">
+      <section class="roles">
+        <article class="card">
+          <div class="pill app">Role 1 · Platform</div>
+          <h2>Application Admin</h2>
+          <p class="sub">Global platform authority. Full platform capabilities (hospitals, admin accounts, policies, audit, analytics, billing, config, health, broadcast).</p>
+          <ul>
+            <li>Open Access Control and review all policies</li>
+            <li>Edit <strong>Hospital Admin</strong> and <strong>System Auditor</strong> policies</li>
+            <li>Preview changes, save with a change reason, restore history</li>
+            <li>Invite and manage other administrators (separate Accounts page)</li>
+          </ul>
+          <div class="locked">Policy is LOCKED — cannot toggle Application Admin capabilities in the UI</div>
+        </article>
+
+        <article class="card">
+          <div class="pill hospital">Role 2 · Tenant</div>
+          <h2>Hospital Admin</h2>
+          <p class="sub">One assigned hospital. Operational authority only inside that tenant.</p>
+          <ul>
+            <li>Doctors: list, create, update, status, credential reset</li>
+            <li>Patients: list, onboard, assign/reassign, status, credential reset</li>
+            <li>Hospital dashboard, analytics, audit (tenant-scoped)</li>
+            <li>Billing read / checkout for own hospital invoices</li>
+            <li>Tenant notification broadcast &amp; operations health</li>
+          </ul>
+          <div class="editable">EDITABLE policy — App Admin can turn tenant capabilities on/off</div>
+        </article>
+
+        <article class="card">
+          <div class="pill auditor">Role 3 · Oversight</div>
+          <h2>System Auditor</h2>
+          <p class="sub">Global, hard read-only. Mutations are blocked even if a policy were misconfigured.</p>
+          <ul>
+            <li>View Access Control policies and history (read-only)</li>
+            <li>Configurable global reads: audit, billing (and optionally others)</li>
+            <li>Cannot create users, change policy, or broadcast</li>
+            <li>Must not be assigned to a hospital</li>
+          </ul>
+          <div class="editable">EDITABLE capability map — but role remains read-only at runtime</div>
+        </article>
+      </section>
+
+      <section class="two-col">
+        <article class="card">
+          <h2 class="section-title">What Access Control UI lets App Admin do</h2>
+          <div class="flow">
+            <div class="step">
+              <div class="n">1</div>
+              <strong>Review hierarchy</strong>
+              <span>See fixed roles: App Admin, Hospital Admin, System Auditor</span>
+            </div>
+            <div class="step">
+              <div class="n">2</div>
+              <strong>Inspect policies</strong>
+              <span>Version, last change reason, active account counts, capability lists</span>
+            </div>
+            <div class="step">
+              <div class="n">3</div>
+              <strong>Edit &amp; preview</strong>
+              <span>Toggle Hospital Admin / Auditor capabilities, preview impact</span>
+            </div>
+            <div class="step">
+              <div class="n">4</div>
+              <strong>Save or restore</strong>
+              <span>Apply with change reason; restore a prior policy revision from history</span>
+            </div>
+          </div>
+          <div class="caps">
+            <div class="cap-box">
+              <h3>Hospital Admin capability groups</h3>
+              <ul>
+                <li>Dashboard · Doctors · Patients · Assignments</li>
+                <li>Account status · Credential reset</li>
+                <li>Tenant audit · Analytics · Billing</li>
+                <li>Notifications · Operations health</li>
+              </ul>
+            </div>
+            <div class="cap-box">
+              <h3>System Auditor capability groups</h3>
+              <ul>
+                <li>Global audit (typical default: on)</li>
+                <li>Global billing read (typical default: on)</li>
+                <li>Optional: hospitals, analytics, health, policy read</li>
+                <li>No write/mutation capabilities</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2 class="section-title">Explicit non-goals</h2>
+          <div class="cap-box not" style="margin-top:10px">
+            <h3>Not managed here</h3>
+            <ul>
+              <li><strong>Doctor</strong> clinical permissions (fixed by clinical rules)</li>
+              <li><strong>Patient</strong> self-service permissions (fixed)</li>
+              <li>Application Admin capability matrix (protected / locked)</li>
+              <li>Creating doctor/patient accounts (use Doctors / Patients pages)</li>
+              <li>Creating admin users (use Administrator Accounts)</li>
+            </ul>
+          </div>
+          <div class="cap-box" style="margin-top:10px">
+            <h3>Who can open this page</h3>
+            <ul>
+              <li><strong>Application Admin</strong> — view + edit editable policies</li>
+              <li><strong>System Auditor</strong> — view only</li>
+              <li><strong>Hospital Admin</strong> — cannot open Access Control</li>
+            </ul>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <footer>
+      API surface: <code>GET/PUT /api/v1/admin/role-policies/:roleKey</code>, preview &amp; restore endpoints.
+      Legacy <code>PUT /admin/roles/:roleKey</code> returns 410 Gone. Generated for mentor review of VitaLink Admin RBAC V2.
+    </footer>
+  </div>
+</body>
+</html>
