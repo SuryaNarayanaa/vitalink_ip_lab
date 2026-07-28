@@ -116,7 +116,12 @@ registerAdminRoute(router, {
   method: 'post', path: '/hospitals', capability: 'platform.hospitals.manage', scope: 'global', mutation: true, surface: 'admin',
 }, validate(createHospitalSchema), createHospital)
 registerAdminRoute(router, {
-  method: 'get', path: '/hospitals/:id', capability: 'platform.hospitals.read', scope: 'global', mutation: false, surface: 'admin',
+  method: 'get',
+  path: '/hospitals/:id',
+  anyOfCapabilities: ['platform.hospitals.read', 'tenant.dashboard.read'],
+  scope: 'either',
+  mutation: false,
+  surface: 'admin',
 }, getHospital)
 registerAdminRoute(router, {
   method: 'put', path: '/hospitals/:id', capability: 'platform.hospitals.manage', scope: 'global', mutation: true, surface: 'admin',

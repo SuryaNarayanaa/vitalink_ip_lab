@@ -83,7 +83,7 @@ Future<bool> showAddDoctorDialog(
   String? hospitalsError;
   String? formError;
 
-  final result = await showDialog<bool>(
+  final result = await showDialog<Map<String, dynamic>>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
@@ -283,7 +283,7 @@ Future<bool> showAddDoctorDialog(
                         }
                         // Do not send password — backend generates a temporary one
                         // and createDoctorSchema rejects unknown fields (strict).
-                        await _repo.createDoctor({
+                        final created = await _repo.createDoctor({
                           'login_id': loginId.text.trim(),
                           'name': name.text.trim(),
                           'department': department.text.trim().isNotEmpty
@@ -292,7 +292,9 @@ Future<bool> showAddDoctorDialog(
                           'contact_number': contactNumber,
                           'hospital_id': hospitalId,
                         });
-                        if (ctx.mounted) Navigator.pop(ctx, true);
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx, created);
+                        }
                       } catch (e) {
                         if (ctx.mounted) {
                           setState(() {
@@ -324,18 +326,29 @@ Future<bool> showAddDoctorDialog(
 
   _disposeControllers([loginId, name, department, contact]);
 
-  if (result == true && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+  if (result != null && context.mounted) {
+    final tempPassword = result['temporary_password']?.toString();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Doctor registered'),
         content: Text(
-          'Doctor registered successfully. Share the temporary password from the response with the doctor.',
+          tempPassword != null && tempPassword.isNotEmpty
+              ? 'Share this one-time password securely. It will not be shown again:\n\n$tempPassword'
+              : 'Doctor registered successfully. If a temporary password was issued, retrieve it from the API response or reset credentials.',
         ),
-        backgroundColor: Colors.green,
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
       ),
     );
     onSuccess?.call();
+    return true;
   }
-  return result ?? false;
+  return false;
 }
 
 Future<bool> showEditDoctorDialog(
@@ -356,11 +369,13 @@ Future<bool> showEditDoctorDialog(
       currentData['contact_number'] as String? ?? '',
     ),
   );
+  final binding = _hospitalBinding(context);
   bool loading = false;
-  String? selectedHospitalId = _resolveHospitalId(currentData['hospital_id']);
+  String? selectedHospitalId =
+      binding.hospitalId ?? _resolveHospitalId(currentData['hospital_id']);
   List<Map<String, dynamic>> hospitalList = [];
-  bool hospitalsLoading = true;
-  bool hospitalsRequested = false;
+  bool hospitalsLoading = !binding.isTenant;
+  bool hospitalsRequested = binding.isTenant;
   String? hospitalsError;
 
   final result = await showDialog<bool>(
@@ -369,7 +384,7 @@ Future<bool> showEditDoctorDialog(
       builder: (ctx, setState) {
         if (!hospitalsRequested) {
           hospitalsRequested = true;
-          _repo.getHospitals().then((response) {
+          _repo.getHospitals(status: 'active').then((response) {
             final items = response['hospitals'] as List? ?? [];
             if (ctx.mounted) {
               setState(() {
@@ -380,7 +395,7 @@ Future<bool> showEditDoctorDialog(
           }).catchError((e) {
             if (ctx.mounted) {
               setState(() {
-                hospitalsError = e.toString();
+                hospitalsError = _errorMessage(e);
                 hospitalsLoading = false;
               });
             }
@@ -394,6 +409,7 @@ Future<bool> showEditDoctorDialog(
               key: formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   TextFormField(
                     controller: name,
@@ -421,39 +437,46 @@ Future<bool> showEditDoctorDialog(
                     validator: (v) => PhoneUtils.validate(v, label: 'Contact'),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String?>(
-                    initialValue: selectedHospitalId,
-                    decoration: const InputDecoration(
-                      labelText: 'Hospital',
-                      prefixIcon: Icon(Icons.local_hospital_outlined),
-                      hintText: 'Select hospital',
-                    ),
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('No hospital'),
+                  if (binding.isTenant)
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Hospital',
+                        prefixIcon: Icon(Icons.local_hospital_outlined),
+                        helperText: 'Hospital assignment is fixed for your tenant.',
                       ),
-                      ...hospitalList.map((hospital) {
-                        final id =
-                            (hospital['_id'] ?? hospital['id'])?.toString() ??
-                                '';
-                        final name = hospital['name'] as String? ??
-                            hospital['code'] as String? ??
-                            'Hospital';
-                        return DropdownMenuItem<String?>(
-                          value: id.isNotEmpty ? id : null,
-                          child: Text(name),
-                        );
-                      }),
-                    ],
-                    onChanged: hospitalsLoading
-                        ? null
-                        : (value) => setState(() => selectedHospitalId = value),
-                    hint: hospitalsLoading
-                        ? const Text('Loading hospitals...')
-                        : const Text('Select hospital'),
-                  ),
+                      child: Text(binding.hospitalLabel),
+                    )
+                  else
+                    DropdownButtonFormField<String?>(
+                      initialValue: selectedHospitalId,
+                      decoration: const InputDecoration(
+                        labelText: 'Hospital',
+                        prefixIcon: Icon(Icons.local_hospital_outlined),
+                        hintText: 'Select hospital',
+                      ),
+                      isExpanded: true,
+                      items: [
+                        ...hospitalList.map((hospital) {
+                          final id =
+                              (hospital['_id'] ?? hospital['id'])?.toString() ??
+                                  '';
+                          final label = hospital['name'] as String? ??
+                              hospital['code'] as String? ??
+                              'Hospital';
+                          return DropdownMenuItem<String?>(
+                            value: id.isNotEmpty ? id : null,
+                            child: Text(label),
+                          );
+                        }),
+                      ],
+                      onChanged: hospitalsLoading
+                          ? null
+                          : (value) =>
+                              setState(() => selectedHospitalId = value),
+                      hint: hospitalsLoading
+                          ? const Text('Loading hospitals...')
+                          : const Text('Select hospital'),
+                    ),
                   if (hospitalsError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -483,21 +506,23 @@ Future<bool> showEditDoctorDialog(
                       try {
                         final contactNumber =
                             PhoneUtils.formatForApi(contact.text);
+                        final hospitalId = binding.isTenant
+                            ? binding.hospitalId
+                            : selectedHospitalId;
                         await _repo.updateDoctor(doctorId, {
                           'name': name.text.trim(),
                           'department': department.text.trim(),
                           if (contactNumber != null)
                             'contact_number': contactNumber,
-                          if (selectedHospitalId != null &&
-                              selectedHospitalId!.isNotEmpty)
-                            'hospital_id': selectedHospitalId,
+                          if (hospitalId != null && hospitalId.isNotEmpty)
+                            'hospital_id': hospitalId,
                         });
                         if (ctx.mounted) Navigator.pop(ctx, true);
                       } catch (e) {
                         if (ctx.mounted) {
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             SnackBar(
-                              content: Text('Error: $e'),
+                              content: Text(_errorMessage(e)),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -557,7 +582,7 @@ Future<bool> showAddPatientDialog(
   String? doctorsError;
   bool loading = false;
 
-  final result = await showDialog<bool>(
+  final result = await showDialog<Object?>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
@@ -746,7 +771,7 @@ Future<bool> showAddPatientDialog(
                           return;
                         }
                         // Backend rejects unknown password field (strict body).
-                        await _repo.createPatient({
+                        final created = await _repo.createPatient({
                           'login_id': loginId.text.trim(),
                           'assigned_doctor_id': selectedDoctorId,
                           'demographics': {
@@ -758,7 +783,7 @@ Future<bool> showAddPatientDialog(
                             'phone': phoneNumber,
                           },
                         });
-                        if (ctx.mounted) Navigator.pop(ctx, true);
+                        if (ctx.mounted) Navigator.pop(ctx, created);
                       } catch (e) {
                         if (ctx.mounted) {
                           ScaffoldMessenger.of(ctx).showSnackBar(
@@ -787,16 +812,29 @@ Future<bool> showAddPatientDialog(
 
   _disposeControllers([loginId, name, age, phone]);
 
-  if (result == true && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Patient onboarded successfully'),
-        backgroundColor: Colors.green,
+  if (result is Map<String, dynamic> && context.mounted) {
+    final tempPassword = result['temporary_password']?.toString();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Patient onboarded'),
+        content: Text(
+          tempPassword != null && tempPassword.isNotEmpty
+              ? 'Share this one-time password securely. It will not be shown again:\n\n$tempPassword'
+              : 'Patient onboarded successfully.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
       ),
     );
     onSuccess?.call();
+    return true;
   }
-  return result ?? false;
+  return false;
 }
 
 Future<bool> showEditPatientDialog(
