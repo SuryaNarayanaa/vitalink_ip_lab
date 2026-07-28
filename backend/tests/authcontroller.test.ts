@@ -846,6 +846,17 @@ describe('Auth Routes', () => {
             });
             expect(lockedResponse.status).toBe(423);
             expect(mockCheckVerification).not.toHaveBeenCalledWith('+919000004444', '123456');
+
+            // Clear durable lockout state so later first-login OTP cases for the
+            // same fixture user are not blocked by this intentional LOCKED challenge.
+            await OtpChallenge.updateMany(
+                { user_id: unverifiedPatientUser._id, status: OtpChallengeStatus.LOCKED },
+                { $set: { status: OtpChallengeStatus.CANCELLED } },
+            );
+            await User.updateOne(
+                { _id: unverifiedPatientUser._id },
+                { $set: { failed_login_attempts: 0 }, $unset: { locked_until: 1 } },
+            );
         });
 
         test('should prevent cross-account login challenge replay after registered phone changes', async () => {

@@ -2494,28 +2494,73 @@ export async function performBatchOperation(
       switch (operation) {
         case 'activate': {
           let invalidatedSessions = 0
+          const needsLoginActivation = !user.is_active
+          let patientProfile: {
+            hospital_id?: unknown
+            account_status?: string
+            assigned_doctor_id?: unknown
+          } | null = null
           if (user.user_type === UserType.PATIENT) {
-            // Align clinical account_status with login is_active via dedicated lifecycle.
-            const profile = await PatientProfile.findById(user.profile_id).select('account_status').lean()
-            if (!user.is_active || profile?.account_status !== 'Active') {
-              const restored = await setPatientAccountStatus(userId, {
-                is_active: true,
-                account_status: 'Active',
-              }, actor)
-              invalidatedSessions = restored.invalidated_sessions || 0
+            patientProfile = await PatientProfile.findById(user.profile_id)
+              .select('hospital_id account_status assigned_doctor_id')
+              .lean()
+            if (user.is_active && patientProfile?.account_status === 'Active') {
+              results.push({
+                userId,
+                success: true,
+                message: 'User activated',
+                invalidated_sessions: 0,
+              })
+              break
             }
-          } else if (!user.is_active) {
-            let hospitalId: unknown
-            if (user.user_type === UserType.DOCTOR) {
-              hospitalId = (await DoctorProfile.findById(user.profile_id).select('hospital_id').lean())?.hospital_id
-            } else {
-              throw new ApiError(StatusCodes.FORBIDDEN, 'Only Doctor and Patient accounts support operational status changes')
+            if (patientProfile?.account_status === 'AssignmentConflict') {
+              throw new ApiError(StatusCodes.CONFLICT, 'Resolve the patient assignment conflict before activation')
             }
-            if (hospitalId) {
-              const guard = await acquireHospitalMembershipGuard(hospitalId)
-              let activationCommitted = false
-              try {
-                await guard.assertOwned()
+            if (patientProfile?.account_status === 'Deceased') {
+              throw new ApiError(StatusCodes.CONFLICT, 'A deceased Patient account cannot be restored')
+            }
+            const doctor = await findDoctorByAssignment(patientProfile?.assigned_doctor_id)
+            if (!doctor?.is_active) {
+              throw new ApiError(StatusCodes.CONFLICT, 'Assigned doctor must be active before restoring the Patient')
+            }
+            const doctorProfile = await DoctorProfile.findById(doctor.profile_id).select('hospital_id').lean()
+            if (!doctorProfile?.hospital_id || String(doctorProfile.hospital_id) !== String(patientProfile?.hospital_id)) {
+              throw new ApiError(StatusCodes.CONFLICT, 'Assigned doctor must belong to the Patient hospital')
+            }
+          } else if (user.user_type === UserType.DOCTOR) {
+            if (user.is_active) {
+              results.push({
+                userId,
+                success: true,
+                message: 'User activated',
+                invalidated_sessions: 0,
+              })
+              break
+            }
+          } else {
+            throw new ApiError(StatusCodes.FORBIDDEN, 'Only Doctor and Patient accounts support operational status changes')
+          }
+
+          const hospitalId = user.user_type === UserType.DOCTOR
+            ? (await DoctorProfile.findById(user.profile_id).select('hospital_id').lean())?.hospital_id
+            : patientProfile?.hospital_id
+          if (!hospitalId) {
+            throw new ApiError(StatusCodes.CONFLICT, 'Operational account must belong to an active hospital before activation')
+          }
+
+          // Keep hospital membership lease + compensation (tests and prod races).
+          // Patients also restore account_status: Active for clinical consistency.
+          const patientLifecycleLease = user.user_type === UserType.PATIENT
+            ? await acquirePatientFileOperationLease(user.profile_id, { requireActive: false })
+            : undefined
+          try {
+            const guard = await acquireHospitalMembershipGuard(hospitalId)
+            let activationCommitted = false
+            let profileRestored = false
+            try {
+              await patientLifecycleLease?.assertOwned()
+              await guard.assertOwned()
+              if (needsLoginActivation) {
                 const activated = await User.findOneAndUpdate(
                   { _id: user._id, is_active: false },
                   { $set: { is_active: true }, $inc: { security_version: 1 } },
@@ -2523,21 +2568,39 @@ export async function performBatchOperation(
                 )
                 if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
                 activationCommitted = true
-                await guard.assertOwned()
-              } catch (error) {
-                if (activationCommitted) {
-                  await User.updateOne(
-                    { _id: user._id, is_active: true },
-                    { $set: { is_active: false }, $inc: { security_version: 1 } },
-                  )
-                }
-                throw error
-              } finally {
-                await guard.release()
               }
-            } else {
-              throw new ApiError(StatusCodes.CONFLICT, 'Operational account must belong to an active hospital before activation')
+              if (user.user_type === UserType.PATIENT && patientProfile?.account_status !== 'Active') {
+                await PatientProfile.findByIdAndUpdate(
+                  user.profile_id,
+                  { $set: { account_status: 'Active' }, $unset: { assignment_conflict: 1 } },
+                  { runValidators: true },
+                )
+                profileRestored = true
+              }
+              await patientLifecycleLease?.assertOwned()
+              await guard.assertOwned()
+            } catch (error) {
+              if (activationCommitted) {
+                await User.updateOne(
+                  { _id: user._id, is_active: true },
+                  { $set: { is_active: false }, $inc: { security_version: 1 } },
+                )
+              }
+              if (profileRestored) {
+                await PatientProfile.updateOne(
+                  { _id: user.profile_id, account_status: 'Active' },
+                  { $set: { account_status: 'Discharged' } },
+                )
+              }
+              throw error
+            } finally {
+              await guard.release()
             }
+          } finally {
+            await patientLifecycleLease?.release()
+          }
+
+          if (needsLoginActivation) {
             const revocation = await bestEffortRevokeSessionsAfterSecurityVersionBump(
               userId,
               AuthSessionRevocationReason.USER_REVOKED,
