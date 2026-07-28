@@ -48,7 +48,9 @@ export async function createDoctorUpdateNotification(input: CreateDoctorUpdateNo
       message: input.message,
       data: {
         change_type: input.changeType,
-        changed_fields: (input.changedFields ?? []).join(','),
+        // Persist as string[] so patient mappers (Array.isArray) surface fields.
+        // Push payloads that need a scalar can join at enqueue time.
+        changed_fields: [...(input.changedFields ?? [])],
         changed_by_doctor_id: input.changedByDoctorId,
       },
       push_delivery_required: true,

@@ -1,4 +1,6 @@
+import { StatusCodes } from 'http-status-codes'
 import DeviceToken from '@alias/models/DeviceToken.model'
+import { ApiError } from '@alias/utils'
 
 export type DevicePlatform = 'android' | 'ios' | 'web'
 
@@ -35,7 +37,20 @@ export async function registerDeviceToken(input: {
   platform: DevicePlatform
   appVersion?: string | null
 }) {
-  // The globally unique token document is the ownership record. Updating by token atomically transfers it.
+  // Active tokens belonging to another user cannot be claimed by knowledge of
+  // the FCM string alone. Inactive/unowned tokens may be reassigned.
+  const existing = await DeviceToken.findOne({ fcm_token: input.fcmToken }).lean()
+  if (
+    existing
+    && existing.is_active
+    && String(existing.user_id) !== String(input.userId)
+  ) {
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      'Device token is already registered to another active account',
+    )
+  }
+
   let token
   try {
     token = await DeviceToken.findOneAndUpdate(
@@ -47,8 +62,26 @@ export async function registerDeviceToken(input: {
     // Concurrent first-time upserts of the same new fcm_token can race the unique index (E11000).
     if (!isDuplicateKeyError(error)) throw error
 
+    const raced = await DeviceToken.findOne({ fcm_token: input.fcmToken }).lean()
+    if (
+      raced
+      && raced.is_active
+      && String(raced.user_id) !== String(input.userId)
+    ) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'Device token is already registered to another active account',
+      )
+    }
+
     token = await DeviceToken.findOneAndUpdate(
-      { fcm_token: input.fcmToken },
+      {
+        fcm_token: input.fcmToken,
+        $or: [
+          { user_id: input.userId },
+          { is_active: false },
+        ],
+      },
       ownershipUpdate(input),
       { new: true }
     )
@@ -61,4 +94,16 @@ export async function registerDeviceToken(input: {
     { $set: { is_active: false } }
   )
   return token
+}
+
+export async function deactivateDeviceToken(userId: string, fcmToken: string) {
+  return DeviceToken.findOneAndUpdate(
+    { user_id: userId, fcm_token: fcmToken },
+    { $set: { is_active: false } },
+    { new: true }
+  )
+}
+
+export async function listActiveTokensForUser(userId: string) {
+  return DeviceToken.find({ user_id: userId, is_active: true }).lean()
 }

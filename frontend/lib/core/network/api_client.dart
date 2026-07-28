@@ -222,6 +222,7 @@ class ApiClient {
   }
 
   Future<String> _runRefreshAccessToken() async {
+    final generationBefore = SecureStorage.authSessionGeneration;
     final refreshToken = await _secureStorage.readRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
       throw const _RefreshRejected('Refresh token is missing');
@@ -259,11 +260,20 @@ class ApiClient {
         );
       }
 
-      await _secureStorage.saveRefreshToken(rotatedRefreshToken);
-      await _secureStorage.saveToken(token);
       final session = body['session'];
-      if (session is Map<String, dynamic>) {
-        await _secureStorage.saveAuthSession(session);
+      final sessionMap = session is Map<String, dynamic>
+          ? session
+          : session is Map
+              ? Map<String, dynamic>.from(session)
+              : null;
+      final saved = await _secureStorage.saveRefreshedTokensIfCurrent(
+        expectedGeneration: generationBefore,
+        token: token,
+        refreshToken: rotatedRefreshToken,
+        session: sessionMap,
+      );
+      if (!saved) {
+        throw const _RefreshRejected('Session was cleared during refresh');
       }
       return token;
     } on DioException catch (e) {
@@ -384,7 +394,7 @@ class ApiClient {
 
   Future<Map<String, dynamic>> post(
     String path, {
-    Map<String, dynamic>? data,
+    Object? data,
     bool authenticated = true,
   }) async {
     try {

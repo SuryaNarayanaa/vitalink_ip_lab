@@ -7,6 +7,7 @@ import { AuthSessionRevocationReason } from '@alias/models/authsession.model'
 import { ApiError } from '@alias/utils'
 import { UserType } from '@alias/validators'
 import { bestEffortRevokeSessionsAfterSecurityVersionBump } from './auth-session.service'
+import { accountLockoutWindowStart, recordFailedLoginAttempt } from './login-lockout.service'
 import logger, { sanitizeLogText } from '@alias/utils/logger'
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -469,30 +470,74 @@ export const activateAdminTotpEnrollment = async (user: any, code: string) => {
   )
 }
 
-export const createAdminMfaLoginChallenge = async (user: any) => {
+export const ADMIN_MFA_CHALLENGE_PURPOSE = {
+  LOGIN: 'LOGIN',
+  ENROLLMENT: 'ENROLLMENT',
+} as const
+
+const getChallengePurpose = (challenge: { metadata?: unknown }) => {
+  const metadata = challenge.metadata && typeof challenge.metadata === 'object'
+    ? challenge.metadata as Record<string, unknown>
+    : {}
+  return metadata.purpose === ADMIN_MFA_CHALLENGE_PURPOSE.ENROLLMENT
+    ? ADMIN_MFA_CHALLENGE_PURPOSE.ENROLLMENT
+    : ADMIN_MFA_CHALLENGE_PURPOSE.LOGIN
+}
+
+async function assertNoRecentAdminMfaLockout(userId: unknown) {
+  const recentLocked = await AdminMfaChallenge.findOne({
+    user_id: userId,
+    status: AdminMfaChallengeStatus.LOCKED,
+    updatedAt: { $gte: accountLockoutWindowStart() },
+  }).sort({ updatedAt: -1 })
+  if (recentLocked) {
+    throw new ApiError(
+      StatusCodes.LOCKED,
+      'Admin authenticator is temporarily locked after failed attempts',
+    )
+  }
+}
+
+async function createAdminMfaChallenge(
+  user: any,
+  purpose: typeof ADMIN_MFA_CHALLENGE_PURPOSE[keyof typeof ADMIN_MFA_CHALLENGE_PURPOSE],
+) {
+  await assertNoRecentAdminMfaLockout(user._id)
+
   const factorGeneration = Number(getTotpSlot(user).factor_generation || 0)
   const securityVersion = Number(user.security_version || 0)
+  const now = new Date()
+
+  // Expire stale/mismatched pending challenges so the partial unique index can
+  // accept a fresh pending challenge for this login/enrollment purpose.
   await AdminMfaChallenge.updateMany(
     {
       user_id: user._id,
       status: AdminMfaChallengeStatus.PENDING,
       $or: [
-        { expires_at: { $lte: new Date() } },
+        { expires_at: { $lte: now } },
         { factor_generation: { $ne: factorGeneration } },
         { security_version: { $ne: securityVersion } },
       ],
     },
-    { $set: { status: AdminMfaChallengeStatus.EXPIRED } }
+    { $set: { status: AdminMfaChallengeStatus.EXPIRED } },
   )
 
   const existing = await AdminMfaChallenge.findOne({
     user_id: user._id,
     status: AdminMfaChallengeStatus.PENDING,
-    expires_at: { $gt: new Date() },
+    expires_at: { $gt: now },
     factor_generation: factorGeneration,
     security_version: securityVersion,
   })
-  if (existing) return existing
+  if (existing) {
+    if (getChallengePurpose(existing) === purpose) return existing
+    // Wrong purpose under the singleton pending slot — replace it.
+    await AdminMfaChallenge.updateOne(
+      { _id: existing._id, status: AdminMfaChallengeStatus.PENDING },
+      { $set: { status: AdminMfaChallengeStatus.EXPIRED } },
+    )
+  }
 
   try {
     return await AdminMfaChallenge.create({
@@ -502,6 +547,7 @@ export const createAdminMfaLoginChallenge = async (user: any) => {
       max_attempts: config.adminTotpMaxAttempts,
       factor_generation: factorGeneration,
       security_version: securityVersion,
+      metadata: { purpose },
     })
   } catch (error: any) {
     if (error?.code !== 11000) throw error
@@ -512,15 +558,59 @@ export const createAdminMfaLoginChallenge = async (user: any) => {
       factor_generation: factorGeneration,
       security_version: securityVersion,
     })
-    if (!pending) throw error
+    if (!pending || getChallengePurpose(pending) !== purpose) throw error
     return pending
   }
+}
+
+export const createAdminMfaLoginChallenge = async (user: any) =>
+  createAdminMfaChallenge(user, ADMIN_MFA_CHALLENGE_PURPOSE.LOGIN)
+
+export const createAdminMfaEnrollmentChallenge = async (user: any) =>
+  createAdminMfaChallenge(user, ADMIN_MFA_CHALLENGE_PURPOSE.ENROLLMENT)
+
+export const getAdminMfaEnrollmentChallengeOrThrow = async (challengeId: string) => {
+  const challenge = await AdminMfaChallenge.findById(challengeId)
+  if (!challenge) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Admin MFA enrollment challenge not found')
+  }
+  if (getChallengePurpose(challenge) !== ADMIN_MFA_CHALLENGE_PURPOSE.ENROLLMENT) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Challenge is not an enrollment challenge')
+  }
+  if (challenge.status !== AdminMfaChallengeStatus.PENDING) {
+    const status = challenge.status === AdminMfaChallengeStatus.LOCKED ? StatusCodes.LOCKED : StatusCodes.GONE
+    throw new ApiError(status, 'Admin MFA enrollment challenge is no longer available')
+  }
+  if (challenge.expires_at.getTime() <= Date.now()) {
+    challenge.status = AdminMfaChallengeStatus.EXPIRED
+    await challenge.save()
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge expired')
+  }
+
+  const user = await User.findOne({ _id: challenge.user_id, user_type: UserType.ADMIN, is_active: true })
+  if (!user) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Admin MFA enrollment challenge not found')
+  }
+  if (isAdminTotpEnabled(user)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  }
+  if (Number(user.security_version || 0) !== Number(challenge.security_version || 0)) {
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
+  }
+  if (Number(getTotpSlot(user).factor_generation || 0) !== Number(challenge.factor_generation || 0)) {
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
+  }
+  return { challenge, user }
 }
 
 export const verifyAdminMfaLoginChallenge = async (challengeId: string, code: string) => {
   const challenge = await AdminMfaChallenge.findById(challengeId)
   if (!challenge) {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Admin MFA challenge not found')
+  }
+
+  if (getChallengePurpose(challenge) !== ADMIN_MFA_CHALLENGE_PURPOSE.LOGIN) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Challenge is not a login MFA challenge')
   }
 
   if (challenge.status !== AdminMfaChallengeStatus.PENDING) {
@@ -578,6 +668,9 @@ export const verifyAdminMfaLoginChallenge = async (challengeId: string, code: st
     if (!updatedChallenge) {
       throw new ApiError(StatusCodes.GONE, 'Admin MFA challenge is no longer available')
     }
+    // Count second-factor failures against durable account lockout so password
+    // re-login cannot mint a fresh challenge budget after LOCKED.
+    await recordFailedLoginAttempt(user._id)
     throw new ApiError(
       updatedChallenge.status === AdminMfaChallengeStatus.LOCKED ? StatusCodes.LOCKED : StatusCodes.UNAUTHORIZED,
       'Invalid TOTP code'

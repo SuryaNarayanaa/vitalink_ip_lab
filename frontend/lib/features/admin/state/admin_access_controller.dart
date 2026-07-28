@@ -115,6 +115,8 @@ class AdminAccessController extends ChangeNotifier with WidgetsBindingObserver {
       _errorStackTrace = null;
     } catch (error, stackTrace) {
       if (_isDisposed || generation != _sessionGeneration) return;
+      // Keep the last good snapshot on transient load failures; session teardown
+      // paths call clear() so capabilities cannot outlive logout/expiry.
       _error = error;
       _errorStackTrace = stackTrace;
     }

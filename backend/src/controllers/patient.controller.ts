@@ -8,7 +8,7 @@ import { getSystemConfig, isFeatureEnabled } from '@alias/services/config.servic
 import * as notificationService from '@alias/services/notification.service'
 import { registerUserNotificationStream } from '@alias/services/realtime-notification.service'
 import { publishClinicalNotificationToUser } from '@alias/services/realtime-notification.service'
-import { enqueueNotificationPush } from '@alias/services/notification-delivery.service'
+import { cancelNotificationPush, enqueueNotificationPush } from '@alias/services/notification-delivery.service'
 import { getObjectIdString } from '@alias/utils/objectid'
 import { hasActiveClinicalHospitalAccess } from '@alias/services/hospital-access.service'
 import type {
@@ -168,11 +168,15 @@ const notifyDoctorOfInrReport = async (input: {
 		const stillEligible = await User.findById(doctorUserId)
 			.select('is_active user_type profile_id')
 			.lean()
-		if (
-			!await isFeatureEnabled('notifications_enabled') ||
-			!stillEligible?.is_active ||
-			!await hasActiveClinicalHospitalAccess(stillEligible)
-		) {
+		const notificationsEnabled = await isFeatureEnabled('notifications_enabled')
+		const hospitalOk = stillEligible?.is_active
+			? await hasActiveClinicalHospitalAccess(stillEligible)
+			: false
+		if (!notificationsEnabled || !stillEligible?.is_active || !hospitalOk) {
+			await cancelNotificationPush(
+				String(created._id),
+				!notificationsEnabled ? 'notifications_paused' : 'recipient_became_ineligible',
+			)
 			return
 		}
 
@@ -215,7 +219,9 @@ const mapNotificationToDoctorUpdateEvent = (notification: any): DoctorUpdateEven
 	change_type: notification?.data?.change_type ?? 'DOCTOR_UPDATE',
 	changed_fields: Array.isArray(notification?.data?.changed_fields)
 		? notification.data.changed_fields
-		: [],
+		: typeof notification?.data?.changed_fields === 'string'
+			? notification.data.changed_fields.split(',').map((s: string) => s.trim()).filter(Boolean)
+			: [],
 	is_read: notification?.is_read === true,
 	created_at: notification?.createdAt ? new Date(notification.createdAt) : new Date(0),
 	changed_by_doctor_id: notification?.data?.changed_by_doctor_id,
@@ -1033,6 +1039,7 @@ export const getNotifications = asyncHandler(async (
 	const unreadCount = await Notification.countDocuments({
 		user_id: patientUser._id,
 		is_read: false,
+		push_delivery_cancelled_at: { $exists: false },
 	})
 
 	res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Notifications fetched successfully', {
@@ -1048,6 +1055,7 @@ export const getNotificationsUnreadCount = asyncHandler(async (req: Request, res
 	const unreadCount = await Notification.countDocuments({
 		user_id: patientUser._id,
 		is_read: false,
+		push_delivery_cancelled_at: { $exists: false },
 	})
 	res.status(StatusCodes.OK).json(new ApiResponse(
 		StatusCodes.OK,

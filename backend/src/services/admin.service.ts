@@ -90,6 +90,12 @@ const USER_AGGREGATION_SENSITIVE_UNSET = [
   'salt',
   'password_history',
   'admin_mfa',
+  'failed_login_attempts',
+  'locked_until',
+  'last_failed_login_at',
+  'security_version',
+  'must_change_password',
+  'password_changed_at',
 ] as const
 
 const paginationResult = (total: number, page: number, limit: number) => ({
@@ -2099,16 +2105,33 @@ export async function deactivatePatient(userId: string, actor?: AdminActorInput)
   ensureTenantAccess(ctx, profile?.hospital_id)
 
   const wasActive = user.is_active
-  user.is_active = false
-  await user.save()
-  const invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
-
-  // Also update account_status
-  await PatientProfile.findByIdAndUpdate(
-    user.profile_id,
-    { account_status: 'Discharged' },
-    { runValidators: true },
-  )
+  const session = await mongoose.startSession()
+  let invalidatedSessions = 0
+  try {
+    session.startTransaction()
+    const deactivated = await User.findOneAndUpdate(
+      { _id: user._id, user_type: UserType.PATIENT },
+      { $set: { is_active: false } },
+      { new: true, session, runValidators: true },
+    )
+    if (!deactivated) throw new ApiError(StatusCodes.CONFLICT, 'Patient account changed concurrently')
+    user.is_active = false
+    const profileUpdate = await PatientProfile.findOneAndUpdate(
+      { _id: user.profile_id },
+      { $set: { account_status: 'Discharged' } },
+      { new: true, session, runValidators: true },
+    )
+    if (!profileUpdate) {
+      throw new ApiError(StatusCodes.CONFLICT, 'Patient profile changed concurrently')
+    }
+    await session.commitTransaction()
+    invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+  } catch (error) {
+    if (session.inTransaction()) await session.abortTransaction()
+    throw error
+  } finally {
+    session.endSession()
+  }
 
   return { message: 'Patient deactivated successfully', invalidated_sessions: invalidatedSessions }
 }
@@ -2471,52 +2494,46 @@ export async function performBatchOperation(
       switch (operation) {
         case 'activate': {
           let invalidatedSessions = 0
-          if (!user.is_active) {
+          if (user.user_type === UserType.PATIENT) {
+            // Align clinical account_status with login is_active via dedicated lifecycle.
+            const profile = await PatientProfile.findById(user.profile_id).select('account_status').lean()
+            if (!user.is_active || profile?.account_status !== 'Active') {
+              const restored = await setPatientAccountStatus(userId, {
+                is_active: true,
+                account_status: 'Active',
+              }, actor)
+              invalidatedSessions = restored.invalidated_sessions || 0
+            }
+          } else if (!user.is_active) {
             let hospitalId: unknown
             if (user.user_type === UserType.DOCTOR) {
               hospitalId = (await DoctorProfile.findById(user.profile_id).select('hospital_id').lean())?.hospital_id
-            } else if (user.user_type === UserType.PATIENT) {
-              const profile = await PatientProfile.findById(user.profile_id)
-                .select('hospital_id account_status assigned_doctor_id').lean()
-              hospitalId = profile?.hospital_id
-              if (profile?.account_status === 'AssignmentConflict') {
-                throw new ApiError(StatusCodes.CONFLICT, 'Resolve the patient assignment conflict before activation')
-              }
             } else {
               throw new ApiError(StatusCodes.FORBIDDEN, 'Only Doctor and Patient accounts support operational status changes')
             }
             if (hospitalId) {
-              const patientLifecycleLease = user.user_type === UserType.PATIENT
-                ? await acquirePatientFileOperationLease(user.profile_id, { requireActive: false })
-                : undefined
+              const guard = await acquireHospitalMembershipGuard(hospitalId)
+              let activationCommitted = false
               try {
-                const guard = await acquireHospitalMembershipGuard(hospitalId)
-                let activationCommitted = false
-                try {
-                  await patientLifecycleLease?.assertOwned()
-                  await guard.assertOwned()
-                  const activated = await User.findOneAndUpdate(
-                    { _id: user._id, is_active: false },
-                    { $set: { is_active: true }, $inc: { security_version: 1 } },
-                    { new: true, runValidators: true },
+                await guard.assertOwned()
+                const activated = await User.findOneAndUpdate(
+                  { _id: user._id, is_active: false },
+                  { $set: { is_active: true }, $inc: { security_version: 1 } },
+                  { new: true, runValidators: true },
+                )
+                if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
+                activationCommitted = true
+                await guard.assertOwned()
+              } catch (error) {
+                if (activationCommitted) {
+                  await User.updateOne(
+                    { _id: user._id, is_active: true },
+                    { $set: { is_active: false }, $inc: { security_version: 1 } },
                   )
-                  if (!activated) throw new ApiError(StatusCodes.CONFLICT, 'User activation changed concurrently')
-                  activationCommitted = true
-                  await patientLifecycleLease?.assertOwned()
-                  await guard.assertOwned()
-                } catch (error) {
-                  if (activationCommitted) {
-                    await User.updateOne(
-                      { _id: user._id, is_active: true },
-                      { $set: { is_active: false }, $inc: { security_version: 1 } },
-                    )
-                  }
-                  throw error
-                } finally {
-                  await guard.release()
                 }
+                throw error
               } finally {
-                await patientLifecycleLease?.release()
+                await guard.release()
               }
             } else {
               throw new ApiError(StatusCodes.CONFLICT, 'Operational account must belong to an active hospital before activation')
@@ -2536,12 +2553,18 @@ export async function performBatchOperation(
           break
         }
 
-        case 'deactivate':
-          const wasActive = user.is_active
-          const deactivatedUser = wasActive
-            ? await deactivateDoctorWithAssignmentGuard(user)
-            : user
-          const invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+        case 'deactivate': {
+          let invalidatedSessions = 0
+          if (user.user_type === UserType.PATIENT) {
+            const deactivated = await deactivatePatient(userId, actor)
+            invalidatedSessions = deactivated.invalidated_sessions || 0
+          } else {
+            const wasActive = user.is_active
+            const deactivatedUser = wasActive
+              ? await deactivateDoctorWithAssignmentGuard(user)
+              : user
+            invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+          }
           results.push({
             userId,
             success: true,
@@ -2549,6 +2572,7 @@ export async function performBatchOperation(
             invalidated_sessions: invalidatedSessions,
           })
           break
+        }
 
         case 'reset_password': {
           const temporaryPassword = generateTemporaryPassword()

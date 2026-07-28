@@ -5,6 +5,7 @@ import type { AdminAccessContext } from '@alias/types/admin-access'
 import { hasAdminCapability } from '@alias/types/admin-access'
 import { UserType } from '@alias/validators'
 import { ApiError } from '@alias/utils'
+import { getSafeInrTargetRange } from '@alias/utils/inrThresholds'
 import { StatusCodes } from 'http-status-codes'
 
 /**
@@ -452,11 +453,10 @@ export async function getInrComplianceStats(access: AdminAccessContext) {
       noData++
       continue
     }
-    const targetMin = patient.medical_config?.target_inr?.min || 2.0
-    const targetMax = patient.medical_config?.target_inr?.max || 3.0
+    const { targetInrMin, targetInrMax } = getSafeInrTargetRange(patient.medical_config?.target_inr)
 
-    if (latest.inr_value < targetMin) belowRange++
-    else if (latest.inr_value > targetMax) aboveRange++
+    if (latest.inr_value < targetInrMin) belowRange++
+    else if (latest.inr_value > targetInrMax) aboveRange++
     else inRange++
   }
 

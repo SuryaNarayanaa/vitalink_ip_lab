@@ -78,6 +78,27 @@ export const activateAdminTotpSchema = z.object({
   params: z.object({}).optional(),
 })
 
+export const enrollAdminTotpSetupSchema = z.object({
+  body: z.object({
+    challenge_id: z.string().regex(/^[a-f\d]{24}$/i, 'Challenge ID must be a valid ObjectId'),
+  }).strict(),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type EnrollAdminTotpSetupInput = z.infer<typeof enrollAdminTotpSetupSchema>
+
+export const enrollAdminTotpActivateSchema = z.object({
+  body: z.object({
+    challenge_id: z.string().regex(/^[a-f\d]{24}$/i, 'Challenge ID must be a valid ObjectId'),
+    code: z.string().regex(/^\d{6}$/, 'TOTP code must be 6 digits'),
+  }).strict(),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+})
+
+export type EnrollAdminTotpActivateInput = z.infer<typeof enrollAdminTotpActivateSchema>
+
 export type ActivateAdminTotpInput = z.infer<typeof activateAdminTotpSchema>
 
 const strongPasswordSchema = z

@@ -15,13 +15,21 @@ import { ActivateAdminTotpInput, ChangePasswordInput, LoginInput, RefreshTokenIn
 import { config } from '@alias/config'
 import {
   activateAdminTotpEnrollment,
+  createAdminMfaEnrollmentChallenge,
   createAdminMfaLoginChallenge,
+  createAdminTotpBootstrapEnrollment,
   createAdminTotpEnrollment,
+  getAdminMfaEnrollmentChallengeOrThrow,
   getAdminTotpStatus,
   isAdminTotpEnabled,
   isAdminTotpRequiredForUnenrolledAdmins,
   verifyAdminMfaLoginChallenge,
 } from '@alias/services/admin-totp.service'
+import {
+  accountLockoutWindowStart,
+  clearLoginFailures,
+  recordFailedLoginAttempt,
+} from '@alias/services/login-lockout.service'
 import {
   hashPhoneNumber,
   issuePhoneVerificationOtp,
@@ -271,6 +279,18 @@ const buildAdminTotpChallengeResponse = (challenge: any) => ({
   },
 })
 
+const buildAdminTotpEnrollmentChallengeResponse = (challenge: any) => ({
+  auth_status: 'TOTP_ENROLLMENT_REQUIRED',
+  challenge: {
+    challenge_id: challenge._id.toString(),
+    factor_type: 'AUTHENTICATOR_APP',
+    purpose: 'ENROLLMENT',
+    expires_at: challenge.expires_at,
+    attempts_remaining: Math.max(challenge.max_attempts - challenge.attempt_count, 0),
+    max_attempts: challenge.max_attempts,
+  },
+})
+
 const ensurePendingLoginChallengeForRegisteredPhone = async (challengeId: string) => {
   const challenge = await OtpChallenge.findById(challengeId)
   if (!challenge) {
@@ -420,35 +440,8 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
   }
 
   if (!isPasswordValid) {
-    const failedAt = new Date()
-    const lockedUntil = new Date(failedAt.getTime() + config.accountLockoutMinutes * 60 * 1000)
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: user._id, is_active: true },
-      [
-        {
-          $set: {
-            failed_login_attempts: { $add: [{ $ifNull: ['$failed_login_attempts', 0] }, 1] },
-            last_failed_login_at: failedAt,
-          },
-        },
-        {
-          $set: {
-            locked_until: {
-              $cond: [
-                { $gte: ['$failed_login_attempts', config.maxFailedLoginAttempts] },
-                lockedUntil,
-                '$locked_until',
-              ],
-            },
-          },
-        },
-      ],
-      { new: true, updatePipeline: true },
-    )
-    const failedAttempts = updatedUser?.failed_login_attempts ?? (user.failed_login_attempts ?? 0) + 1
+    const { failedAttempts, accountLocked } = await recordFailedLoginAttempt(user._id)
     user.failed_login_attempts = failedAttempts
-    user.last_failed_login_at = failedAt
-    user.locked_until = updatedUser?.locked_until
 
     await bestEffortCreateAuthAuditLog(
       req,
@@ -456,19 +449,18 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       AuditAction.LOGIN_FAILED,
       false,
       'Login failed due to invalid credentials',
-      failedAttempts >= config.maxFailedLoginAttempts ? 'Account locked after repeated failed attempts' : 'Invalid credentials',
-      loginAttemptMetadata(failedAttempts >= config.maxFailedLoginAttempts ? 'locked_after_failure' : 'invalid_credentials', {
+      accountLocked ? 'Account locked after repeated failed attempts' : 'Invalid credentials',
+      loginAttemptMetadata(accountLocked ? 'locked_after_failure' : 'invalid_credentials', {
         failed_login_attempts: failedAttempts,
-        account_locked: failedAttempts >= config.maxFailedLoginAttempts,
+        account_locked: accountLocked,
       })
     )
 
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
   }
 
-  user.failed_login_attempts = 0
-  user.locked_until = undefined
-  await user.save()
+  // Do not clear failed_login_attempts / locked_until until second-factor
+  // verification succeeds (or password-only login completes below).
 
   if (OTP_ELIGIBLE_USER_TYPES.has(user.user_type as UserType)) {
     const { phoneNumber, isVerified } = await getRegisteredPhoneState(user)
@@ -484,6 +476,29 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       // resend_count, cooldown, or max-resend limits by cancelling and re-issuing.
       const now = new Date()
       const phoneHash = hashPhoneNumber(phoneNumber)
+
+      // A recently LOCKED challenge means the OTP attempt budget is exhausted;
+      // refuse to mint a fresh challenge until the account lockout window ends.
+      const recentLocked = await OtpChallenge.findOne({
+        user_id: user._id,
+        purpose: OtpChallengePurpose.PHONE_FIRST_LOGIN,
+        status: OtpChallengeStatus.LOCKED,
+        updatedAt: { $gte: accountLockoutWindowStart(now) },
+      }).sort({ updatedAt: -1 })
+      if (recentLocked) {
+        await recordFailedLoginAttempt(user._id)
+        await bestEffortCreateAuthAuditLog(
+          req,
+          user,
+          AuditAction.LOGIN_FAILED,
+          false,
+          'Login blocked because phone OTP challenge is locked',
+          'OTP challenge locked',
+          loginAttemptMetadata('otp_locked')
+        )
+        throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
+      }
+
       const existingPending = await OtpChallenge.findOne({
         user_id: user._id,
         purpose: OtpChallengePurpose.PHONE_FIRST_LOGIN,
@@ -572,19 +587,30 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
     }
 
     if (isAdminTotpRequiredForUnenrolledAdmins()) {
-      await bestEffortCreateAuthAuditLog(
+      // Password-bound enrollment challenge: setup/activate without a full session.
+      const challenge = await createAdminMfaEnrollmentChallenge(user)
+      await auditIssuedLoginChallenge(
         req,
         user,
-        AuditAction.LOGIN_FAILED,
-        false,
-        'Admin login blocked because authenticator MFA enrollment is required',
-        'Authenticator MFA enrollment required',
-        loginAttemptMetadata('totp_enrollment_required')
+        String(challenge._id),
+        'Admin password accepted; authenticator MFA enrollment required',
+        loginAttemptMetadata('totp_enrollment_required'),
+        () => AdminMfaChallenge.updateOne(
+          { _id: challenge._id, status: AdminMfaChallengeStatus.PENDING },
+          { $set: { status: AdminMfaChallengeStatus.CANCELLED } },
+        ),
       )
-      throw new ApiError(StatusCodes.FORBIDDEN, 'Admin authenticator MFA enrollment is required before login')
+      res.status(StatusCodes.ACCEPTED).json(new ApiResponse(
+        StatusCodes.ACCEPTED,
+        'Admin authenticator MFA enrollment is required',
+        buildAdminTotpEnrollmentChallengeResponse(challenge)
+      ))
+      return
     }
   }
 
+  user.failed_login_attempts = 0
+  user.locked_until = undefined
   user.last_login_at = new Date()
   await user.save()
 
@@ -608,6 +634,12 @@ export const verifyLoginOtpController = asyncHandler(
     }
 
     if (!result.verified) {
+      if (
+        result.result === OtpVerificationResult.INVALID
+        || result.result === OtpVerificationResult.LOCKED
+      ) {
+        await recordFailedLoginAttempt(user._id)
+      }
       const statusByResult: Partial<Record<OtpVerificationResult, StatusCodes>> = {
         [OtpVerificationResult.INVALID]: StatusCodes.UNAUTHORIZED,
         [OtpVerificationResult.EXPIRED]: StatusCodes.GONE,
@@ -861,6 +893,154 @@ export const changePasswordController = asyncHandler(
     )
   }
 )
+
+/**
+ * Password-bound enrollment setup for production/staging admins that cannot
+ * obtain a session until MFA is enrolled. Authenticated by enrollment challenge_id.
+ */
+export const setupAdminTotpEnrollmentController = asyncHandler(async (req: Request, res: Response) => {
+  const challengeId = String((req.body as { challenge_id?: string })?.challenge_id || '')
+  const { challenge, user } = await getAdminMfaEnrollmentChallengeOrThrow(challengeId)
+
+  let enrollment
+  try {
+    enrollment = await createAdminTotpBootstrapEnrollment(user)
+  } catch (error) {
+    try {
+      await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, false, 'Admin TOTP enrollment setup failed', 'mfa_enrollment_setup_failed')
+    } catch { logger.error('MFA enrollment setup failure audit persistence failed', { user_id: String(user._id) }) }
+    throw error
+  }
+
+  let auditRecorded = true
+  try {
+    await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, true, 'Admin TOTP enrollment setup started', undefined, {
+      target_user_id: String(user._id),
+      factor_type: 'AUTHENTICATOR_APP',
+      challenge_id: String(challenge._id),
+      enrollment_via: 'login_challenge',
+    })
+  } catch {
+    auditRecorded = false
+    logger.error('MFA enrollment setup success audit persistence failed', { user_id: String(user._id) })
+  }
+
+  res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP enrollment setup started', {
+    factor_type: 'AUTHENTICATOR_APP',
+    secret: enrollment.secret,
+    otpauth_url: enrollment.otpauth_url,
+    challenge_id: String(challenge._id),
+    audit_recorded: auditRecorded,
+  }))
+})
+
+/**
+ * Completes password-bound enrollment and issues a session when the TOTP code
+ * matches the pending enrollment secret.
+ */
+export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Request, res: Response) => {
+  const { challenge_id: challengeId, code } = req.body as { challenge_id: string; code: string }
+  const { challenge, user } = await getAdminMfaEnrollmentChallengeOrThrow(challengeId)
+
+  let invalidatedSessionResult
+  try {
+    invalidatedSessionResult = await activateAdminTotpEnrollment(user, code)
+  } catch (caught) {
+    // Invalid codes count against both challenge attempts (via activate) and
+    // durable account lockout. activateAdminTotpEnrollment only throws on bad code.
+    let error: unknown = caught
+    if (error instanceof ApiError && error.statusCode === StatusCodes.UNAUTHORIZED) {
+      const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
+        {
+          _id: challenge._id,
+          status: AdminMfaChallengeStatus.PENDING,
+          expires_at: { $gt: new Date() },
+          $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+        },
+        [
+          { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
+          {
+            $set: {
+              status: {
+                $cond: [
+                  { $gte: ['$attempt_count', '$max_attempts'] },
+                  AdminMfaChallengeStatus.LOCKED,
+                  AdminMfaChallengeStatus.PENDING,
+                ],
+              },
+            },
+          },
+        ],
+        { new: true, updatePipeline: true },
+      )
+      await recordFailedLoginAttempt(user._id)
+      // Prefer LOCKED status but still fall through to the failure audit below —
+      // lockout is the most security-relevant outcome and must be recorded.
+      if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
+        error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
+      }
+    }
+    try {
+      await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, false, 'Admin TOTP enrollment activation failed', 'mfa_enrollment_activation_failed')
+    } catch { logger.error('MFA enrollment activation failure audit persistence failed', { user_id: String(user._id) }) }
+    throw error
+  }
+
+  const consumed = await AdminMfaChallenge.findOneAndUpdate(
+    {
+      _id: challenge._id,
+      status: AdminMfaChallengeStatus.PENDING,
+    },
+    {
+      $set: {
+        status: AdminMfaChallengeStatus.VERIFIED,
+        verified_at: new Date(),
+      },
+    },
+    { new: true },
+  )
+  if (!consumed) {
+    throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
+  }
+
+  await clearLoginFailures(user._id)
+  user.last_login_at = new Date()
+  user.failed_login_attempts = 0
+  user.locked_until = undefined
+  await user.save()
+
+  let auditRecorded = true
+  try {
+    await createAuthAuditLog(req, user, AuditAction.MFA_ACTIVATE, true, 'Admin TOTP enrollment activated', undefined, {
+      target_user_id: String(user._id),
+      factor_type: 'AUTHENTICATOR_APP',
+      challenge_id: String(challenge._id),
+      invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+      revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+    })
+  } catch {
+    auditRecorded = false
+    logger.error('MFA enrollment activation success audit persistence failed', { user_id: String(user._id) })
+  }
+
+  const sessionPayload = await getAuditedSessionPayload(
+    req,
+    user,
+    'Admin logged in successfully after authenticator MFA enrollment',
+  )
+  res.status(StatusCodes.OK).json(new ApiResponse(
+    StatusCodes.OK,
+    'Admin authenticator MFA enrolled and user logged in successfully',
+    {
+      ...sessionPayload,
+      factor_type: 'AUTHENTICATOR_APP',
+      status: 'ENABLED',
+      invalidated_sessions: invalidatedSessionResult.modifiedCount || 0,
+      revocation_cleanup_completed: invalidatedSessionResult.cleanupCompleted,
+      audit_recorded: auditRecorded,
+    },
+  ))
+})
 
 export const setupAdminTotpController = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user || req.user.user_type !== UserType.ADMIN) {

@@ -18,50 +18,51 @@ describe('Device token ownership', () => {
   })
   afterEach(() => jest.restoreAllMocks())
 
-  test('globally unique token registration transfers delivery from the previous user', async () => {
+  test('rejects stealing an active device token owned by another user', async () => {
     const records = new Map<string, any>()
+    ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation((query: any) => ({
+      lean: async () => records.get(query.fcm_token) || null,
+    }))
     ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any) => {
       const current = records.get(query.fcm_token) || { _id: 'token-id' }
       Object.assign(current, update.$set)
       records.set(query.fcm_token, current)
       return current
     })
-    ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockImplementation(async (query: any) => {
-      for (const record of records.values()) {
-        if (
-          String(record.user_id) === String(query.user_id) &&
-          record.platform === query.platform &&
-          record.fcm_token !== query.fcm_token.$ne
-        ) record.is_active = false
-      }
-      return { acknowledged: true, modifiedCount: 0 } as any
-    })
+    ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockResolvedValue({ acknowledged: true, modifiedCount: 0 } as any)
 
     await registerDeviceToken({ userId: 'user-a', fcmToken: 'physical-token', platform: 'android' })
-    await registerDeviceToken({ userId: 'user-b', fcmToken: 'physical-token', platform: 'android' })
+    await expect(
+      registerDeviceToken({ userId: 'user-b', fcmToken: 'physical-token', platform: 'android' }),
+    ).rejects.toMatchObject({ statusCode: 409 })
 
-    expect(records.size).toBe(1)
-    expect(records.get('physical-token').user_id).toBe('user-b')
+    expect(records.get('physical-token').user_id).toBe('user-a')
+  })
 
-    jest.spyOn(DeviceToken, 'find').mockImplementation((query: any) => ({
-      lean: async () => Array.from(records.values())
-        .filter(record => String(record.user_id) === String(query.user_id) && record.is_active)
-        .map(record => ({ fcm_token: record.fcm_token })),
-    }) as any)
-    const sendEachForMulticast = jest.fn(async () => ({
-      responses: [{ success: true }], successCount: 1, failureCount: 0,
+  test('allows reclaiming an inactive token from a previous owner', async () => {
+    const records = new Map<string, any>([
+      ['physical-token', {
+        _id: 'token-id',
+        user_id: 'user-a',
+        fcm_token: 'physical-token',
+        platform: 'android',
+        is_active: false,
+      }],
+    ])
+    ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation((query: any) => ({
+      lean: async () => records.get(query.fcm_token) || null,
     }))
-    jest.spyOn(firebaseConfig, 'getFirebaseMessaging').mockReturnValue({ sendEachForMulticast } as any)
+    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any) => {
+      const current = records.get(query.fcm_token) || { _id: 'token-id' }
+      Object.assign(current, update.$set)
+      records.set(query.fcm_token, current)
+      return current
+    })
+    ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockResolvedValue({ acknowledged: true, modifiedCount: 0 } as any)
 
-    const resultA = await sendPushToUser('user-a', { title: 'Private update', body: 'A' })
-    const resultB = await sendPushToUser('user-b', { title: 'Private update', body: 'B' })
-
-    expect(resultA.skipped).toBe(true)
-    expect(resultA.skipReason).toBe('no_tokens')
-    expect(resultB.success).toBe(true)
-    expect(resultB.skipped).toBe(false)
-    expect(sendEachForMulticast).toHaveBeenCalledTimes(1)
-    expect(sendEachForMulticast).toHaveBeenCalledWith(expect.objectContaining({ tokens: ['physical-token'] }))
+    await registerDeviceToken({ userId: 'user-b', fcmToken: 'physical-token', platform: 'android' })
+    expect(records.get('physical-token').user_id).toBe('user-b')
+    expect(records.get('physical-token').is_active).toBe(true)
   })
 
   test('dead-token cleanup for a previous owner cannot deactivate a transferred token', async () => {
@@ -129,6 +130,9 @@ describe('Device token ownership', () => {
     let attempts = 0
     const duplicateKeyError = Object.assign(new Error('E11000 duplicate key error'), { code: 11000 })
 
+    ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation(() => ({
+      lean: async () => null,
+    }))
     ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(
       async (_query: any, update: any, options: any) => {
         attempts += 1
