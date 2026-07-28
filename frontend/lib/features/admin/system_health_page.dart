@@ -94,22 +94,11 @@ class _PlatformHealthPageState extends State<PlatformHealthPage> {
         final body = ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Platform Health',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const Text(
-                        'Global service and dependency status. Sensitive connection details are not displayed.',
-                      ),
-                    ],
-                  ),
-                ),
+            AdminPageHeader(
+              title: 'Platform Health',
+              subtitle:
+                  'Global service and dependency status. Sensitive connection details are not displayed.',
+              actions: [
                 IconButton(
                   onPressed: _isLoading ? null : _load,
                   tooltip: 'Refresh platform health',
@@ -220,22 +209,11 @@ class _HospitalOperationsHealthPageState
         final body = ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hospital Operations Health',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const Text(
-                        'Reminder and delivery status for your assigned hospital only.',
-                      ),
-                    ],
-                  ),
-                ),
+            AdminPageHeader(
+              title: 'Hospital Operations Health',
+              subtitle:
+                  'Reminder and delivery status for your assigned hospital only.',
+              actions: [
                 IconButton(
                   onPressed: _isLoading ? null : _load,
                   tooltip: 'Refresh hospital operations health',

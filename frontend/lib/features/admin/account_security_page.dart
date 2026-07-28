@@ -136,16 +136,10 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
         final content = ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(
-              'Personal Security',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'This authenticator belongs to your own administrator account. It is separate from platform configuration and health access.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            const AdminPageHeader(
+              title: 'Personal Security',
+              subtitle:
+                  'This authenticator belongs to your own administrator account. It is separate from platform configuration and health access.',
             ),
             const SizedBox(height: 16),
             if (_isLoading && !_hasLoaded)

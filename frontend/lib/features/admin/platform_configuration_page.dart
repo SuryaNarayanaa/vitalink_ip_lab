@@ -201,44 +201,22 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
           context,
           AdminCapabilities.platformSystemConfigManage,
         );
-        // Single ListView (not Column + Expanded) so title/actions always lay
-        // out against the full content width of the admin shell.
         final content = Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Platform Configuration',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        Text(
-                          'Global runtime settings. Personal MFA and service health are separate surfaces.',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
+              AdminPageHeader(
+                title: 'Platform Configuration',
+                subtitle:
+                    'Global runtime settings. Personal MFA and service health are separate surfaces.',
+                actions: [
                   IconButton(
                     onPressed: _isLoading ? null : _load,
                     tooltip: 'Reload platform configuration',
                     icon: const Icon(Icons.refresh_rounded),
                   ),
-                  if (canManage) ...[
-                    const SizedBox(width: 4),
+                  if (canManage)
                     FilledButton.icon(
                       key: const Key('save-platform-configuration'),
                       onPressed: _isLoading || !_hasUnsavedChanges
@@ -247,7 +225,6 @@ class _PlatformConfigurationPageState extends State<PlatformConfigurationPage> {
                       icon: const Icon(Icons.save_outlined),
                       label: const Text('Save'),
                     ),
-                  ],
                 ],
               ),
               const SizedBox(height: 16),

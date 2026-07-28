@@ -26,67 +26,47 @@ class AdminListShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Title/subtitle always use the full pane width (crossAxis stretch). Never
+    // put title text in a flex child that can collapse to ~0 and wrap vertically.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 720;
-              final titleBlock = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleLarge),
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ],
-              );
-              final searchField = searchController == null
-                  ? null
-                  : TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        hintText: searchHint,
-                        prefixIcon: const Icon(Icons.search_rounded),
-                      ),
-                      onChanged: (_) => onSearch?.call(),
-                    );
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+              if (searchController != null || actions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Expanded(flex: 3, child: titleBlock),
-                    if (searchField != null) ...[
-                      const SizedBox(width: 12),
-                      Expanded(flex: 2, child: searchField),
-                    ],
-                    if (actions.isNotEmpty) ...[
-                      const SizedBox(width: 12),
-                      Wrap(spacing: 8, runSpacing: 8, children: actions),
-                    ],
+                    if (searchController != null)
+                      SizedBox(
+                        width: 320,
+                        child: TextField(
+                          controller: searchController,
+                          decoration: InputDecoration(
+                            hintText: searchHint,
+                            prefixIcon: const Icon(Icons.search_rounded),
+                          ),
+                          onChanged: (_) => onSearch?.call(),
+                        ),
+                      ),
+                    ...actions,
                   ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  titleBlock,
-                  if (searchField != null) ...[
-                    const SizedBox(height: 12),
-                    searchField,
-                  ],
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Wrap(spacing: 8, runSpacing: 8, children: actions),
-                  ],
-                ],
-              );
-            },
+                ),
+              ],
+            ],
           ),
         ),
         Expanded(child: child),
@@ -255,11 +235,59 @@ class AdminDetail {
 }
 
 Widget adminPageScaffold(BuildContext context, String title, Widget body) {
-  if (!AdminScaffold.usesShellAppBar(context)) return body;
+  // Fill whatever box the admin shell assigned. The shell positions pages with
+  // an explicit width/height; this keeps Column+Expanded pages valid.
+  final filledBody = SizedBox.expand(child: body);
+  if (!AdminScaffold.usesShellAppBar(context)) return filledBody;
   return Scaffold(
     appBar: AppBar(title: Text(title)),
-    body: body,
+    body: filledBody,
   );
+}
+
+/// Page title + subtitle + optional actions.
+///
+/// Titles are never placed inside [Expanded]/[Flexible]. That pattern collapses
+/// to ~1px under some shell constraints and soft-wraps each glyph onto its own
+/// line (the vertical-text admin bug).
+class AdminPageHeader extends StatelessWidget {
+  const AdminPageHeader({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.actions = const [],
+  });
+
+  final String title;
+  final String subtitle;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: theme.textTheme.titleLarge),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        if (actions.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: actions,
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 void showAdminError(BuildContext context, Object error) {

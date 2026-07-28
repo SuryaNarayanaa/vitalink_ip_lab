@@ -24,6 +24,8 @@ class AdminNavigationItem {
 class AdminScaffold extends StatelessWidget {
   static const double tabletBreakpoint = 600;
   static const double desktopBreakpoint = 900;
+  static const double extendedSidebarWidth = 248;
+  static const double compactSidebarWidth = 72;
 
   const AdminScaffold({
     super.key,
@@ -57,6 +59,7 @@ class AdminScaffold extends StatelessWidget {
     );
     final safeIndex = selectedIndex < 0 ? 0 : selectedIndex;
     final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (showReadOnlyBanner) const AdminReadOnlyBanner(),
         Expanded(child: body),
@@ -64,26 +67,30 @@ class AdminScaffold extends StatelessWidget {
     );
 
     if (showSidebar) {
-      // Pin the rail width so long destination labels never let the rail
-      // consume the content pane (which collapses page titles to 1-glyph wrap).
-      final railWidth = isDesktop ? 248.0 : 72.0;
+      final railWidth = isDesktop
+          ? extendedSidebarWidth
+          : compactSidebarWidth;
       return Scaffold(
         body: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
               width: railWidth,
-              child: _AdminNavigationRail(
+              child: _AdminSideNav(
                 destinations: destinations,
                 selectedIndex: safeIndex,
                 onDestinationSelected: (index) =>
                     onDestinationSelected(destinations[index].id),
-                isExtended: isDesktop,
-                width: railWidth,
+                extended: isDesktop,
               ),
             ),
             const VerticalDivider(thickness: 1, width: 1),
-            Expanded(child: content),
+            Expanded(
+              child: ColoredBox(
+                color: Theme.of(context).colorScheme.surface,
+                child: content,
+              ),
+            ),
           ],
         ),
       );
@@ -107,14 +114,14 @@ class AdminScaffold extends StatelessWidget {
       drawer: Drawer(
         width: 300,
         child: SafeArea(
-          child: _AdminNavigationRail(
+          child: _AdminSideNav(
             destinations: destinations,
             selectedIndex: safeIndex,
             onDestinationSelected: (index) {
               onDestinationSelected(destinations[index].id);
               Navigator.pop(context);
             },
-            isExtended: true,
+            extended: true,
           ),
         ),
       ),
@@ -123,101 +130,144 @@ class AdminScaffold extends StatelessWidget {
   }
 }
 
-class _AdminNavigationRail extends StatelessWidget {
-  const _AdminNavigationRail({
+/// Fixed-width admin navigation. Avoids [NavigationRail], whose intrinsic
+/// sizing has collapsed the content pane to ~1 glyph on web.
+class _AdminSideNav extends StatelessWidget {
+  const _AdminSideNav({
     required this.destinations,
     required this.selectedIndex,
     required this.onDestinationSelected,
-    this.isExtended = true,
-    this.width,
+    required this.extended,
   });
 
   final List<AdminNavigationItem> destinations;
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
-  final bool isExtended;
-  /// When set (sidebar layout), keeps the rail from growing past the shell slot.
-  final double? width;
+  final bool extended;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Prefer an explicit shell width when provided; otherwise use Material defaults.
-    final collapsedWidth = 72.0;
-    final extendedWidth = width ?? 248.0;
-    return NavigationRail(
-      selectedIndex: selectedIndex,
-      onDestinationSelected: onDestinationSelected,
-      extended: isExtended,
-      scrollable: true,
-      minWidth: collapsedWidth,
-      minExtendedWidth: extendedWidth < collapsedWidth
-          ? collapsedWidth
-          : extendedWidth,
-      backgroundColor: theme.colorScheme.surface,
-      selectedIconTheme: IconThemeData(color: theme.colorScheme.primary),
-      unselectedIconTheme: IconThemeData(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-      selectedLabelTextStyle: TextStyle(
-        color: theme.colorScheme.primary,
-        fontWeight: FontWeight.bold,
-      ),
-      unselectedLabelTextStyle: TextStyle(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-      leading: Column(
+    return Material(
+      color: theme.colorScheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 16),
-          Icon(
-            Icons.monitor_heart_outlined,
-            size: 32,
-            color: theme.colorScheme.primary,
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              extended ? 16 : 8,
+              16,
+              extended ? 16 : 8,
+              8,
+            ),
+            child: extended
+                ? Row(
+                    children: [
+                      Icon(
+                        Icons.monitor_heart_outlined,
+                        size: 28,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'VitaLink',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Icon(
+                    Icons.monitor_heart_outlined,
+                    size: 28,
+                    color: theme.colorScheme.primary,
+                  ),
           ),
-          if (isExtended) ...[
-            const SizedBox(height: 8),
-            Text(
-              'VitaLink',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.primary,
-              ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              itemCount: destinations.length,
+              itemBuilder: (context, index) {
+                final destination = destinations[index];
+                final selected = index == selectedIndex;
+                final icon = Icon(
+                  selected ? destination.selectedIcon : destination.icon,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                );
+                if (!extended) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: IconButton(
+                      isSelected: selected,
+                      tooltip: destination.label,
+                      onPressed: () => onDestinationSelected(index),
+                      icon: icon,
+                    ),
+                  );
+                }
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: ListTile(
+                    selected: selected,
+                    selectedTileColor: theme.colorScheme.primaryContainer
+                        .withValues(alpha: 0.45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    leading: icon,
+                    title: Text(
+                      destination.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: selected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant,
+                        fontWeight: selected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                      ),
+                    ),
+                    onTap: () => onDestinationSelected(index),
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                );
+              },
             ),
-          ],
-          const SizedBox(height: 16),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+            child: extended
+                ? TextButton.icon(
+                    onPressed: () => _showLogoutDialog(context),
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      color: theme.colorScheme.error,
+                    ),
+                    label: Text(
+                      'Logout',
+                      style: TextStyle(color: theme.colorScheme.error),
+                    ),
+                  )
+                : IconButton(
+                    onPressed: () => _showLogoutDialog(context),
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      color: theme.colorScheme.error,
+                    ),
+                    tooltip: 'Logout',
+                  ),
+          ),
         ],
-      ),
-      destinations: destinations
-          .map(
-            (destination) => NavigationRailDestination(
-              icon: Icon(destination.icon),
-              selectedIcon: Icon(destination.selectedIcon),
-              label: Text(destination.label),
-            ),
-          )
-          .toList(growable: false),
-      trailing: Padding(
-        padding: const EdgeInsets.only(top: 16, bottom: 24),
-        child: isExtended
-            ? TextButton.icon(
-                onPressed: () => _showLogoutDialog(context),
-                icon: Icon(
-                  Icons.logout_rounded,
-                  color: theme.colorScheme.error,
-                ),
-                label: Text(
-                  'Logout',
-                  style: TextStyle(color: theme.colorScheme.error),
-                ),
-              )
-            : IconButton(
-                onPressed: () => _showLogoutDialog(context),
-                icon: Icon(
-                  Icons.logout_rounded,
-                  color: theme.colorScheme.error,
-                ),
-                tooltip: 'Logout',
-              ),
       ),
     );
   }

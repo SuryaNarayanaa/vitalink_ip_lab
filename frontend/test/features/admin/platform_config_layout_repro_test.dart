@@ -6,10 +6,12 @@ import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
 import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/admin_capabilities.dart';
+import 'package:frontend/features/admin/admin_console_components.dart';
 import 'package:frontend/features/admin/admin_dashboard_page.dart';
 import 'package:frontend/features/admin/data/admin_access_repository.dart';
 import 'package:frontend/features/admin/data/admin_repository.dart';
 import 'package:frontend/features/admin/models/admin_access_model.dart';
+import 'package:frontend/features/admin/models/admin_account_model.dart';
 import 'package:frontend/features/admin/models/admin_stats_model.dart';
 import 'package:frontend/features/admin/state/admin_access_controller.dart';
 
@@ -43,6 +45,9 @@ class _Repo extends AdminRepository {
   Future<Map<String, dynamic>> updateSystemConfig(
     Map<String, dynamic> data,
   ) async => data;
+
+  @override
+  Future<List<AdminAccountModel>> getAdminAccounts() async => const [];
 }
 
 AdminAccessModel _appAdminAccess() {
@@ -117,21 +122,73 @@ void main() {
       // Single-character wrap would make this ~20 * char-count tall.
       expect(subtitleBox.size.height, lessThan(80));
 
+      // Page title instance (not the sidebar label) must be wide and short.
+      final pageTitles = find.text('Platform Configuration');
+      final pageTitleBox = pageTitles
+          .evaluate()
+          .map((e) => e.renderObject! as RenderBox)
+          .reduce((a, b) => a.size.width >= b.size.width ? a : b);
+      expect(pageTitleBox.size.width, greaterThan(200));
+      expect(pageTitleBox.size.height, lessThan(40));
+
+      // Header must not use Expanded-around-title (that caused the glyph column).
+      expect(find.byType(AdminPageHeader), findsOneWidget);
+
       expect(find.text('Medical Thresholds'), findsOneWidget);
       expect(
         find.byKey(const Key('save-platform-configuration')),
         findsOneWidget,
       );
 
-      // Rail must stay pinned so the content pane keeps horizontal room.
-      final rail = tester.getSize(find.byType(NavigationRail));
-      expect(rail.width, lessThanOrEqualTo(AdminScaffold.desktopBreakpoint));
-      expect(rail.width, closeTo(248, 1));
+      // Sidebar is a fixed-width panel, not NavigationRail.
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(find.text('VitaLink'), findsWidgets);
     },
   );
 
   testWidgets(
-    'navigation rail stays icon-width on tablet breakpoint',
+    'administrator accounts title keeps readable width in admin shell',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final controller = AdminAccessController(
+        repository: _AccessRepo(_appAdminAccess()),
+        refreshInterval: Duration.zero,
+      );
+      await controller.refresh();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        QueryClientProvider(
+          client: AppDependencies.createQueryClient(),
+          child: MaterialApp(
+            home: AdminAccessScope(
+              controller: controller,
+              child: AdminDashboardPage(repository: _Repo()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Administrator Accounts').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final subtitle = find.textContaining('Manage Hospital Admin');
+      expect(subtitle, findsOneWidget);
+      final box = tester.renderObject<RenderBox>(subtitle);
+      expect(box.size.width, greaterThan(200));
+      expect(box.size.height, lessThan(80));
+      expect(find.byIcon(Icons.search_rounded), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'sidebar stays compact-width on tablet breakpoint',
     (tester) async {
       tester.view.physicalSize = const Size(700, 900);
       tester.view.devicePixelRatio = 1;
@@ -158,9 +215,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-      expect(rail.extended, isFalse);
-      expect(tester.getSize(find.byType(NavigationRail)).width, closeTo(72, 1));
+      expect(find.byType(NavigationRail), findsNothing);
+      // Compact mode uses icon buttons with tooltips instead of labels.
+      expect(find.byTooltip('Platform Configuration'), findsOneWidget);
+      expect(find.text('Platform Configuration'), findsNothing);
     },
   );
 }

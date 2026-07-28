@@ -1056,7 +1056,7 @@ void main() {
     expect(retries, 1);
   });
 
-  testWidgets('admin scaffold switches between drawer and navigation rail', (
+  testWidgets('admin scaffold switches between drawer and fixed sidebar', (
     tester,
   ) async {
     const destinations = [
@@ -1089,6 +1089,7 @@ void main() {
       ),
     );
     expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byType(Drawer), findsNothing);
     await tester.tap(find.byTooltip('Open administrator navigation'));
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsOneWidget);
@@ -1098,20 +1099,17 @@ void main() {
 
     tester.view.physicalSize = const Size(700, 900);
     await tester.pump();
-    expect(find.byType(NavigationRail), findsOneWidget);
-    expect(
-      tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-      isFalse,
-    );
+    // Tablet: compact fixed sidebar (icon-only), no Material NavigationRail.
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byTooltip('One'), findsOneWidget);
+    expect(find.text('One'), findsNothing);
     expect(tester.takeException(), isNull);
 
     tester.view.physicalSize = const Size(1200, 900);
     await tester.pump();
-    expect(find.byType(NavigationRail), findsOneWidget);
-    expect(
-      tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-      isTrue,
-    );
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.text('One'), findsOneWidget);
+    expect(find.text('Two'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

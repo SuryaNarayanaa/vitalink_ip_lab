@@ -292,22 +292,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final selectedDestination = allowedDestinations.firstWhere(
       (destination) => destination.id == selectedId,
     );
-    // SizedBox.expand forces each destination to fill the shell content pane.
-    // Without it, loose IndexedStack constraints can leave a page at its
-    // intrinsic min width so titles soft-wrap one character per line.
+    // Keep visited pages mounted (preserve form/search state). Each page is
+    // Positioned with an explicit width/height from the shell LayoutBuilder so
+    // it can never shrink-wrap to text intrinsic width (1-glyph vertical titles).
     final cachedPage =
         _pageCache[selectedId] ??
         KeyedSubtree(
           key: ValueKey('admin-page-$selectedId'),
-          child: SizedBox.expand(
-            child: Builder(builder: selectedDestination.builder),
-          ),
+          child: Builder(builder: selectedDestination.builder),
         );
     final visited = _visitedDestinationIds
         .where(allowedIds.contains)
         .toList(growable: true);
     if (!visited.contains(selectedId)) visited.add(selectedId);
-    final selectedStackIndex = visited.indexOf(selectedId);
 
     final needsReconcile =
         _selectedDestinationId != selectedId ||
@@ -331,15 +328,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       });
     }
 
-    final stackChildren = visited
-        .map(
-          (id) =>
-              _pageCache[id] ??
-              (id == selectedId
-                  ? cachedPage
-                  : const SizedBox.shrink()),
-        )
-        .toList(growable: false);
+    Widget pageFor(String id) {
+      return _pageCache[id] ??
+          (id == selectedId ? cachedPage : const SizedBox.shrink());
+    }
 
     return AdminScaffold(
       selectedDestinationId: selectedId,
@@ -350,9 +342,21 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         if (id == _selectedDestinationId) return;
         setState(() => _selectedDestinationId = id);
       },
-      body: IndexedStack(
-        index: selectedStackIndex < 0 ? 0 : selectedStackIndex,
-        children: stackChildren,
+      body: Stack(
+        fit: StackFit.expand,
+        clipBehavior: Clip.hardEdge,
+        children: [
+          for (final id in visited)
+            Positioned.fill(
+              child: TickerMode(
+                enabled: id == selectedId,
+                child: Offstage(
+                  offstage: id != selectedId,
+                  child: pageFor(id),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
