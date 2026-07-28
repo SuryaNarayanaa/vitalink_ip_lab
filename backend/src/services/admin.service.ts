@@ -2136,7 +2136,16 @@ export async function deactivatePatient(userId: string, actor?: AdminActorInput)
       throw new ApiError(StatusCodes.CONFLICT, 'Patient profile changed concurrently')
     }
     await session.commitTransaction()
-    invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+    try {
+      invalidatedSessions = await revokeSessionsIfAccountDisabled(user, wasActive)
+    } catch (revocationError) {
+      // Deactivation already committed; do not report failure for a revocation race.
+      logger.error('deactivate_patient.session_revocation_failed', {
+        user_id: String(user._id),
+        error: revocationError instanceof Error ? revocationError.message : 'unknown_error',
+      })
+      invalidatedSessions = 0
+    }
   } catch (error) {
     if (session.inTransaction()) await session.abortTransaction()
     throw error
@@ -2674,7 +2683,15 @@ export async function performBatchOperation(
             const deactivatedUser = wasActive
               ? await deactivateDoctorWithAssignmentGuard(user)
               : user
-            invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+            try {
+              invalidatedSessions = await revokeSessionsIfAccountDisabled(deactivatedUser, wasActive)
+            } catch (revocationError) {
+              logger.error('batch_deactivate.session_revocation_failed', {
+                user_id: String(user._id),
+                error: revocationError instanceof Error ? revocationError.message : 'unknown_error',
+              })
+              invalidatedSessions = 0
+            }
           }
           results.push({
             userId,

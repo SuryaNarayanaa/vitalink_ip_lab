@@ -112,17 +112,24 @@ const notifyDoctorOfInrReport = async (input: {
 	isCritical: boolean
 	testDate: Date
 }) => {
+	const isEligibleDoctorRecipient = async (userId: string) => {
+		const recipient = await User.findById(userId)
+			.select('is_active user_type profile_id')
+			.lean()
+		return Boolean(
+			recipient?.is_active
+			&& recipient.user_type === UserType.DOCTOR
+			&& await hasActiveClinicalHospitalAccess(recipient),
+		)
+	}
+
 	try {
 		if (!await isFeatureEnabled('notifications_enabled')) return
 
 		const doctorUserId = getObjectIdString(input.assignedDoctorId)
 		if (!doctorUserId) return
 
-		const doctor = await User.findById(doctorUserId)
-			.select('_id is_active user_type profile_id')
-			.lean()
-		if (!doctor?.is_active || doctor.user_type !== UserType.DOCTOR) return
-		if (!await hasActiveClinicalHospitalAccess(doctor)) return
+		if (!await isEligibleDoctorRecipient(doctorUserId)) return
 
 		let patientLoginId = input.patientLoginId?.trim() || ''
 		if (!patientLoginId) {
@@ -165,15 +172,8 @@ const notifyDoctorOfInrReport = async (input: {
 			expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
 		})
 
-		const stillEligible = await User.findById(doctorUserId)
-			.select('is_active user_type profile_id')
-			.lean()
 		const notificationsEnabled = await isFeatureEnabled('notifications_enabled')
-		const stillDoctor = stillEligible?.user_type === UserType.DOCTOR
-		const hospitalOk = stillEligible?.is_active && stillDoctor
-			? await hasActiveClinicalHospitalAccess(stillEligible)
-			: false
-		if (!notificationsEnabled || !stillEligible?.is_active || !stillDoctor || !hospitalOk) {
+		if (!notificationsEnabled || !await isEligibleDoctorRecipient(doctorUserId)) {
 			await cancelNotificationPush(
 				String(created._id),
 				!notificationsEnabled ? 'notifications_paused' : 'recipient_became_ineligible',
@@ -209,13 +209,7 @@ const notifyDoctorOfInrReport = async (input: {
 		}
 		// Independent outbox boundary: revalidate again before enqueue so push
 		// cannot continue after a post-realtime eligibility loss.
-		const enqueueEligible = await User.findById(doctorUserId)
-			.select('is_active user_type profile_id')
-			.lean()
-		const enqueueDoctorOk = enqueueEligible?.is_active
-			&& enqueueEligible.user_type === UserType.DOCTOR
-			&& await hasActiveClinicalHospitalAccess(enqueueEligible)
-		if (!enqueueDoctorOk) {
+		if (!await isEligibleDoctorRecipient(doctorUserId)) {
 			await cancelNotificationPush(String(created._id), 'recipient_became_ineligible')
 			return
 		}

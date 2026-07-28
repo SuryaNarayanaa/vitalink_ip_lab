@@ -18,16 +18,33 @@ describe('Device token ownership', () => {
   })
   afterEach(() => jest.restoreAllMocks())
 
+  const matchesClaimableFilter = (query: any, record: any | undefined, callerUserId: string) => {
+    if (!record) return true // upsert path for a brand-new token
+    if (String(record.user_id) === String(callerUserId)) return true
+    if (record.is_active !== true) return true
+    return false
+  }
+
   test('rejects stealing an active device token owned by another user', async () => {
     const records = new Map<string, any>()
     ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation((query: any) => ({
       lean: async () => records.get(query.fcm_token) || null,
     }))
-    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any) => {
-      const current = records.get(query.fcm_token) || { _id: 'token-id' }
-      Object.assign(current, update.$set)
-      records.set(query.fcm_token, current)
-      return current
+    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any, options: any) => {
+      const current = records.get(query.fcm_token)
+      const callerUserId = update.$set.user_id
+      if (!matchesClaimableFilter(query, current, callerUserId)) {
+        if (options?.upsert) {
+          const err: any = new Error('E11000 duplicate key')
+          err.code = 11000
+          throw err
+        }
+        return null
+      }
+      const next = current || { _id: 'token-id' }
+      Object.assign(next, update.$set)
+      records.set(query.fcm_token, next)
+      return next
     })
     ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockResolvedValue({ acknowledged: true, modifiedCount: 0 } as any)
 
@@ -52,17 +69,74 @@ describe('Device token ownership', () => {
     ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation((query: any) => ({
       lean: async () => records.get(query.fcm_token) || null,
     }))
-    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any) => {
-      const current = records.get(query.fcm_token) || { _id: 'token-id' }
-      Object.assign(current, update.$set)
-      records.set(query.fcm_token, current)
-      return current
+    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any, options: any) => {
+      const current = records.get(query.fcm_token)
+      const callerUserId = update.$set.user_id
+      if (!matchesClaimableFilter(query, current, callerUserId)) {
+        if (options?.upsert) {
+          const err: any = new Error('E11000 duplicate key')
+          err.code = 11000
+          throw err
+        }
+        return null
+      }
+      const next = current || { _id: 'token-id' }
+      Object.assign(next, update.$set)
+      records.set(query.fcm_token, next)
+      return next
     })
     ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockResolvedValue({ acknowledged: true, modifiedCount: 0 } as any)
 
     await registerDeviceToken({ userId: 'user-b', fcmToken: 'physical-token', platform: 'android' })
     expect(records.get('physical-token').user_id).toBe('user-b')
     expect(records.get('physical-token').is_active).toBe(true)
+  })
+
+  test('rejects claim when a concurrent owner activates the token before update', async () => {
+    const records = new Map<string, any>([
+      ['raced-token', {
+        _id: 'token-id',
+        user_id: 'user-a',
+        fcm_token: 'raced-token',
+        platform: 'android',
+        is_active: false,
+      }],
+    ])
+    ;(jest.spyOn(DeviceToken, 'findOne') as any).mockImplementation((query: any) => ({
+      lean: async () => records.get(query.fcm_token) || null,
+    }))
+    let attempts = 0
+    ;(jest.spyOn(DeviceToken, 'findOneAndUpdate') as any).mockImplementation(async (query: any, update: any, options: any) => {
+      attempts += 1
+      // Simulate TOCTOU: token becomes active for user-a before user-b's claim lands.
+      if (attempts === 1) {
+        records.set('raced-token', {
+          _id: 'token-id',
+          user_id: 'user-a',
+          fcm_token: 'raced-token',
+          platform: 'android',
+          is_active: true,
+        })
+      }
+      const current = records.get(query.fcm_token)
+      const callerUserId = update.$set.user_id
+      if (!matchesClaimableFilter(query, current, callerUserId)) {
+        if (options?.upsert) {
+          const err: any = new Error('E11000 duplicate key')
+          err.code = 11000
+          throw err
+        }
+        return null
+      }
+      Object.assign(current, update.$set)
+      return current
+    })
+    ;(jest.spyOn(DeviceToken, 'updateMany') as any).mockResolvedValue({ acknowledged: true, modifiedCount: 0 } as any)
+
+    await expect(
+      registerDeviceToken({ userId: 'user-b', fcmToken: 'raced-token', platform: 'ios' }),
+    ).rejects.toMatchObject({ statusCode: 409 })
+    expect(records.get('raced-token').user_id).toBe('user-a')
   })
 
   test('dead-token cleanup for a previous owner cannot deactivate a transferred token', async () => {

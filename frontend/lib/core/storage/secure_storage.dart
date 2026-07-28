@@ -75,10 +75,10 @@ class SecureStorage {
 
   Future<void> saveToken(String token) async {
     await _enqueueAuthMutation(() async {
+      await _storage.write(key: AppStrings.tokenKey, value: token);
       _tokenCacheGeneration++;
       _cachedToken = token;
       _tokenHydrated = true;
-      await _storage.write(key: AppStrings.tokenKey, value: token);
     });
   }
 
@@ -186,10 +186,10 @@ class SecureStorage {
 
   Future<void> saveUser(Map<String, dynamic> user) async {
     await _enqueueAuthMutation(() async {
+      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
       _userCacheGeneration++;
       _cachedUser = Map<String, dynamic>.from(user);
       _userHydrated = true;
-      await _storage.write(key: AppStrings.userKey, value: jsonEncode(user));
     });
   }
 
@@ -309,17 +309,32 @@ class SecureStorage {
       _cachedUser = null;
       _tokenHydrated = true;
       _userHydrated = true;
-      await _storage.delete(key: AppStrings.tokenKey);
-      await _storage.delete(key: AppStrings.refreshTokenKey);
-      await _storage.delete(key: AppStrings.authSessionKey);
-      await _storage.delete(key: AppStrings.userKey);
+      // Best-effort: one failed delete must not leave sibling auth keys on disk.
+      Object? firstError;
+      Future<void> deleteKey(String key) async {
+        try {
+          await _storage.delete(key: key);
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+
+      await deleteKey(AppStrings.tokenKey);
+      await deleteKey(AppStrings.refreshTokenKey);
+      await deleteKey(AppStrings.authSessionKey);
+      await deleteKey(AppStrings.userKey);
       if (!preserveOnboarding) {
         _cachedOnboardingCompleted = false;
-        await _storage.delete(key: AppStrings.onboardingCompletedKey);
+        await deleteKey(AppStrings.onboardingCompletedKey);
         try {
           final prefs = await _prefs();
           await prefs.remove(AppStrings.onboardingCompletedKey);
-        } catch (_) {}
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+      if (firstError != null) {
+        throw firstError!;
       }
     });
   }

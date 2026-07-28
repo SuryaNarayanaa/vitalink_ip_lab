@@ -31,67 +31,80 @@ function ownershipUpdate(input: {
   }
 }
 
-export async function registerDeviceToken(input: {
-  userId: string
-  fcmToken: string
-  platform: DevicePlatform
-  appVersion?: string | null
-}) {
-  // Active tokens belonging to another user cannot be claimed by knowledge of
-  // the FCM string alone. Inactive/unowned tokens may be reassigned.
-  const existing = await DeviceToken.findOne({ fcm_token: input.fcmToken }).lean()
+/** Claim filter: same owner, inactive token, or no owner yet (upsert path). */
+function claimableTokenFilter(userId: string, fcmToken: string) {
+  return {
+    fcm_token: fcmToken,
+    $or: [
+      { user_id: userId },
+      { is_active: { $ne: true } },
+      { user_id: null },
+      { user_id: { $exists: false } },
+    ],
+  }
+}
+
+async function assertNotActiveForeignToken(userId: string, fcmToken: string) {
+  const existing = await DeviceToken.findOne({ fcm_token: fcmToken }).lean()
   if (
     existing
     && existing.is_active
-    && String(existing.user_id) !== String(input.userId)
+    && String(existing.user_id) !== String(userId)
   ) {
     throw new ApiError(
       StatusCodes.CONFLICT,
       'Device token is already registered to another active account',
     )
   }
+  return existing
+}
 
+export async function registerDeviceToken(input: {
+  userId: string
+  fcmToken: string
+  platform: DevicePlatform
+  appVersion?: string | null
+}) {
+  // Atomic claim: only same-user or inactive/unowned tokens may be written.
+  // Active tokens owned by another user never match the filter; upsert then
+  // collides on the unique fcm_token index and is mapped to 409 below.
   let token
   try {
     token = await DeviceToken.findOneAndUpdate(
-      { fcm_token: input.fcmToken },
+      claimableTokenFilter(input.userId, input.fcmToken),
       ownershipUpdate(input),
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     )
   } catch (error) {
-    // Concurrent first-time upserts of the same new fcm_token can race the unique index (E11000).
     if (!isDuplicateKeyError(error)) throw error
 
-    const raced = await DeviceToken.findOne({ fcm_token: input.fcmToken }).lean()
-    if (
-      raced
-      && raced.is_active
-      && String(raced.user_id) !== String(input.userId)
-    ) {
+    await assertNotActiveForeignToken(input.userId, input.fcmToken)
+
+    token = await DeviceToken.findOneAndUpdate(
+      claimableTokenFilter(input.userId, input.fcmToken),
+      ownershipUpdate(input),
+      { new: true },
+    )
+    if (!token) {
       throw new ApiError(
         StatusCodes.CONFLICT,
         'Device token is already registered to another active account',
       )
     }
+  }
 
-    token = await DeviceToken.findOneAndUpdate(
-      {
-        fcm_token: input.fcmToken,
-        $or: [
-          { user_id: input.userId },
-          { is_active: false },
-        ],
-      },
-      ownershipUpdate(input),
-      { new: true }
+  if (!token) {
+    await assertNotActiveForeignToken(input.userId, input.fcmToken)
+    throw new ApiError(
+      StatusCodes.CONFLICT,
+      'Device token is already registered to another active account',
     )
-    if (!token) throw error
   }
 
   // One active physical device per user+platform: deactivate siblings after ownership is settled.
   await DeviceToken.updateMany(
     { user_id: input.userId, platform: input.platform, fcm_token: { $ne: input.fcmToken } },
-    { $set: { is_active: false } }
+    { $set: { is_active: false } },
   )
   return token
 }
@@ -100,7 +113,7 @@ export async function deactivateDeviceToken(userId: string, fcmToken: string) {
   return DeviceToken.findOneAndUpdate(
     { user_id: userId, fcm_token: fcmToken },
     { $set: { is_active: false } },
-    { new: true }
+    { new: true },
   )
 }
 

@@ -948,6 +948,13 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
   const { challenge_id: challengeId, code } = req.body as { challenge_id: string; code: string }
   const { challenge, user } = await getAdminMfaEnrollmentChallengeOrThrow(challengeId)
 
+  // Reject while the account is lockout-blocked so enrollment cannot mint a
+  // session that password auth would refuse.
+  const lockedUntil = user.locked_until ? new Date(user.locked_until) : null
+  if (lockedUntil && lockedUntil.getTime() > Date.now()) {
+    throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
+  }
+
   // Consume the enrollment challenge first so only one concurrent activator
   // proceeds; activation of the TOTP factor runs only after this CAS succeeds.
   const factorGeneration = Number(challenge.factor_generation || 0)
@@ -976,66 +983,66 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
 
   let invalidatedSessionResult
   try {
+    // Re-check lockout after consume so a concurrent lock wins before factor enablement.
+    const lockedNow = await User.findById(user._id).select('locked_until is_active').lean()
+    if (
+      !lockedNow?.is_active
+      || (lockedNow.locked_until && new Date(lockedNow.locked_until).getTime() > Date.now())
+    ) {
+      throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
+    }
     invalidatedSessionResult = await activateAdminTotpEnrollment(user, code)
   } catch (caught) {
     // Always surface the activation failure; compensation must never mask it.
     let error: unknown = caught
     try {
-      // If the factor was not enabled, reopen the challenge so a bad code does
-      // not leave enrollment stuck VERIFIED without a usable authenticator.
-      // (A process crash between consume and reopen leaves VERIFIED only; re-login
-      // can still mint a new PENDING enrollment challenge — unique index is
-      // partial on status PENDING.)
       const freshUser = await User.findById(user._id)
       const factorEnabled = freshUser ? isAdminTotpEnabled(freshUser) : false
       if (!factorEnabled) {
-        await AdminMfaChallenge.updateOne(
+        const chargeAttempt = error instanceof ApiError
+          && error.statusCode === StatusCodes.UNAUTHORIZED
+        // Single atomic write from the VERIFIED claim this handler owns: reopen
+        // to PENDING (or LOCKED) and optionally charge an attempt so concurrent
+        // activators cannot slip a consume between reopen and increment.
+        const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
           {
             _id: challenge._id,
             status: AdminMfaChallengeStatus.VERIFIED,
             verified_at: verifiedAt,
             factor_generation: factorGeneration,
             security_version: securityVersion,
-          },
-          {
-            $set: { status: AdminMfaChallengeStatus.PENDING },
-            $unset: { verified_at: 1 },
-          },
-        )
-      }
-      if (
-        !factorEnabled
-        && error instanceof ApiError
-        && error.statusCode === StatusCodes.UNAUTHORIZED
-      ) {
-        const updatedChallenge = await AdminMfaChallenge.findOneAndUpdate(
-          {
-            _id: challenge._id,
-            status: AdminMfaChallengeStatus.PENDING,
             expires_at: { $gt: new Date() },
-            $expr: { $lt: ['$attempt_count', '$max_attempts'] },
-            factor_generation: factorGeneration,
-            security_version: securityVersion,
+            ...(chargeAttempt
+              ? { $expr: { $lt: ['$attempt_count', '$max_attempts'] } }
+              : {}),
           },
-          [
-            { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
-            {
-              $set: {
-                status: {
-                  $cond: [
-                    { $gte: ['$attempt_count', '$max_attempts'] },
-                    AdminMfaChallengeStatus.LOCKED,
-                    AdminMfaChallengeStatus.PENDING,
-                  ],
+          chargeAttempt
+            ? [
+              { $set: { attempt_count: { $add: ['$attempt_count', 1] } } },
+              {
+                $set: {
+                  status: {
+                    $cond: [
+                      { $gte: ['$attempt_count', '$max_attempts'] },
+                      AdminMfaChallengeStatus.LOCKED,
+                      AdminMfaChallengeStatus.PENDING,
+                    ],
+                  },
                 },
               },
-            },
-          ],
-          { new: true, updatePipeline: true },
+              { $unset: 'verified_at' },
+            ]
+            : [
+              { $set: { status: AdminMfaChallengeStatus.PENDING } },
+              { $unset: 'verified_at' },
+            ],
+          { new: true },
         )
-        await recordFailedLoginAttempt(user._id)
-        if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
-          error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
+        if (chargeAttempt) {
+          await recordFailedLoginAttempt(user._id)
+          if (updatedChallenge?.status === AdminMfaChallengeStatus.LOCKED) {
+            error = new ApiError(StatusCodes.LOCKED, 'Invalid TOTP code')
+          }
         }
       }
     } catch (compensationError) {
