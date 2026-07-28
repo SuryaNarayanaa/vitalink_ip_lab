@@ -36,10 +36,11 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          # Keep in sync with frontend/pubspec.yaml environment.sdk (>=3.8.0).
+          # Keep in sync with frontend/pubspec.yaml environment.sdk (>=3.8.1).
+          # flutter_tanstack_query requires Dart >=3.8.1; Flutter 3.32.0 only has 3.8.0.
           # channel:stable alone floats and can break analyze on untouched PRs.
           channel: stable
-          flutter-version: "3.32.0"
+          flutter-version: "3.44.8"
           cache: true
 
       - name: Install dependencies

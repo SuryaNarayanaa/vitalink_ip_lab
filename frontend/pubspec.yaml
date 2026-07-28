@@ -19,7 +19,9 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.8.0 <4.0.0"
+  # flutter_tanstack_query requires Dart >=3.8.1; keep CI Flutter in sync
+  # (.github/workflows/frontend-ci.yml flutter-version).
+  sdk: ">=3.8.1 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -45,8 +47,7 @@ dependencies:
   styled_widget: ^0.4.1
   intl: ^0.19.0
   google_fonts: ^6.1.0
-  # Pin below 1.1.1 so Flutter CI (Flutter 3.32 / flutter_test) can resolve deps.
-  # fl_chart 1.1.1+ requires vector_math ^2.2.0; flutter_test on 3.32 pins 2.1.4.
+  # Keep fl_chart on a known-good release for charts surfaces.
   fl_chart: 1.1.0
   file_picker: ^10.3.10
   url_launcher: ^6.3.0
@@ -55,11 +56,9 @@ dependencies:
   firebase_messaging: ^15.2.10
   flutter_local_notifications: ^18.0.1
   qr_flutter: ^4.1.0
-  # Pin below 2.5.4 so Flutter CI (Dart 3.8 / Flutter 3.32) can resolve deps.
-  # 2.5.4+ requires Dart SDK ^3.9.0.
+  # Pin for reproducible CI; newer minors may raise the Dart lower bound.
   shared_preferences: 2.5.3
-  # Pin below 2.1.6 so Flutter CI (Dart 3.8 / Flutter 3.32) can resolve deps.
-  # 2.1.6+ requires Dart SDK ^3.9; 2.3+ requires ^3.10.
+  # Pin for reproducible CI; 2.1.6+ raises Dart lower bound further.
   pdfrx: 2.1.5
 
 dev_dependencies:
