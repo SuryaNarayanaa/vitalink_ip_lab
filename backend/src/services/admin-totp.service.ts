@@ -270,6 +270,39 @@ export const createAdminTotpEnrollment = async (user: any) => {
 }
 
 /**
+ * Login-challenge enrollment setup: return the existing pending secret when
+ * setup was already started so clients that retry do not rotate material that
+ * was already shown as a QR/manual secret. Creates enrollment only once.
+ */
+export const getOrCreateAdminTotpEnrollmentForLoginChallenge = async (user: any) => {
+  if (user.user_type !== UserType.ADMIN) {
+    throw new ApiError(StatusCodes.FORBIDDEN, 'Admin MFA enrollment is only available for admins')
+  }
+
+  const currentUser = await User.findOne({ _id: user._id, user_type: UserType.ADMIN, is_active: true })
+  if (!currentUser) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'User not found')
+  }
+  if (isAdminTotpEnabled(currentUser)) {
+    throw new ApiError(StatusCodes.CONFLICT, 'Admin TOTP is already enabled')
+  }
+
+  const totp = getTotpSlot(currentUser)
+  if (totp.pending_secret_ciphertext && totp.pending_secret_iv && totp.pending_secret_auth_tag) {
+    const secret = getPendingSecret(currentUser)
+    return {
+      secret,
+      otpauth_url: buildAdminOtpauthUrl(currentUser.login_id, secret),
+      reused: true as const,
+    }
+  }
+
+  // First setup on this factor — standard enrollment (does not rotate ENABLED).
+  const enrollment = await createAdminTotpEnrollment(currentUser)
+  return { ...enrollment, reused: false as const }
+}
+
+/**
  * Starts (or safely restarts) enrollment for an operations-bootstrapped admin.
  * Unlike the authenticated enrollment flow, an abandoned PENDING factor may
  * be replaced. An ENABLED factor is never rotated by this path.
@@ -558,7 +591,12 @@ async function createAdminMfaChallenge(
       factor_generation: factorGeneration,
       security_version: securityVersion,
     })
-    if (!pending || getChallengePurpose(pending) !== purpose) throw error
+    if (!pending || getChallengePurpose(pending) !== purpose) {
+      throw new ApiError(
+        StatusCodes.CONFLICT,
+        'Another MFA challenge is already in progress; please retry',
+      )
+    }
     return pending
   }
 }

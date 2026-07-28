@@ -17,9 +17,9 @@ import {
   activateAdminTotpEnrollment,
   createAdminMfaEnrollmentChallenge,
   createAdminMfaLoginChallenge,
-  createAdminTotpBootstrapEnrollment,
   createAdminTotpEnrollment,
   getAdminMfaEnrollmentChallengeOrThrow,
+  getOrCreateAdminTotpEnrollmentForLoginChallenge,
   getAdminTotpStatus,
   isAdminTotpEnabled,
   isAdminTotpRequiredForUnenrolledAdmins,
@@ -437,6 +437,13 @@ export const loginController = asyncHandler(async (req: Request<{}, {}, LoginInp
       loginAttemptMetadata('locked')
     )
     throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid credentials')
+  }
+  // Lockout window elapsed: restore the failure budget so the next mistakes
+  // start from zero rather than re-locking on the first post-expiry failure.
+  if (lockedUntil && lockedUntil.getTime() <= Date.now()) {
+    await clearLoginFailures(user._id)
+    user.failed_login_attempts = 0
+    user.locked_until = undefined
   }
 
   if (!isPasswordValid) {
@@ -904,7 +911,9 @@ export const setupAdminTotpEnrollmentController = asyncHandler(async (req: Reque
 
   let enrollment
   try {
-    enrollment = await createAdminTotpBootstrapEnrollment(user)
+    // Idempotent for the same challenge: reuses pending secret so retries do not
+    // rotate material already shown to the administrator.
+    enrollment = await getOrCreateAdminTotpEnrollmentForLoginChallenge(user)
   } catch (error) {
     try {
       await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, false, 'Admin TOTP enrollment setup failed', 'mfa_enrollment_setup_failed')
@@ -913,16 +922,19 @@ export const setupAdminTotpEnrollmentController = asyncHandler(async (req: Reque
   }
 
   let auditRecorded = true
-  try {
-    await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, true, 'Admin TOTP enrollment setup started', undefined, {
-      target_user_id: String(user._id),
-      factor_type: 'AUTHENTICATOR_APP',
-      challenge_id: String(challenge._id),
-      enrollment_via: 'login_challenge',
-    })
-  } catch {
-    auditRecorded = false
-    logger.error('MFA enrollment setup success audit persistence failed', { user_id: String(user._id) })
+  // Only audit first-time setup materialization; secret reuses are silent.
+  if (!enrollment.reused) {
+    try {
+      await createAuthAuditLog(req, user, AuditAction.MFA_SETUP, true, 'Admin TOTP enrollment setup started', undefined, {
+        target_user_id: String(user._id),
+        factor_type: 'AUTHENTICATOR_APP',
+        challenge_id: String(challenge._id),
+        enrollment_via: 'login_challenge',
+      })
+    } catch {
+      auditRecorded = false
+      logger.error('MFA enrollment setup success audit persistence failed', { user_id: String(user._id) })
+    }
   }
 
   res.status(StatusCodes.OK).json(new ApiResponse(StatusCodes.OK, 'Admin TOTP enrollment setup started', {
@@ -930,7 +942,8 @@ export const setupAdminTotpEnrollmentController = asyncHandler(async (req: Reque
     secret: enrollment.secret,
     otpauth_url: enrollment.otpauth_url,
     challenge_id: String(challenge._id),
-    audit_recorded: auditRecorded,
+    reused: enrollment.reused,
+    audit_recorded: enrollment.reused ? true : auditRecorded,
   }))
 })
 
@@ -986,10 +999,16 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
     throw error
   }
 
+  const factorGeneration = Number(challenge.factor_generation || 0)
+  const securityVersion = Number(challenge.security_version || 0)
   const consumed = await AdminMfaChallenge.findOneAndUpdate(
     {
       _id: challenge._id,
       status: AdminMfaChallengeStatus.PENDING,
+      expires_at: { $gt: new Date() },
+      $expr: { $lt: ['$attempt_count', '$max_attempts'] },
+      factor_generation: factorGeneration,
+      security_version: securityVersion,
     },
     {
       $set: {
@@ -1003,11 +1022,17 @@ export const activateAdminTotpEnrollmentController = asyncHandler(async (req: Re
     throw new ApiError(StatusCodes.GONE, 'Admin MFA enrollment challenge is no longer available')
   }
 
-  await clearLoginFailures(user._id)
-  user.last_login_at = new Date()
+  const loggedInAt = new Date()
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: { failed_login_attempts: 0, last_login_at: loggedInAt },
+      $unset: { locked_until: 1 },
+    },
+  )
+  user.last_login_at = loggedInAt
   user.failed_login_attempts = 0
   user.locked_until = undefined
-  await user.save()
 
   let auditRecorded = true
   try {

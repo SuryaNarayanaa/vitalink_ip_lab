@@ -398,7 +398,11 @@ class ApiClient {
     bool authenticated = true,
   }) async {
     try {
-      final headers = await _buildHeaders(includeAuth: authenticated);
+      // FormData must not force application/json — Dio sets multipart boundary.
+      final headers = await _buildHeaders(
+        includeAuth: authenticated,
+        includeJsonContentType: data is! FormData,
+      );
       final response = await _sendWithRetry(
         () => _dio.post<Map<String, dynamic>>(
           path,
@@ -545,11 +549,16 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, String>> _buildHeaders({required bool includeAuth}) async {
+  Future<Map<String, String>> _buildHeaders({
+    required bool includeAuth,
+    bool includeJsonContentType = true,
+  }) async {
     final headers = <String, String>{
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
+    if (includeJsonContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (includeAuth) {
       final token = await _secureStorage.readToken();

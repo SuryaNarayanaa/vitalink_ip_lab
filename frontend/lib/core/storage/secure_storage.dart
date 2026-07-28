@@ -229,18 +229,12 @@ class SecureStorage {
   }
 
   Future<void> clearUser() async {
-    _authMutationQueue = _authMutationQueue?.then((_) async {
+    await _enqueueAuthMutation(() async {
       _userCacheGeneration++;
       _cachedUser = null;
       _userHydrated = true;
       await _storage.delete(key: AppStrings.userKey);
-    }) ?? (() async {
-      _userCacheGeneration++;
-      _cachedUser = null;
-      _userHydrated = true;
-      await _storage.delete(key: AppStrings.userKey);
-    })();
-    return _authMutationQueue!;
+    });
   }
 
   /// Onboarding completion flag ──────────────────────────────────────────────

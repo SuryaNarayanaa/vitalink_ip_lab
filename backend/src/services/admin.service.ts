@@ -2580,17 +2580,33 @@ export async function performBatchOperation(
               await patientLifecycleLease?.assertOwned()
               await guard.assertOwned()
             } catch (error) {
+              // Best-effort independent compensations so one rollback failure
+              // cannot skip the other or replace the original error reason.
               if (activationCommitted) {
-                await User.updateOne(
-                  { _id: user._id, is_active: true },
-                  { $set: { is_active: false }, $inc: { security_version: 1 } },
-                )
+                try {
+                  await User.updateOne(
+                    { _id: user._id, is_active: true },
+                    { $set: { is_active: false }, $inc: { security_version: 1 } },
+                  )
+                } catch (compensationError) {
+                  logger.error('batch_activate.login_rollback_failed', {
+                    user_id: String(user._id),
+                    error: compensationError instanceof Error ? compensationError.message : 'unknown_error',
+                  })
+                }
               }
               if (profileRestored) {
-                await PatientProfile.updateOne(
-                  { _id: user.profile_id, account_status: 'Active' },
-                  { $set: { account_status: 'Discharged' } },
-                )
+                try {
+                  await PatientProfile.updateOne(
+                    { _id: user.profile_id, account_status: 'Active' },
+                    { $set: { account_status: 'Discharged' } },
+                  )
+                } catch (compensationError) {
+                  logger.error('batch_activate.profile_rollback_failed', {
+                    user_id: String(user._id),
+                    error: compensationError instanceof Error ? compensationError.message : 'unknown_error',
+                  })
+                }
               }
               throw error
             } finally {

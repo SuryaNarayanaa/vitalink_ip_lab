@@ -169,10 +169,11 @@ const notifyDoctorOfInrReport = async (input: {
 			.select('is_active user_type profile_id')
 			.lean()
 		const notificationsEnabled = await isFeatureEnabled('notifications_enabled')
-		const hospitalOk = stillEligible?.is_active
+		const stillDoctor = stillEligible?.user_type === UserType.DOCTOR
+		const hospitalOk = stillEligible?.is_active && stillDoctor
 			? await hasActiveClinicalHospitalAccess(stillEligible)
 			: false
-		if (!notificationsEnabled || !stillEligible?.is_active || !hospitalOk) {
+		if (!notificationsEnabled || !stillEligible?.is_active || !stillDoctor || !hospitalOk) {
 			await cancelNotificationPush(
 				String(created._id),
 				!notificationsEnabled ? 'notifications_paused' : 'recipient_became_ineligible',

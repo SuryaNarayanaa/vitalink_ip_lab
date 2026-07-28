@@ -6,7 +6,7 @@ import { AdminMfaChallenge, AdminProfile, AdminRolePolicy, AuditLog, AuthSession
 import { Server } from 'http';
 import { AdminRole } from '@alias/models/adminprofile.model';
 import { DEFAULT_ADMIN_ROLE_POLICIES } from '@alias/constants/admin-capabilities';
-import { OtpChallengeStatus } from '@alias/models/otpchallenge.model';
+import { OtpChallengePurpose, OtpChallengeStatus } from '@alias/models/otpchallenge.model';
 import { AdminMfaChallengeStatus } from '@alias/models/adminmfachallenge.model';
 import { createAdminTotpEnrollment, generateTotpCode, replaceAdminTotpForRecovery } from '@alias/services/admin-totp.service';
 import { updateSystemConfig } from '@alias/services/config.service';
@@ -833,30 +833,36 @@ describe('Auth Routes', () => {
                 login_id: 'unverified-patient',
                 password: 'testpassword123'
             });
-            await OtpChallenge.findByIdAndUpdate(lockedLogin.data.data.challenge.challenge_id, {
-                $set: {
-                    status: OtpChallengeStatus.LOCKED,
-                    attempt_count: 5,
-                },
-            });
+            const lockedChallengeId = lockedLogin.data.data.challenge.challenge_id;
+            try {
+                await OtpChallenge.findByIdAndUpdate(lockedChallengeId, {
+                    $set: {
+                        status: OtpChallengeStatus.LOCKED,
+                        attempt_count: 5,
+                    },
+                });
 
-            const lockedResponse = await api.post('/api/auth/login/otp/verify', {
-                challenge_id: lockedLogin.data.data.challenge.challenge_id,
-                code: '123456',
-            });
-            expect(lockedResponse.status).toBe(423);
-            expect(mockCheckVerification).not.toHaveBeenCalledWith('+919000004444', '123456');
-
-            // Clear durable lockout state so later first-login OTP cases for the
-            // same fixture user are not blocked by this intentional LOCKED challenge.
-            await OtpChallenge.updateMany(
-                { user_id: unverifiedPatientUser._id, status: OtpChallengeStatus.LOCKED },
-                { $set: { status: OtpChallengeStatus.CANCELLED } },
-            );
-            await User.updateOne(
-                { _id: unverifiedPatientUser._id },
-                { $set: { failed_login_attempts: 0 }, $unset: { locked_until: 1 } },
-            );
+                const lockedResponse = await api.post('/api/auth/login/otp/verify', {
+                    challenge_id: lockedChallengeId,
+                    code: '123456',
+                });
+                expect(lockedResponse.status).toBe(423);
+                expect(mockCheckVerification).not.toHaveBeenCalledWith('+919000004444', '123456');
+            } finally {
+                // Scope cleanup to this challenge so later first-login OTP cases
+                // for the fixture user are not blocked by intentional LOCKED state.
+                await OtpChallenge.updateOne(
+                    {
+                        _id: lockedChallengeId,
+                        purpose: OtpChallengePurpose.PHONE_FIRST_LOGIN,
+                    },
+                    { $set: { status: OtpChallengeStatus.CANCELLED } },
+                );
+                await User.updateOne(
+                    { _id: unverifiedPatientUser._id },
+                    { $set: { failed_login_attempts: 0 }, $unset: { locked_until: 1 } },
+                );
+            }
         });
 
         test('should prevent cross-account login challenge replay after registered phone changes', async () => {

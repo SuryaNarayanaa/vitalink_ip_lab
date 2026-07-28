@@ -202,6 +202,14 @@ function payloadDataAsRecord(
       result[key] = value.map(String).join(',')
       continue
     }
+    if (typeof value === 'object') {
+      try {
+        result[key] = JSON.stringify(value)
+      } catch {
+        // Skip values that cannot be serialized rather than persist "[object Object]".
+      }
+      continue
+    }
     result[key] = String(value)
   }
   return result

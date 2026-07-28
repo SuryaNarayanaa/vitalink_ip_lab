@@ -251,7 +251,7 @@ class _DelayedReportsApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> post(
     String path, {
-    Map<String, dynamic>? data,
+    Object? data,
     bool authenticated = true,
   }) async {
     if (!allowPost) {

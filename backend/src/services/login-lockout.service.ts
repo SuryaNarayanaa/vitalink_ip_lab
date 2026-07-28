@@ -6,16 +6,44 @@ import { User } from '@alias/models'
  * Increment failed login attempts and lock the account once the threshold is
  * reached. Used for password failures and second-factor (OTP/TOTP) failures so
  * re-authenticating with the password alone cannot reset the budget.
+ *
+ * After a prior lockout window has expired, the failure budget restarts at 1
+ * instead of continuing from the threshold (which would re-lock immediately).
  */
 export async function recordFailedLoginAttempt(userId: string | mongoose.Types.ObjectId) {
   const failedAt = new Date()
   const lockedUntil = new Date(failedAt.getTime() + config.accountLockoutMinutes * 60 * 1000)
+  const maxAttempts = config.maxFailedLoginAttempts
   const updatedUser = await User.findOneAndUpdate(
     { _id: userId, is_active: true },
     [
       {
         $set: {
-          failed_login_attempts: { $add: [{ $ifNull: ['$failed_login_attempts', 0] }, 1] },
+          failed_login_attempts: {
+            $let: {
+              vars: {
+                previous: { $ifNull: ['$failed_login_attempts', 0] },
+                lockExpired: {
+                  $or: [
+                    { $eq: [{ $ifNull: ['$locked_until', null] }, null] },
+                    { $lte: ['$locked_until', failedAt] },
+                  ],
+                },
+              },
+              in: {
+                $cond: [
+                  {
+                    $and: [
+                      '$$lockExpired',
+                      { $gte: ['$$previous', maxAttempts] },
+                    ],
+                  },
+                  1,
+                  { $add: ['$$previous', 1] },
+                ],
+              },
+            },
+          },
           last_failed_login_at: failedAt,
         },
       },
@@ -23,9 +51,9 @@ export async function recordFailedLoginAttempt(userId: string | mongoose.Types.O
         $set: {
           locked_until: {
             $cond: [
-              { $gte: ['$failed_login_attempts', config.maxFailedLoginAttempts] },
+              { $gte: ['$failed_login_attempts', maxAttempts] },
               lockedUntil,
-              '$locked_until',
+              '$$REMOVE',
             ],
           },
         },
@@ -37,7 +65,7 @@ export async function recordFailedLoginAttempt(userId: string | mongoose.Types.O
   return {
     failedAttempts,
     lockedUntil: updatedUser?.locked_until as Date | undefined,
-    accountLocked: failedAttempts >= config.maxFailedLoginAttempts
+    accountLocked: failedAttempts >= maxAttempts
       || Boolean(updatedUser?.locked_until && new Date(updatedUser.locked_until).getTime() > Date.now()),
   }
 }

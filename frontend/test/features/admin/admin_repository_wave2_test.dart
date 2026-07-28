@@ -6,7 +6,7 @@ import 'package:frontend/features/admin/models/admin_access_model.dart';
 
 class _RecordingApiClient extends ApiClient {
   final List<String> requests = [];
-  final List<Map<String, dynamic>?> bodies = [];
+  final List<Object?> bodies = [];
   Map<String, dynamic> response = const {};
 
   @override
@@ -23,7 +23,7 @@ class _RecordingApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> post(
     String path, {
-    Map<String, dynamic>? data,
+    Object? data,
     bool authenticated = true,
   }) async {
     requests.add('POST $path');
