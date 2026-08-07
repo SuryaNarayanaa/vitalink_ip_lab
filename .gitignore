@@ -25,3 +25,7 @@ docs/AWS_MIGRATION_IMPLEMENTATION_PLAN.md
 /docs/deliverables
 /tools
 /coderabbit_issues_grouped_by_severity_checklist.txt
+/site
+/build
+__pycache__/
+*.py[cod]

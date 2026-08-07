@@ -189,7 +189,7 @@ LOG_LEVEL=info
 DOSAGE_REMINDER_TIMEZONE=Asia/Kolkata
 ```
 
-Use `CORS_ALLOWED_ORIGINS`, not the legacy-looking `CORS_ORIGINS` name found in `deploy/.env.production.example`. Multiple origins are comma-separated and must include the scheme, for example `https://app.example.com,https://admin.example.com`. In production, an empty allowlist rejects browser requests that include an `Origin` header.
+Use `CORS_ALLOWED_ORIGINS`. Multiple origins are comma-separated and must include the scheme, for example `https://app.example.com,https://admin.example.com`. In production, an empty allowlist rejects browser requests that include an `Origin` header.
 
 Build production clients with the production API origin:
 
@@ -221,9 +221,9 @@ The following groups are available in every backend profile. Defaults are docume
 | Observability | `LOG_LEVEL`, `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD` |
 | API docs | `API_DOCS_ENABLED`, `API_DOCS_PATH`, `API_DOCS_USERNAME`, `API_DOCS_PASSWORD` |
 | Administrative scripts | `DEFAULT_ADMIN_LOGIN`, `DEFAULT_ADMIN_PASSWORD` |
-| Billing | `PAYMENT_CHECKOUT_BASE_URL` |
+| Billing | `PAYMENT_PROVIDER_API_URL`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_SUCCESS_URL`, `PAYMENT_CANCEL_URL`, `PAYMENT_WEBHOOK_SECRET` |
 
-`PAYMENT_CHECKOUT_BASE_URL` is only required when the hosted checkout flow is used. `DEFAULT_ADMIN_LOGIN` and `DEFAULT_ADMIN_PASSWORD` are inputs to the admin seed command; unset or remove them after controlled provisioning where the secret platform permits it.
+The payment variables are required only when hosted checkout/settlement is used. The provider URL must be HTTPS; the provider is expected to return `checkout_url`, and settlement callbacks must sign the complete event payload with `PAYMENT_WEBHOOK_SECRET`. `DEFAULT_ADMIN_LOGIN` and `DEFAULT_ADMIN_PASSWORD` are inputs to the admin seed command; unset or remove them after controlled provisioning where the secret platform permits it.
 
 When `MALWARE_SCAN_ENABLED=true`, uploads are accepted only after the configured HTTP scanner returns `{"clean":true}`. Scanner errors and timeouts fail closed before object storage. See `backend/docs/file-security-and-purge.md` for the scanner contract and patient file-purge runbook.
 

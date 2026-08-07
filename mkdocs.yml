@@ -1,0 +1,118 @@
+site_name: VitaLink Engineering Documentation
+site_description: Source-backed product, architecture, API, security, data, and operations documentation for VitaLink
+site_url: https://suryanarayanaa.github.io/vitalink_ip_lab/docs/
+repo_url: https://github.com/SuryaNarayanaa/vitalink_ip_lab
+repo_name: SuryaNarayanaa/vitalink_ip_lab
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+exclude_docs: |
+  AWS_MIGRATION_IMPLEMENTATION_PLAN.md
+  deliverables/
+  access-control-mentor-overview.html
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Product:
+      - Overview and problem: product/overview.md
+      - Scope and stakeholders: product/scope-and-stakeholders.md
+  - Requirements:
+      - Functional: requirements/functional.md
+      - Non-functional: requirements/non-functional.md
+      - Roles and permissions: security/roles-and-permissions.md
+  - Workflows:
+      - End-to-end journey: workflows/end-to-end.md
+      - Feature workflows: workflows/features.md
+  - Architecture:
+      - C4 model: architecture/c4.md
+      - Backend components: architecture/components.md
+      - Request sequences: architecture/sequences.md
+      - Deployment: architecture/deployment.md
+      - CI/CD: architecture/ci-cd.md
+  - Data:
+      - ER model: data/er-diagram.md
+      - Entity catalog: data/entities.md
+      - Schema evolution: data/schema-evolution.md
+  - API:
+      - REST API guide: api/index.md
+  - Security:
+      - Authentication and authorization: security/authentication-and-authorization.md
+      - Controls and trust boundaries: security/controls-and-trust-boundaries.md
+  - Quality:
+      - Testing strategy: quality/testing.md
+  - Operations:
+      - Monitoring and logging: operations/monitoring-and-logging.md
+      - Deployment runbook: operations/deployment-runbook.md
+      - Rollback runbook: operations/rollback-runbook.md
+      - Incident runbook: operations/incident-runbook.md
+  - Decisions:
+      - ADR index: decisions/index.md
+      - "ADR-0001: Versioned REST API": decisions/0001-versioned-rest-api.md
+      - "ADR-0002: MongoDB and Mongoose": decisions/0002-mongodb-mongoose.md
+      - "ADR-0003: Revocable JWT sessions": decisions/0003-revocable-jwt-sessions.md
+      - "ADR-0004: Persisted admin RBAC": decisions/0004-persisted-admin-rbac.md
+      - "ADR-0005: Tenant-scoped file assets": decisions/0005-tenant-scoped-file-assets.md
+      - "ADR-0006: Durable notification delivery": decisions/0006-durable-notification-delivery.md
+      - "ADR-0007: Blue-green deployment": decisions/0007-blue-green-deployment.md
+      - "ADR-0008: Single-use SSE tickets": decisions/0008-single-use-sse-tickets.md
+  - Reference:
+      - Environments: environments.md
+      - Source evidence: reference/source-evidence.md
+      - Open questions: reference/open-questions.md
+      - Inconsistencies: reference/inconsistencies.md
+      - Validation report: reference/validation.md
