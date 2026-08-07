@@ -10,7 +10,7 @@ From the repository root:
 python -m pip install -r requirements-docs.txt
 python scripts/docs/validate_docs.py
 python scripts/docs/extract_mermaid.py --output build/mermaid-validation.md
-npx.cmd -y @mermaid-js/mermaid-cli -i build/mermaid-validation.md -o build/mermaid-rendered.md
+npx.cmd -y @mermaid-js/mermaid-cli -p scripts/docs/puppeteer-config.json -i build/mermaid-validation.md -o build/mermaid-rendered.md
 docker run --rm -v "${PWD}/docs/architecture:/usr/local/structurizr" structurizr/cli:2025.11.09 validate -workspace /usr/local/structurizr/workspace.dsl
 mkdocs build --strict
 ```

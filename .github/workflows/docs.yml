@@ -76,7 +76,13 @@ jobs:
         run: python scripts/docs/extract_mermaid.py --output build/mermaid-validation.md
 
       - name: Validate Mermaid diagrams
-        run: npx -y @mermaid-js/mermaid-cli -i build/mermaid-validation.md -o build/mermaid-rendered.md
+        # GitHub-hosted runners restrict Chromium's user-namespace sandbox.
+        # Pass a Puppeteer config so mermaid-cli can render headlessly in CI.
+        run: >-
+          npx -y @mermaid-js/mermaid-cli
+          -p scripts/docs/puppeteer-config.json
+          -i build/mermaid-validation.md
+          -o build/mermaid-rendered.md
 
       - name: Validate Structurizr DSL
         run: >-

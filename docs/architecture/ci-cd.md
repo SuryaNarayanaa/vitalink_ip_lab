@@ -25,9 +25,24 @@ flowchart TD
 | Backend CI | Backend push/PR | Reject tracked uploads, OpenAPI lint, high-severity npm audit, TypeScript build, Jest coverage |
 | Backend CD | Main backend/deploy changes or manual | Repeats build/tests, SSH deploy, readiness check, automatic rollback attempt |
 | Frontend CI | Frontend push/PR/manual | Flutter 3.44.8 dependency restore, analyze, tests |
-| Build APK | Every push/manual | Firebase config from secret, release APK with hosted API defines, artifact upload |
-| Web/Docs Pages | Main/manual | Flutter web build plus validated MkDocs build, one combined Pages artifact |
-| Documentation CI | Docs and source-of-truth changes | Contract parity, links, OpenAPI, Mermaid, Structurizr, strict MkDocs build |
+| Build APK | Every push/manual | Firebase config + release signing from secrets, release APK with hosted API defines, artifact upload |
+| Web/Docs Pages | Main/manual | Flutter web build plus validated MkDocs build, one combined Pages artifact (GitHub Pages `build_type: workflow`) |
+| Documentation CI | Docs and source-of-truth changes | Contract parity, links, OpenAPI, Mermaid (Puppeteer no-sandbox config), Structurizr, strict MkDocs build |
+
+## Required CI secrets
+
+| Secret | Used by | Purpose |
+| --- | --- | --- |
+| `GOOGLE_SERVICES_JSON` | Build APK | Firebase Android `google-services.json` contents |
+| `ANDROID_KEYSTORE_BASE64` | Build APK | Base64-encoded upload keystore (`.jks`) |
+| `ANDROID_KEYSTORE_PASSWORD` | Build APK | Keystore password written to `key.properties` |
+| `ANDROID_KEY_PASSWORD` | Build APK | Key password written to `key.properties` |
+| `ANDROID_KEY_ALIAS` | Build APK | Key alias written to `key.properties` |
+| `EC2_HOST` | Backend CD (production env) | SSH target host |
+| `EC2_USER` | Backend CD (production env) | SSH username |
+| `EC2_SSH_KEY` | Backend CD (production env) | SSH private key |
+
+Backend CD skips the SSH deploy steps cleanly when any of `EC2_HOST`, `EC2_USER`, or `EC2_SSH_KEY` is unset, so missing production credentials do not fail the workflow.
 
 ## Release limitations
 

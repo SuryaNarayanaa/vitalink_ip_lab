@@ -46,13 +46,31 @@ jobs:
 
   # -------------------------------------------------------------------
   # Job 2: Deploy to EC2 with zero downtime
+  # Skips cleanly when production SSH secrets are not configured.
+  # Required repository/environment secrets: EC2_HOST, EC2_USER, EC2_SSH_KEY
   # -------------------------------------------------------------------
   deploy:
     needs: ci
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Check deploy secrets
+        id: secrets
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ] || [ -z "$EC2_SSH_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "EC2 deploy secrets are not fully configured (EC2_HOST, EC2_USER, EC2_SSH_KEY)."
+            echo "Skipping production deploy. Configure the secrets on the production environment to enable CD."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to EC2 via SSH
+        if: steps.secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -79,6 +97,7 @@ jobs:
             sudo ./deploy.sh status
 
       - name: Verify deployment
+        if: steps.secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -103,7 +122,7 @@ jobs:
             fi
 
       - name: Notify on failure
-        if: failure()
+        if: failure() && steps.secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
