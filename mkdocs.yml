@@ -79,6 +79,7 @@ nav:
       - End-to-end journey: workflows/end-to-end.md
       - Feature workflows: workflows/features.md
   - Architecture:
+      - Complete system design: architecture/system-design.md
       - C4 model: architecture/c4.md
       - Backend components: architecture/components.md
       - Request sequences: architecture/sequences.md
