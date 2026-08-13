@@ -10,6 +10,7 @@ enum ApiErrorKind {
   forbidden,
   notFound,
   locked,
+  gone,
   rateLimited,
   requestTooLarge,
   server,
@@ -59,7 +60,9 @@ class ApiException implements Exception {
       kind == ApiErrorKind.server;
 
   bool get shouldReturnToLogin =>
-      kind == ApiErrorKind.unauthorized || kind == ApiErrorKind.locked;
+      kind == ApiErrorKind.unauthorized ||
+      kind == ApiErrorKind.locked ||
+      kind == ApiErrorKind.gone;
 
   String get actionLabel {
     if (shouldReturnToLogin) return 'Back to login';
@@ -79,6 +82,8 @@ class ApiException implements Exception {
         return 'This service is unavailable';
       case ApiErrorKind.locked:
         return 'Account temporarily locked';
+      case ApiErrorKind.gone:
+        return 'This sign-in step expired';
       case ApiErrorKind.rateLimited:
         return 'Please slow down';
       case ApiErrorKind.requestTooLarge:
@@ -730,6 +735,17 @@ class ApiClient {
         }
         _notifyAuthorizationDenied();
         return exception;
+      case 410:
+        return ApiException(
+          _sanitizeServerMessage(
+            serverMessage ??
+                'This sign-in step expired. Return to login and try again.',
+          ),
+          statusCode: statusCode,
+          kind: ApiErrorKind.gone,
+          apiVersion: apiVersion,
+          supportedVersions: supportedVersions,
+        );
       case 409:
         return ApiConflictException(
           _sanitizeServerMessage(

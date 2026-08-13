@@ -43,6 +43,33 @@ class VerifyLoginTotpRequest {
   Map<String, dynamic> toJson() => {'challenge_id': challengeId, 'code': code};
 }
 
+class EnrollAdminTotpSetupRequest {
+  EnrollAdminTotpSetupRequest({required this.challengeId});
+
+  final String challengeId;
+
+  String get path => AppStrings.loginTotpEnrollSetupPath;
+
+  Map<String, dynamic> toJson() => {'challenge_id': challengeId};
+}
+
+class EnrollAdminTotpActivateRequest {
+  EnrollAdminTotpActivateRequest({
+    required this.challengeId,
+    required this.code,
+  });
+
+  final String challengeId;
+  final String code;
+
+  String get path => AppStrings.loginTotpEnrollActivatePath;
+
+  Map<String, dynamic> toJson() => {
+        'challenge_id': challengeId,
+        'code': code,
+      };
+}
+
 class RefreshSessionRequest {
   RefreshSessionRequest({required this.refreshToken});
 
@@ -328,6 +355,7 @@ class LoginTotpChallenge {
   LoginTotpChallenge({
     required this.challengeId,
     required this.factorType,
+    this.purpose,
     this.expiresAt,
     this.attemptsRemaining,
     this.maxAttempts,
@@ -337,6 +365,7 @@ class LoginTotpChallenge {
     return LoginTotpChallenge(
       challengeId: _readString(json['challenge_id']),
       factorType: _readString(json['factor_type']),
+      purpose: _readNullableString(json['purpose']),
       expiresAt: _readDateTime(json['expires_at']),
       attemptsRemaining: _readInt(json['attempts_remaining']),
       maxAttempts: _readInt(json['max_attempts']),
@@ -345,30 +374,81 @@ class LoginTotpChallenge {
 
   final String challengeId;
   final String factorType;
+  final String? purpose;
   final DateTime? expiresAt;
   final int? attemptsRemaining;
   final int? maxAttempts;
+
+  bool get isEnrollment =>
+      (purpose ?? '').trim().toUpperCase() == 'ENROLLMENT';
+
+  bool get isExpired {
+    final expires = expiresAt;
+    if (expires == null) return false;
+    return !expires.isAfter(DateTime.now());
+  }
+
+  bool get hasAttemptsRemaining =>
+      attemptsRemaining == null || attemptsRemaining! > 0;
+
+  bool get canVerifyNow => !isExpired && hasAttemptsRemaining;
+}
+
+class LoginTotpEnrollmentMaterial {
+  LoginTotpEnrollmentMaterial({
+    required this.factorType,
+    required this.secret,
+    required this.otpauthUrl,
+    required this.challengeId,
+    this.reused = false,
+  });
+
+  factory LoginTotpEnrollmentMaterial.fromJson(Map<String, dynamic> json) {
+    return LoginTotpEnrollmentMaterial(
+      factorType: _readString(json['factor_type']),
+      secret: _readString(json['secret']),
+      otpauthUrl: _readString(json['otpauth_url']),
+      challengeId: _readString(json['challenge_id']),
+      reused: _readBool(json['reused'], fallback: false),
+    );
+  }
+
+  final String factorType;
+  final String secret;
+  final String otpauthUrl;
+  final String challengeId;
+  final bool reused;
 }
 
 class LoginResult {
   LoginResult.authenticated(this.response)
     : otpChallenge = null,
-      totpChallenge = null;
+      totpChallenge = null,
+      enrollmentChallenge = null;
 
   LoginResult.otpRequired(this.otpChallenge)
     : response = null,
-      totpChallenge = null;
+      totpChallenge = null,
+      enrollmentChallenge = null;
 
   LoginResult.totpRequired(this.totpChallenge)
     : response = null,
-      otpChallenge = null;
+      otpChallenge = null,
+      enrollmentChallenge = null;
+
+  LoginResult.enrollmentRequired(this.enrollmentChallenge)
+    : response = null,
+      otpChallenge = null,
+      totpChallenge = null;
 
   final LoginResponse? response;
   final LoginOtpChallenge? otpChallenge;
   final LoginTotpChallenge? totpChallenge;
+  final LoginTotpChallenge? enrollmentChallenge;
 
   bool get isOtpRequired => otpChallenge != null;
   bool get isTotpRequired => totpChallenge != null;
+  bool get isEnrollmentRequired => enrollmentChallenge != null;
 }
 
 String _readString(dynamic value) {

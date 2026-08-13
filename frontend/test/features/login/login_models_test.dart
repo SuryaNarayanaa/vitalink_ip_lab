@@ -109,6 +109,31 @@ void main() {
       expect(challenge.attemptsRemaining, 3);
       expect(challenge.maxAttempts, 5);
       expect(challenge.expiresAt, isNotNull);
+      expect(challenge.isEnrollment, isFalse);
+    });
+
+    test('parses password-bound enrollment challenge and setup material', () {
+      final challenge = LoginTotpChallenge.fromJson({
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+        'factor_type': 'AUTHENTICATOR_APP',
+        'purpose': 'ENROLLMENT',
+        'expires_at': DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        'attempts_remaining': 5,
+        'max_attempts': 5,
+      });
+      final material = LoginTotpEnrollmentMaterial.fromJson({
+        'factor_type': 'AUTHENTICATOR_APP',
+        'secret': 'JBSWY3DPEHPK3PXP',
+        'otpauth_url': 'otpauth://totp/VitaLink:admin?secret=JBSWY3DPEHPK3PXP',
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+        'reused': true,
+      });
+
+      expect(challenge.isEnrollment, isTrue);
+      expect(challenge.canVerifyNow, isTrue);
+      expect(material.secret, 'JBSWY3DPEHPK3PXP');
+      expect(material.otpauthUrl, startsWith('otpauth://totp/'));
+      expect(material.reused, isTrue);
     });
 
     test('builds verify request for backend login TOTP endpoint', () {
@@ -120,6 +145,24 @@ void main() {
       expect(verify.path, AppStrings.loginTotpVerifyPath);
       expect(verify.toJson(), {
         'challenge_id': 'admin-mfa-123',
+        'code': '123456',
+      });
+    });
+
+    test('builds password-bound enrollment setup and activate requests', () {
+      final setup = EnrollAdminTotpSetupRequest(
+        challengeId: '64b1f0c8e4b0a1d2c3e4f567',
+      );
+      final activate = EnrollAdminTotpActivateRequest(
+        challengeId: '64b1f0c8e4b0a1d2c3e4f567',
+        code: '123456',
+      );
+
+      expect(setup.path, AppStrings.loginTotpEnrollSetupPath);
+      expect(setup.toJson(), {'challenge_id': '64b1f0c8e4b0a1d2c3e4f567'});
+      expect(activate.path, AppStrings.loginTotpEnrollActivatePath);
+      expect(activate.toJson(), {
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
         'code': '123456',
       });
     });

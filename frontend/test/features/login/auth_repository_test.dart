@@ -146,8 +146,99 @@ void main() {
       );
 
       expect(result.isTotpRequired, isTrue);
+      expect(result.isEnrollmentRequired, isFalse);
       expect(result.totpChallenge?.challengeId, '64b1f0c8e4b0a1d2c3e4f567');
       expect(await storage.readToken(), isNull);
+    });
+
+    test('login returns enrollment required without storing a session', () async {
+      final apiClient = _FakeApiClient({
+        AppStrings.loginPath: {
+          'auth_status': 'TOTP_ENROLLMENT_REQUIRED',
+          'challenge': {
+            'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+            'factor_type': 'AUTHENTICATOR_APP',
+            'purpose': 'ENROLLMENT',
+            'expires_at': '2026-08-13T12:00:00.000Z',
+            'attempts_remaining': 5,
+            'max_attempts': 5,
+          },
+        },
+      });
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final result = await repository.login(
+        LoginRequest(loginId: 'admin@example.test', password: 'secret'),
+      );
+
+      expect(result.isEnrollmentRequired, isTrue);
+      expect(result.enrollmentChallenge?.challengeId, '64b1f0c8e4b0a1d2c3e4f567');
+      expect(result.enrollmentChallenge?.isEnrollment, isTrue);
+      expect(result.response, isNull);
+      expect(await storage.readToken(), isNull);
+      expect(await storage.readRefreshToken(), isNull);
+    });
+
+    test('enrollment setup posts the challenge without authentication', () async {
+      final apiClient = _FakeApiClient({
+        AppStrings.loginTotpEnrollSetupPath: {
+          'factor_type': 'AUTHENTICATOR_APP',
+          'secret': 'JBSWY3DPEHPK3PXP',
+          'otpauth_url': 'otpauth://totp/VitaLink:admin?secret=JBSWY3DPEHPK3PXP',
+          'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+          'reused': false,
+          'audit_recorded': true,
+        },
+      });
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final material = await repository.setupLoginTotpEnrollment(
+        EnrollAdminTotpSetupRequest(challengeId: '64b1f0c8e4b0a1d2c3e4f567'),
+      );
+
+      expect(apiClient.calls.single.path, AppStrings.loginTotpEnrollSetupPath);
+      expect(apiClient.calls.single.authenticated, isFalse);
+      expect(apiClient.calls.single.data, {
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+      });
+      expect(material.secret, 'JBSWY3DPEHPK3PXP');
+      expect(material.otpauthUrl, startsWith('otpauth://totp/'));
+    });
+
+    test('enrollment activation stores the issued session payload', () async {
+      final apiClient = _FakeApiClient({
+        AppStrings.loginTotpEnrollActivatePath: sessionPayload(
+          token: 'enroll-access',
+          refreshToken: 'enroll-refresh',
+        )..addAll({
+            'factor_type': 'AUTHENTICATOR_APP',
+            'status': 'ENABLED',
+            'invalidated_sessions': 0,
+          }),
+      });
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final response = await repository.activateLoginTotpEnrollment(
+        EnrollAdminTotpActivateRequest(
+          challengeId: '64b1f0c8e4b0a1d2c3e4f567',
+          code: '123456',
+        ),
+      );
+
+      expect(apiClient.calls.single.authenticated, isFalse);
+      expect(response.token, 'enroll-access');
+      expect(response.refreshToken, 'enroll-refresh');
+      expect(await storage.readToken(), 'enroll-access');
+      expect(await storage.readRefreshToken(), 'enroll-refresh');
     });
 
     test('TOTP verification stores the same session payload', () async {

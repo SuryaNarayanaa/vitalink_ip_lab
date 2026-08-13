@@ -61,28 +61,58 @@ class AuthRepository {
     }
 
     if (body['auth_status'] == 'TOTP_REQUIRED') {
-      final challenge = body['challenge'] is Map<String, dynamic>
-          ? body['challenge'] as Map<String, dynamic>
-          : null;
-      if (challenge == null) {
-        throw ApiException(
+      return LoginResult.totpRequired(
+        _readTotpChallenge(
+          body,
           'Malformed authenticator challenge response',
-          kind: ApiErrorKind.malformedResponse,
-        );
-      }
+        ),
+      );
+    }
 
-      final totpChallenge = LoginTotpChallenge.fromJson(challenge);
-      if (totpChallenge.challengeId.isEmpty) {
-        throw ApiException(
-          'Malformed authenticator challenge response',
-          kind: ApiErrorKind.malformedResponse,
-        );
-      }
-
-      return LoginResult.totpRequired(totpChallenge);
+    if (body['auth_status'] == 'TOTP_ENROLLMENT_REQUIRED') {
+      return LoginResult.enrollmentRequired(
+        _readTotpChallenge(
+          body,
+          'Malformed authenticator enrollment challenge response',
+        ),
+      );
     }
 
     return LoginResult.authenticated(await _saveSessionFromBody(body));
+  }
+
+  Future<LoginTotpEnrollmentMaterial> setupLoginTotpEnrollment(
+    EnrollAdminTotpSetupRequest request,
+  ) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+      authenticated: false,
+    );
+
+    final material = LoginTotpEnrollmentMaterial.fromJson(body);
+    if (material.challengeId.isEmpty ||
+        material.secret.isEmpty ||
+        material.otpauthUrl.isEmpty) {
+      throw ApiException(
+        'Malformed authenticator enrollment setup response',
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    return material;
+  }
+
+  Future<LoginResponse> activateLoginTotpEnrollment(
+    EnrollAdminTotpActivateRequest request,
+  ) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+      authenticated: false,
+    );
+
+    return _saveSessionFromBody(body);
   }
 
   Future<LoginResponse> verifyLoginOtp(VerifyLoginOtpRequest request) async {
@@ -220,6 +250,31 @@ class AuthRepository {
         // Feature cache cleanup must not block session teardown.
       }
     }
+  }
+
+  LoginTotpChallenge _readTotpChallenge(
+    Map<String, dynamic> body,
+    String malformedMessage,
+  ) {
+    final challenge = body['challenge'] is Map<String, dynamic>
+        ? body['challenge'] as Map<String, dynamic>
+        : null;
+    if (challenge == null) {
+      throw ApiException(
+        malformedMessage,
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    final totpChallenge = LoginTotpChallenge.fromJson(challenge);
+    if (totpChallenge.challengeId.isEmpty) {
+      throw ApiException(
+        malformedMessage,
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    return totpChallenge;
   }
 
   Future<LoginResponse> _saveSessionFromBody(Map<String, dynamic> body) async {

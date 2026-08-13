@@ -164,4 +164,33 @@ void main() {
 
     expect(passwordChange, 0);
   });
+
+  test('410 enrollment/challenge expiry is gone and returns to login', () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 410,
+      body: {
+        'success': false,
+        'message': 'Admin MFA enrollment challenge is no longer available',
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+
+    ApiException? captured;
+    try {
+      await client.post(
+        '/auth/login/totp/enroll/activate',
+        data: const {'challenge_id': '64b1f0c8e4b0a1d2c3e4f567', 'code': '123456'},
+        authenticated: false,
+      );
+    } on ApiException catch (error) {
+      captured = error;
+    }
+
+    expect(captured?.kind, ApiErrorKind.gone);
+    expect(captured?.statusCode, 410);
+    expect(captured?.shouldReturnToLogin, isTrue);
+    expect(captured?.canRetry, isFalse);
+  });
 }

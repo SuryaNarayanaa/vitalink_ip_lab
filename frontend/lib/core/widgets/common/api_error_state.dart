@@ -132,6 +132,7 @@ class ApiErrorState extends StatelessWidget {
           border: Colors.amber.shade200,
         );
       case ApiErrorKind.notFound:
+      case ApiErrorKind.gone:
       case ApiErrorKind.deprecatedApi:
         return _ErrorVisual(
           icon: Icons.api_rounded,

@@ -9,6 +9,7 @@ import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
 import 'package:frontend/features/login/models/login_models.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -30,9 +31,17 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   LoginOtpChallenge? _otpChallenge;
   LoginTotpChallenge? _totpChallenge;
+  LoginTotpChallenge? _enrollmentChallenge;
+  LoginTotpEnrollmentMaterial? _enrollmentMaterial;
   bool _isVerifyingOtp = false;
   bool _isResendingOtp = false;
+  bool _isSettingUpEnrollment = false;
   Timer? _otpResendTicker;
+
+  bool get _isChallengeStepActive =>
+      _otpChallenge != null ||
+      _totpChallenge != null ||
+      _enrollmentChallenge != null;
 
   @override
   void dispose() {
@@ -138,10 +147,25 @@ class _LoginPageState extends State<LoginPage> {
     // "Session expired / Back to login" card on this page — toast only.
     if (returnToLoginForm &&
         error is ApiException &&
-        error.shouldReturnToLogin &&
-        (_otpChallenge != null || _totpChallenge != null)) {
+        _isChallengeStepActive &&
+        _shouldLeaveChallenge(error)) {
       _returnToLogin();
     }
+  }
+
+  bool _shouldLeaveChallenge(ApiException error) {
+    if (error.kind == ApiErrorKind.gone ||
+        error.kind == ApiErrorKind.locked ||
+        error.kind == ApiErrorKind.notFound ||
+        error.statusCode == 404) {
+      return true;
+    }
+    // Wrong authenticator codes are 401 "Invalid TOTP code" and must stay on
+    // the enrollment/verify form. Lockout and other 401s return to password.
+    if (error.kind == ApiErrorKind.unauthorized) {
+      return !error.message.toLowerCase().contains('invalid totp');
+    }
+    return false;
   }
 
   void _submit(MutationResult<LoginResult, LoginRequest> mutation) {
@@ -264,12 +288,92 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _setupEnrollment() async {
+    final challenge = _enrollmentChallenge;
+    if (challenge == null || _isSettingUpEnrollment) return;
+
+    setState(() {
+      _isSettingUpEnrollment = true;
+    });
+
+    try {
+      final material = await _authRepository.setupLoginTotpEnrollment(
+        EnrollAdminTotpSetupRequest(challengeId: challenge.challengeId),
+      );
+      if (!mounted) return;
+      setState(() {
+        _enrollmentMaterial = material;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      _handleError(error, returnToLoginForm: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSettingUpEnrollment = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _activateEnrollment() async {
+    final challenge = _enrollmentChallenge;
+    if (challenge == null || !_otpFormKey.currentState!.validate()) return;
+    if (!challenge.canVerifyNow) {
+      _handleError(
+        ApiException(
+          challenge.isExpired
+              ? 'This enrollment step expired. Return to login and try again.'
+              : 'No verification attempts remaining.',
+          kind: ApiErrorKind.badRequest,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isVerifyingOtp = true;
+    });
+
+    try {
+      final response = await _authRepository.activateLoginTotpEnrollment(
+        EnrollAdminTotpActivateRequest(
+          challengeId: challenge.challengeId,
+          code: _otpController.text.trim(),
+        ),
+      );
+      await _handleSuccess(response);
+    } catch (error) {
+      if (!mounted) return;
+      _handleError(error, returnToLoginForm: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVerifyingOtp = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _copyEnrollmentSecret() async {
+    final secret = _enrollmentMaterial?.secret.trim() ?? '';
+    if (secret.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: secret));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Setup key copied.')),
+    );
+  }
+
   void _returnToLogin() {
     _otpResendTicker?.cancel();
     _otpResendTicker = null;
     setState(() {
       _otpChallenge = null;
       _totpChallenge = null;
+      _enrollmentChallenge = null;
+      _enrollmentMaterial = null;
+      _isSettingUpEnrollment = false;
       _otpController.clear();
     });
   }
@@ -290,6 +394,8 @@ class _LoginPageState extends State<LoginPage> {
               setState(() {
                 _otpChallenge = data.otpChallenge;
                 _totpChallenge = null;
+                _enrollmentChallenge = null;
+                _enrollmentMaterial = null;
                 _otpController.clear();
               });
               _syncOtpResendTicker();
@@ -300,8 +406,22 @@ class _LoginPageState extends State<LoginPage> {
               setState(() {
                 _totpChallenge = data.totpChallenge;
                 _otpChallenge = null;
+                _enrollmentChallenge = null;
+                _enrollmentMaterial = null;
                 _otpController.clear();
               });
+              return;
+            }
+
+            if (data.isEnrollmentRequired) {
+              setState(() {
+                _enrollmentChallenge = data.enrollmentChallenge;
+                _otpChallenge = null;
+                _totpChallenge = null;
+                _enrollmentMaterial = null;
+                _otpController.clear();
+              });
+              await _setupEnrollment();
               return;
             }
 
@@ -395,12 +515,16 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             SizedBox(height: screenHeight * 0.04),
 
-                            if (_otpChallenge == null && _totpChallenge == null)
+                            if (_otpChallenge == null &&
+                                _totpChallenge == null &&
+                                _enrollmentChallenge == null)
                               _buildLoginForm(mutation)
                             else if (_otpChallenge != null)
-                              _buildOtpForm(_otpChallenge!),
-                            if (_totpChallenge != null)
-                              _buildTotpForm(_totpChallenge!),
+                              _buildOtpForm(_otpChallenge!)
+                            else if (_totpChallenge != null)
+                              _buildTotpForm(_totpChallenge!)
+                            else if (_enrollmentChallenge != null)
+                              _buildEnrollmentForm(_enrollmentChallenge!),
 
                             SizedBox(height: screenHeight * 0.04),
 
@@ -839,6 +963,206 @@ class _LoginPageState extends State<LoginPage> {
             icon: const Icon(Icons.arrow_back_outlined, size: 18),
             label: const Text('Back'),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnrollmentForm(LoginTotpChallenge challenge) {
+    final attempts = challenge.attemptsRemaining;
+    final material = _enrollmentMaterial;
+    final canActivate = !_isVerifyingOtp &&
+        !_isSettingUpEnrollment &&
+        material != null &&
+        challenge.canVerifyNow;
+    final statusMessage = challenge.isExpired
+        ? 'This enrollment step expired. Return to login and try again.'
+        : !challenge.hasAttemptsRemaining
+            ? 'No verification attempts remaining.'
+            : null;
+
+    return Form(
+      key: _otpFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _lightPurple.withAlpha(22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.qr_code_2_outlined,
+                  color: _primaryPurple,
+                  size: 22,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Set up authenticator',
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2D3142),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Your administrator account requires an authenticator app before you can sign in. Scan the QR code, then enter the 6-digit code.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          height: 1.45,
+                          color: const Color(0xFF4B5164),
+                        ),
+                      ),
+                      if (attempts != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '$attempts attempts remaining',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: const Color(0xFF5D6475),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          if (_isSettingUpEnrollment && material == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: SizedBox(
+                  height: 28,
+                  width: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ),
+            )
+          else if (material == null)
+            _buildPrimaryButton(
+              label: 'LOAD SETUP',
+              isLoading: _isSettingUpEnrollment,
+              onPressed: _isSettingUpEnrollment ? null : _setupEnrollment,
+            )
+          else ...[
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFE5E5E5)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: QrImageView(
+                  data: material.otpauthUrl,
+                  version: QrVersions.auto,
+                  size: 196,
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Colors.black,
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Colors.black,
+                  ),
+                  semanticsLabel: 'Authenticator app setup QR code',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'If you cannot scan the code, enter this setup key in your authenticator app.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                height: 1.4,
+                color: const Color(0xFF5D6475),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      material.secret,
+                      style: GoogleFonts.robotoMono(
+                        fontSize: 13,
+                        letterSpacing: 0.6,
+                        color: const Color(0xFF2D3142),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _copyEnrollmentSecret,
+                    tooltip: 'Copy setup key',
+                    icon: const Icon(Icons.copy_outlined, size: 18),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _otpController,
+              hintText: 'Authenticator code',
+              icon: Icons.pin_outlined,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(6),
+              ],
+              validator: (value) {
+                final v = value?.trim() ?? '';
+                if (v.isEmpty) return 'Authenticator code is required';
+                if (v.length != 6) return 'Enter the 6-digit code';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildPrimaryButton(
+              label: 'ACTIVATE AND SIGN IN',
+              isLoading: _isVerifyingOtp,
+              onPressed: canActivate ? _activateEnrollment : null,
+            ),
+          ],
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: _isVerifyingOtp || _isSettingUpEnrollment
+                ? null
+                : _returnToLogin,
+            icon: const Icon(Icons.arrow_back_outlined, size: 18),
+            label: const Text('Back'),
+          ),
+          if (statusMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                statusMessage,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: const Color(0xFF5D6475),
+                ),
+              ),
+            ),
         ],
       ),
     );

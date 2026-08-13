@@ -25,7 +25,7 @@ Changing a primary phone resets verification to `PENDING`; a new OTP is required
 
 Administrator secrets are generated locally and encrypted at rest with `ADMIN_TOTP_ENCRYPTION_KEY`. Pending and active secret material use separate encrypted slots. Challenges bind the account security generation and factor generation, and the last verified time step provides a replay boundary.
 
-Production/staging policy can require an unenrolled administrator to complete password-bound setup and activation before a session is issued. Authenticated setup/status/activate endpoints support normal account-security management.
+Production/staging policy can require an unenrolled administrator to complete password-bound setup and activation before a session is issued. Flutter login consumes `TOTP_ENROLLMENT_REQUIRED`, calls the unauthenticated enrollment setup and activate routes, and stores the issued session. Authenticated setup/status/activate endpoints support normal in-session account-security management.
 
 ## Session design
 
