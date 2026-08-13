@@ -167,9 +167,45 @@ fn path_contains(path, needle) {
     false
 }
 
+fn is_unsafe_path(path) {
+    let p = normalize_path(path);
+    if p == "" {
+        return true;
+    }
+    if starts_with(p, "/") {
+        return true;
+    }
+    if p.len() >= 2 && p.sub_string(1, 1) == ":" {
+        return true;
+    }
+    let part = "";
+    let i = 0;
+    while i <= p.len() {
+        let ch = "";
+        if i < p.len() {
+            ch = p.sub_string(i, 1);
+        } else {
+            ch = "/";
+        }
+        if ch == "/" {
+            if part == ".." {
+                return true;
+            }
+            part = "";
+        } else {
+            part += ch;
+        }
+        i += 1;
+    }
+    false
+}
+
 fn allowed_file(path) {
     let p = repo_rel(path);
     if p == "" {
+        return false;
+    }
+    if is_unsafe_path(p) {
         return false;
     }
     if path_contains(p, "node_modules") {
@@ -452,30 +488,35 @@ for f in candidates {
 let verdicts = parallel(verify_jobs);
 
 let confirmed = [];
+let verified_unsafe = [];
 let rejected = [];
 let i = 0;
 for v in verdicts {
     let item = candidates[i];
-    let accepted = false;
-    if v != () && v.success && v.output.real == true && v.output.safe_to_fix == true {
+    let is_real = false;
+    if v != () && v.success && v.output.real == true {
         if v.output.evidence != () && trimmed(v.output.evidence) != "" {
-            accepted = true;
+            is_real = true;
         }
     }
-    if accepted {
+    if is_real {
         if v.output.reason != () {
             item.verify_reason = v.output.reason;
         }
         if v.output.evidence != () {
             item.verify_evidence = v.output.evidence;
         }
-        confirmed.push(item);
+        if v.output.safe_to_fix == true {
+            confirmed.push(item);
+        } else {
+            verified_unsafe.push(item);
+        }
     } else {
         rejected.push(item);
     }
     i += 1;
 }
-log(confirmed.len().to_string() + "/" + candidates.len().to_string() + " findings confirmed as real and safe to fix");
+log(confirmed.len().to_string() + " safe to fix, " + verified_unsafe.len().to_string() + " verified but not auto-fixed, " + rejected.len().to_string() + " unverified");
 
 let applied_ids = [];
 let skipped_ids = [];
@@ -563,6 +604,7 @@ report += scope_summary;
 report += "\n\n";
 report += "Candidates: " + candidates.len().to_string() + ". ";
 report += "Confirmed safe to fix: " + confirmed.len().to_string() + ". ";
+report += "Verified but not auto-fixed: " + verified_unsafe.len().to_string() + ". ";
 report += "Rejected or unverified: " + rejected.len().to_string() + ".\n\n";
 
 report += "## Confirmed findings\n\n";
@@ -575,6 +617,28 @@ if confirmed.len() == 0 {
         report += "- Issue: " + trimmed(f.issue) + "\n";
         report += "- Expected: " + trimmed(f.expected) + "\n";
         report += "- Actual: " + trimmed(f.actual) + "\n";
+        if f.verify_evidence != () {
+            report += "- Evidence: " + trimmed(f.verify_evidence) + "\n";
+        }
+        report += "\n";
+    }
+}
+
+report += "## Verified but not auto-fixed\n\n";
+if verified_unsafe.len() == 0 {
+    report += "None.\n\n";
+} else {
+    for f in verified_unsafe {
+        report += "### " + trimmed(f.id) + " (" + trimmed(f.severity) + " / " + trimmed(f.category) + ")\n\n";
+        report += "- File: `" + trimmed(f.file) + "`\n";
+        report += "- Issue: " + trimmed(f.issue) + "\n";
+        report += "- Why this needs a product or cross-layer decision: ";
+        if f.verify_reason != () {
+            report += trimmed(f.verify_reason);
+        } else {
+            report += "Verifier marked this real but not safe to auto-fix.";
+        }
+        report += "\n";
         if f.verify_evidence != () {
             report += "- Evidence: " + trimmed(f.verify_evidence) + "\n";
         }
@@ -623,6 +687,7 @@ complete(#{
     report: report,
     summary: summary,
     confirmed_count: confirmed.len(),
+    verified_unsafe_count: verified_unsafe.len(),
     applied: applied_ids,
     skipped: skipped_ids,
     confirm_ok: confirm_ok,

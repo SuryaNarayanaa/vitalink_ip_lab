@@ -27,7 +27,6 @@ class AppDependencies {
       AdminAccessController(repository: adminAccessRepository);
   static final PatientRepository patientRepository = PatientRepository(
     apiClient: apiClient,
-    secureStorage: secureStorage,
   );
   static final AuthRepository authRepository = AuthRepository(
     apiClient: apiClient,

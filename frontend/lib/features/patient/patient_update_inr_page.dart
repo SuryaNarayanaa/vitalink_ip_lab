@@ -244,7 +244,8 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                                 : () {
                                     if (_formKey.currentState!.validate()) {
                                       mutation.mutate({
-                                        'inr_value': _inrValueController.text,
+                                        'inr_value':
+                                            _inrValueController.text.trim(),
                                         'test_date': _testDateController.text,
                                         'file_bytes': _selectedFile?.bytes,
                                         'file_name': _selectedFile?.name,

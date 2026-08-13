@@ -75,6 +75,9 @@ jobs:
       - name: Extract Mermaid diagrams
         run: python scripts/docs/extract_mermaid.py --output build/mermaid-validation.md
 
+      - name: Install Chrome for Mermaid CLI
+        run: npx -y puppeteer browsers install chrome-headless-shell
+
       - name: Validate Mermaid diagrams
         # GitHub-hosted runners restrict Chromium's user-namespace sandbox.
         # Pass a Puppeteer config so mermaid-cli can render headlessly in CI.

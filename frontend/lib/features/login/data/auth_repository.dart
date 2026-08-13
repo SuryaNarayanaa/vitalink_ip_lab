@@ -219,8 +219,9 @@ class AuthRepository {
   Future<void> markPasswordChangeRequired() async {
     final existing = await _secureStorage.readUser();
     if (existing == null) return;
-    existing['must_change_password'] = true;
-    await _secureStorage.saveUser(existing);
+    final updated = Map<String, dynamic>.from(existing);
+    updated['must_change_password'] = true;
+    await _secureStorage.saveUser(updated);
   }
 
   /// Changes the authenticated user's password.

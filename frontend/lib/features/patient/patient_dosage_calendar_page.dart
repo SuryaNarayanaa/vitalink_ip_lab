@@ -39,7 +39,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
   void _loadMoreData() {
     if (_loadedMonths < _maxLoadedMonths) {
       setState(() {
-        _loadedMonths = (_loadedMonths + 3).clamp(1, _maxLoadedMonths);
+        _loadedMonths = (_loadedMonths + 3).clamp(1, _maxLoadedMonths).toInt();
       });
     }
   }

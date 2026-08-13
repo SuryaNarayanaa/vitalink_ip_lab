@@ -213,6 +213,11 @@ void main() {
 
     expect(api.getPaths.single, '/api/v1/patient/dosage-calendar');
     expect(api.queryParameters.single?['months'], 6);
+
+    await repo.getDosageCalendar(months: 0);
+    expect(api.queryParameters.last?['months'], 1);
+    await repo.getDosageCalendar(months: -3);
+    expect(api.queryParameters.last?['months'], 1);
   });
 }
 

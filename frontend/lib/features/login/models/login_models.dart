@@ -271,7 +271,23 @@ class LoginOtpPhone {
   final String? last4;
 }
 
-class LoginOtpChallenge {
+mixin LoginChallengeState {
+  DateTime? get expiresAt;
+  int? get attemptsRemaining;
+
+  bool get isExpired {
+    final expires = expiresAt;
+    if (expires == null) return false;
+    return !expires.isAfter(DateTime.now());
+  }
+
+  bool get hasAttemptsRemaining =>
+      attemptsRemaining == null || attemptsRemaining! > 0;
+
+  bool get canVerifyNow => !isExpired && hasAttemptsRemaining;
+}
+
+class LoginOtpChallenge with LoginChallengeState {
   LoginOtpChallenge({
     required this.challengeId,
     required this.purpose,
@@ -308,21 +324,14 @@ class LoginOtpChallenge {
   final String purpose;
   final String deliveryChannel;
   final LoginOtpPhone phone;
+  @override
   final DateTime? expiresAt;
   final DateTime? resendAvailableAt;
+  @override
   final int? attemptsRemaining;
   final int? maxAttempts;
   final int? resendCount;
   final int? maxResends;
-
-  bool get isExpired {
-    final expires = expiresAt;
-    if (expires == null) return false;
-    return !expires.isAfter(DateTime.now());
-  }
-
-  bool get hasAttemptsRemaining =>
-      attemptsRemaining == null || attemptsRemaining! > 0;
 
   bool get hasResendsRemaining {
     final used = resendCount;
@@ -330,8 +339,6 @@ class LoginOtpChallenge {
     if (used == null || max == null) return true;
     return used < max;
   }
-
-  bool get canVerifyNow => !isExpired && hasAttemptsRemaining;
 
   int? get resendCooldownSecondsRemaining {
     final availableAt = resendAvailableAt;
@@ -351,7 +358,7 @@ class LoginOtpChallenge {
       phone.masked.isNotEmpty ? phone.masked : 'your registered phone';
 }
 
-class LoginTotpChallenge {
+class LoginTotpChallenge with LoginChallengeState {
   LoginTotpChallenge({
     required this.challengeId,
     required this.factorType,
@@ -375,23 +382,14 @@ class LoginTotpChallenge {
   final String challengeId;
   final String factorType;
   final String? purpose;
+  @override
   final DateTime? expiresAt;
+  @override
   final int? attemptsRemaining;
   final int? maxAttempts;
 
   bool get isEnrollment =>
       (purpose ?? '').trim().toUpperCase() == 'ENROLLMENT';
-
-  bool get isExpired {
-    final expires = expiresAt;
-    if (expires == null) return false;
-    return !expires.isAfter(DateTime.now());
-  }
-
-  bool get hasAttemptsRemaining =>
-      attemptsRemaining == null || attemptsRemaining! > 0;
-
-  bool get canVerifyNow => !isExpired && hasAttemptsRemaining;
 }
 
 class LoginTotpEnrollmentMaterial {

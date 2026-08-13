@@ -165,7 +165,7 @@ void main() {
     expect(passwordChange, 0);
   });
 
-  test('410 enrollment/challenge expiry is gone and returns to login', () async {
+  test('410 challenge expiry is gone and does not globally return to login', () async {
     final adapter = _StaticResponseAdapter(
       statusCode: 410,
       body: {
@@ -190,7 +190,31 @@ void main() {
 
     expect(captured?.kind, ApiErrorKind.gone);
     expect(captured?.statusCode, 410);
-    expect(captured?.shouldReturnToLogin, isTrue);
+    expect(captured?.shouldReturnToLogin, isFalse);
     expect(captured?.canRetry, isFalse);
+  });
+
+  test('invalid TOTP prefers details.code over session-return', () {
+    final byCode = ApiException(
+      'Something else',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+      details: const {'code': 'INVALID_TOTP'},
+    );
+    final byMessage = ApiException(
+      'Invalid TOTP code',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+    );
+    final other401 = ApiException(
+      'Invalid credentials',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+    );
+
+    expect(byCode.isInvalidTotpCode, isTrue);
+    expect(byMessage.isInvalidTotpCode, isTrue);
+    expect(other401.isInvalidTotpCode, isFalse);
+    expect(other401.shouldReturnToLogin, isTrue);
   });
 }

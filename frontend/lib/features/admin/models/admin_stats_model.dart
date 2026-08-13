@@ -317,7 +317,10 @@ class DatabaseHealth {
 
 int? _readOptionalInt(dynamic value) {
   if (value is int) return value;
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value);
+  if (value is num) {
+    if (!value.isFinite || value != value.roundToDouble()) return null;
+    return value.toInt();
+  }
+  if (value is String) return int.tryParse(value.trim());
   return null;
 }

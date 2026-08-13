@@ -40,6 +40,23 @@ void main() {
     expect(stats.patientStats.total, 4);
   });
 
+  test('optional integers reject fractional and non-finite numbers', () {
+    expect(
+      PatientStats.fromJson({'critical_inr': 2.5}).criticalInr,
+      isNull,
+    );
+    expect(
+      PatientStats.fromJson({'critical_inr': double.nan}).criticalInr,
+      isNull,
+    );
+    expect(
+      PatientStats.fromJson({'critical_inr': double.infinity}).criticalInr,
+      isNull,
+    );
+    expect(PatientStats.fromJson({'critical_inr': 3.0}).criticalInr, 3);
+    expect(PatientStats.fromJson({'critical_inr': '7'}).criticalInr, 7);
+  });
+
   test('compliance no-data percentage is not labeled as critical', () {
     final compliance = InrComplianceStats.fromJson({
       'total_patients': 10,

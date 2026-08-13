@@ -39,13 +39,13 @@ class SecureStorage {
   static int get authSessionGeneration => _authSessionGeneration;
 
   Future<T> _enqueueAuthMutation<T>(Future<T> Function() op) {
-    final run = () async {
+    Future<T> run() async {
       try {
         return await op();
       } catch (_) {
         rethrow;
       }
-    };
+    }
     // Always continue the queue after a failure so one disk error cannot
     // permanently poison later save/clear operations.
     final next = (_authMutationQueue ?? Future<void>.value())

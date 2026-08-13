@@ -37,6 +37,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isResendingOtp = false;
   bool _isSettingUpEnrollment = false;
   Timer? _otpResendTicker;
+  final ValueNotifier<int> _otpResendTick = ValueNotifier<int>(0);
 
   bool get _isChallengeStepActive =>
       _otpChallenge != null ||
@@ -46,6 +47,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void dispose() {
     _otpResendTicker?.cancel();
+    _otpResendTick.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _otpController.dispose();
@@ -58,7 +60,7 @@ class _LoginPageState extends State<LoginPage> {
     if (challenge == null || challenge.canResendNow) return;
     _otpResendTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() {});
+      _otpResendTick.value++;
       if (_otpChallenge == null || _otpChallenge!.canResendNow) {
         _otpResendTicker?.cancel();
         _otpResendTicker = null;
@@ -163,7 +165,7 @@ class _LoginPageState extends State<LoginPage> {
     // Wrong authenticator codes are 401 "Invalid TOTP code" and must stay on
     // the enrollment/verify form. Lockout and other 401s return to password.
     if (error.kind == ApiErrorKind.unauthorized) {
-      return !error.message.toLowerCase().contains('invalid totp');
+      return !error.isInvalidTotpCode;
     }
     return false;
   }
@@ -520,7 +522,11 @@ class _LoginPageState extends State<LoginPage> {
                                 _enrollmentChallenge == null)
                               _buildLoginForm(mutation)
                             else if (_otpChallenge != null)
-                              _buildOtpForm(_otpChallenge!)
+                              ValueListenableBuilder<int>(
+                                valueListenable: _otpResendTick,
+                                builder: (context, _, _) =>
+                                    _buildOtpForm(_otpChallenge!),
+                              )
                             else if (_totpChallenge != null)
                               _buildTotpForm(_totpChallenge!)
                             else if (_enrollmentChallenge != null)

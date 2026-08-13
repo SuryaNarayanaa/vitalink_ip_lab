@@ -60,9 +60,17 @@ class ApiException implements Exception {
       kind == ApiErrorKind.server;
 
   bool get shouldReturnToLogin =>
-      kind == ApiErrorKind.unauthorized ||
-      kind == ApiErrorKind.locked ||
-      kind == ApiErrorKind.gone;
+      kind == ApiErrorKind.unauthorized || kind == ApiErrorKind.locked;
+
+  /// Authenticator-code failures stay on the challenge form.
+  ///
+  /// Prefers a structured `details.code` when the server sends one; falls back
+  /// to the documented "Invalid TOTP code" message.
+  bool get isInvalidTotpCode {
+    final code = details?['code']?.toString().trim().toUpperCase();
+    if (code == 'INVALID_TOTP') return true;
+    return message.toLowerCase().contains('invalid totp');
+  }
 
   String get actionLabel {
     if (shouldReturnToLogin) return 'Back to login';
@@ -714,6 +722,7 @@ class ApiClient {
           kind: ApiErrorKind.unauthorized,
           apiVersion: apiVersion,
           supportedVersions: supportedVersions,
+          details: _safeStructuredDetails(body),
         );
       case 403:
         final sanitized = _sanitizeServerMessage(
