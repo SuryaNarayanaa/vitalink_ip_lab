@@ -263,10 +263,15 @@ export const getPatients = asyncHandler(async (req: Request, res: Response) => {
   const doctor = await getDoctorUserOrThrow(user_id, req.authUser)
   const doctorOwnershipIds = getDoctorOwnershipIds(doctor)
   const hospitalId = await getRequiredDoctorHospitalId(doctor)
-  const patientQuery: Record<string, unknown> = { assigned_doctor_id: { $in: doctorOwnershipIds } }
+  const patientQuery: Record<string, unknown> = {
+    assigned_doctor_id: { $in: doctorOwnershipIds },
+    account_status: 'Active',
+  }
   if (hospitalId) patientQuery.hospital_id = hospitalId
   // List payload only needs identity + INR criticality flags — skip heavy embeds
   // and never presign profile pictures (O(n) FileAsset + S3 work).
+  // Mutations already require Active; listing discharged/deceased assignees
+  // produced a 409 "assignment changed" on later edits.
   const patientProfiles = await PatientProfile.find(patientQuery)
     .select('demographics inr_history.test_date inr_history.is_critical hospital_id assigned_doctor_id createdAt')
     .lean()

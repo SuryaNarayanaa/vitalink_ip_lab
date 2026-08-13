@@ -161,6 +161,38 @@ class AuthRepository {
     await clearLocalSession();
   }
 
+  /// Refreshes persisted user state from GET /auth/me.
+  ///
+  /// Allowed while a password change is required so mid-session expiry can
+  /// update [UserModel.mustChangePassword] before routing to change-password.
+  Future<UserModel> refreshCurrentUser() async {
+    final body = await _apiClient.get(AppStrings.authMePath);
+    final user = body['user'];
+    final userJson = user is Map<String, dynamic>
+        ? user
+        : user is Map
+            ? Map<String, dynamic>.from(user)
+            : null;
+    if (userJson == null) {
+      throw ApiException(
+        'Malformed /auth/me response',
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    await _secureStorage.saveUser(userJson);
+    return UserModel.fromJson(userJson);
+  }
+
+  /// Persists the password-change gate from a confirmed 403 when /auth/me
+  /// cannot be refreshed. Does not invent a session.
+  Future<void> markPasswordChangeRequired() async {
+    final existing = await _secureStorage.readUser();
+    if (existing == null) return;
+    existing['must_change_password'] = true;
+    await _secureStorage.saveUser(existing);
+  }
+
   /// Changes the authenticated user's password.
   ///
   /// On success the backend revokes all sessions for the user, so local

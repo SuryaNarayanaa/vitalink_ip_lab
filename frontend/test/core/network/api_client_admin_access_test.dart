@@ -109,4 +109,59 @@ void main() {
     expect(notifications, 1);
     expect(adapter.calls, 1);
   });
+
+  test('password-change 403 routes to the password handler, not admin denial',
+      () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 403,
+      body: {
+        'success': false,
+        'message': ApiClient.passwordChangeRequiredMessage,
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+    var denied = 0;
+    var passwordChange = 0;
+    client.setAuthorizationDeniedHandler(() => denied++);
+    client.setPasswordChangeRequiredHandler(() => passwordChange++);
+
+    ApiException? captured;
+    try {
+      await client.get('/patient/profile', authenticated: false);
+    } on ApiException catch (error) {
+      captured = error;
+    }
+
+    expect(captured?.kind, ApiErrorKind.forbidden);
+    expect(captured?.message, ApiClient.passwordChangeRequiredMessage);
+    expect(denied, 0);
+    expect(passwordChange, 1);
+    expect(adapter.calls, 1);
+  });
+
+  test('password-expired 403 on /auth/me does not recurse into the handler',
+      () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 403,
+      body: {
+        'success': false,
+        'message': ApiClient.passwordExpiredMessage,
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+    var passwordChange = 0;
+    client.setPasswordChangeRequiredHandler(() => passwordChange++);
+
+    try {
+      await client.get('/api/v1/auth/me', authenticated: false);
+    } on ApiException {
+      // Expected: recovery read itself should not re-enter the handler.
+    }
+
+    expect(passwordChange, 0);
+  });
 }

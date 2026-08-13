@@ -288,7 +288,33 @@ class LoginOtpChallenge {
   final int? resendCount;
   final int? maxResends;
 
+  bool get isExpired {
+    final expires = expiresAt;
+    if (expires == null) return false;
+    return !expires.isAfter(DateTime.now());
+  }
+
+  bool get hasAttemptsRemaining =>
+      attemptsRemaining == null || attemptsRemaining! > 0;
+
+  bool get hasResendsRemaining {
+    final used = resendCount;
+    final max = maxResends;
+    if (used == null || max == null) return true;
+    return used < max;
+  }
+
+  bool get canVerifyNow => !isExpired && hasAttemptsRemaining;
+
+  int? get resendCooldownSecondsRemaining {
+    final availableAt = resendAvailableAt;
+    if (availableAt == null) return null;
+    final remaining = availableAt.difference(DateTime.now()).inSeconds;
+    return remaining > 0 ? remaining : 0;
+  }
+
   bool get canResendNow {
+    if (isExpired || !hasResendsRemaining) return false;
     final availableAt = resendAvailableAt;
     if (availableAt == null) return true;
     return !availableAt.isAfter(DateTime.now());

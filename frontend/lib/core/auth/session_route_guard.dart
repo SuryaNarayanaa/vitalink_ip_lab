@@ -47,7 +47,9 @@ class _SessionRouteGuardState extends State<SessionRouteGuard> {
       if (!isKnownRole) return false;
 
       // Clinical/admin destinations are blocked until password policy is
-      // satisfied. The change-password route uses [RouteAccess.authenticated].
+      // satisfied. Mid-session expiry 403s refresh GET /auth/me and persist
+      // this flag via SessionPasswordChangeHandler. The change-password
+      // route uses [RouteAccess.authenticated].
       if (user.mustChangePassword &&
           widget.access != RouteAccess.authenticated) {
         return false;

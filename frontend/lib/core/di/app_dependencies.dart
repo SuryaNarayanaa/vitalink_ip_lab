@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
+import 'package:frontend/core/auth/session_password_change_handler.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/features/login/data/auth_repository.dart';
@@ -45,6 +46,9 @@ class AppDependencies {
     final client = ApiClient(secureStorage: secureStorage);
     client.setAuthorizationDeniedHandler(() {
       unawaited(adminAccessController.handleAuthorizationDenied());
+    });
+    client.setPasswordChangeRequiredHandler(() {
+      unawaited(SessionPasswordChangeHandler.handle());
     });
     return client;
   }

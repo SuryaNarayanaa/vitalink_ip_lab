@@ -52,4 +52,6 @@ The code does not explicitly pin a JWT algorithm in `jwt.sign`/`jwt.verify`; tha
 
 Flutter uses `flutter_secure_storage` through `SecureStorage`. The API client adds bearer tokens, serializes concurrent refresh through one pending future, rotates stored tokens only if the local session generation is unchanged, retries the original request once, and redirects to login only for confirmed invalid/revoked session outcomes.
 
+Password-policy `403` responses with the exact messages `Password has expired. Change your password before continuing.` or `Password change is required before continuing.` do not clear the session. The client calls the allowed recovery read `GET /auth/me`, persists `must_change_password`, and routes to the existing change-password screen. Other `403` responses remain capability/tenant denials.
+
 Browser `EventSource` cannot add an Authorization header, so Flutter web obtains a short-lived stream ticket before opening the SSE URL. Query logging redacts `ticket`, and Nginx logs `$uri` rather than `$request_uri`.

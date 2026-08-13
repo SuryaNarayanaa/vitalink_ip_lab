@@ -672,10 +672,11 @@ Returns all doctors visible to the authenticated doctor flow.
 
 #### `GET /api/v1/doctors/patients`
 
-Returns the authenticated doctor's patients.
+Returns the authenticated doctor's Active assigned patients in the same hospital.
 
 Implementation detail:
 
+- the controller filters `account_status: Active` so discharged and deceased assignees are omitted
 - the controller resolves patient `login_id` values and injects them into the returned profile objects
 
 #### `GET /api/v1/doctors/patients/:op_num`

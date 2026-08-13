@@ -13,6 +13,16 @@ class _FakeApiClient extends ApiClient {
   final calls = <_ApiCall>[];
 
   @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    bool authenticated = true,
+  }) async {
+    calls.add(_ApiCall(path, queryParameters, authenticated));
+    return responses[path] ?? <String, dynamic>{};
+  }
+
+  @override
   Future<Map<String, dynamic>> post(
     String path, {
     Object? data,
@@ -111,6 +121,33 @@ void main() {
       expect(response.refreshToken, 'otp-refresh');
       expect(await storage.readToken(), 'otp-access');
       expect(await storage.readRefreshToken(), 'otp-refresh');
+    });
+
+    test('login returns TOTP required without storing a session', () async {
+      final apiClient = _FakeApiClient({
+        AppStrings.loginPath: {
+          'auth_status': 'TOTP_REQUIRED',
+          'challenge': {
+            'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+            'factor_type': 'AUTHENTICATOR_APP',
+            'expires_at': '2026-08-13T12:00:00.000Z',
+            'attempts_remaining': 4,
+            'max_attempts': 5,
+          },
+        },
+      });
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final result = await repository.login(
+        LoginRequest(loginId: 'admin@example.test', password: 'secret'),
+      );
+
+      expect(result.isTotpRequired, isTrue);
+      expect(result.totpChallenge?.challengeId, '64b1f0c8e4b0a1d2c3e4f567');
+      expect(await storage.readToken(), isNull);
     });
 
     test('TOTP verification stores the same session payload', () async {
@@ -232,6 +269,41 @@ void main() {
       );
 
       expect(result.response?.user.mustChangePassword, isTrue);
+    });
+
+    test('refreshCurrentUser persists GET /auth/me user state', () async {
+      await storage.saveUser({
+        '_id': 'user-123',
+        'login_id': 'doctor@example.test',
+        'user_type': 'DOCTOR',
+        'is_active': true,
+      });
+      final apiClient = _FakeApiClient({
+        AppStrings.authMePath: {
+          'user': {
+            '_id': 'user-123',
+            'login_id': 'doctor@example.test',
+            'user_type': 'DOCTOR',
+            'is_active': true,
+            'must_change_password': true,
+            'password_expired': true,
+          },
+        },
+      });
+      final repository = AuthRepository(
+        apiClient: apiClient,
+        secureStorage: storage,
+      );
+
+      final user = await repository.refreshCurrentUser();
+
+      expect(apiClient.calls.single.path, AppStrings.authMePath);
+      expect(user.mustChangePassword, isTrue);
+      expect(user.passwordExpired, isTrue);
+      expect(
+        (await storage.readUser())?['must_change_password'],
+        isTrue,
+      );
     });
   });
 }

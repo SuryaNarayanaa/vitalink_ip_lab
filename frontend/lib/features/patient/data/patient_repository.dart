@@ -106,7 +106,14 @@ class PatientRepository {
       'medicalHistory': profile['medical_history'] ?? [],
       'doctorUpdatesUnreadCount': doctorUpdates?['unread_count'] ?? 0,
       'latestDoctorUpdate': doctorUpdates?['latest'],
+      'profilePictureUrl': _nonEmptyString(profile['profile_picture_url']),
     };
+  }
+
+  static String? _nonEmptyString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   /// Coerce API map payloads that may not be typed as [Map<String, dynamic>].
@@ -216,7 +223,7 @@ class PatientRepository {
     int months = 3,
     String? startDate,
   }) async {
-    final queryParams = <String, dynamic>{'months': months};
+    final queryParams = <String, dynamic>{'months': months.clamp(1, 6)};
     if (startDate != null) {
       queryParams['start_date'] = startDate;
     }

@@ -54,14 +54,14 @@ class PatientStats {
   final int active;
   final int inactive;
   final int recent;
-  final int criticalInr;
+  final int? criticalInr;
 
   PatientStats({
     this.total = 0,
     this.active = 0,
     this.inactive = 0,
     this.recent = 0,
-    this.criticalInr = 0,
+    this.criticalInr,
   });
 
   factory PatientStats.fromJson(Map<String, dynamic> json) {
@@ -70,7 +70,7 @@ class PatientStats {
       active: json['active'] as int? ?? 0,
       inactive: json['inactive'] as int? ?? 0,
       recent: json['recent'] as int? ?? 0,
-      criticalInr: json['critical_inr'] as int? ?? 0,
+      criticalInr: _readOptionalInt(json['critical_inr']),
     );
   }
 }
@@ -170,7 +170,7 @@ class InrComplianceStats {
   double get outOfRangePercentage =>
       totalPatients > 0 ? ((belowRange + aboveRange) / totalPatients) * 100 : 0;
 
-  double get criticalPercentage =>
+  double get noDataPercentage =>
       totalPatients > 0 ? (noData / totalPatients) * 100 : 0;
 
   factory InrComplianceStats.fromJson(Map<String, dynamic> json) {
@@ -199,11 +199,69 @@ class DoctorWorkload {
 
   factory DoctorWorkload.fromJson(Map<String, dynamic> json) {
     return DoctorWorkload(
-      doctorId: json['doctor_id'] as String?,
+      doctorId: json['doctor_id']?.toString(),
       doctorName: json['doctor_name'] as String?,
       department: json['department'] as String?,
-      patientCount: json['patient_count'] as int? ?? 0,
+      patientCount: _readOptionalInt(json['patient_count']) ?? 0,
     );
+  }
+}
+
+class DoctorWorkloadStats {
+  DoctorWorkloadStats.global({
+    required this.doctorsWithActivePatients,
+    required this.activePatientAssignments,
+    this.maximumAssignmentsPerDoctor,
+    this.averageAssignmentsPerDoctor,
+  })  : isGlobal = true,
+        items = const [];
+
+  DoctorWorkloadStats.tenant(this.items)
+      : isGlobal = false,
+        doctorsWithActivePatients = null,
+        activePatientAssignments = null,
+        maximumAssignmentsPerDoctor = null,
+        averageAssignmentsPerDoctor = null;
+
+  final bool isGlobal;
+  final List<DoctorWorkload> items;
+  final int? doctorsWithActivePatients;
+  final int? activePatientAssignments;
+  final int? maximumAssignmentsPerDoctor;
+  final double? averageAssignmentsPerDoctor;
+
+  bool get hasRenderableData =>
+      isGlobal || items.isNotEmpty;
+
+  factory DoctorWorkloadStats.fromResponse(Map<String, dynamic> json) {
+    final items = json['items'];
+    if (items is List) {
+      return DoctorWorkloadStats.tenant(
+        items
+            .whereType<Map>()
+            .map((item) => DoctorWorkload.fromJson(
+                  Map<String, dynamic>.from(item),
+                ))
+            .toList(),
+      );
+    }
+
+    if (json['scope'] == 'global' ||
+        json.containsKey('doctors_with_active_patients') ||
+        json.containsKey('active_patient_assignments')) {
+      return DoctorWorkloadStats.global(
+        doctorsWithActivePatients:
+            _readOptionalInt(json['doctors_with_active_patients']) ?? 0,
+        activePatientAssignments:
+            _readOptionalInt(json['active_patient_assignments']) ?? 0,
+        maximumAssignmentsPerDoctor:
+            _readOptionalInt(json['maximum_assignments_per_doctor']),
+        averageAssignmentsPerDoctor:
+            (json['average_assignments_per_doctor'] as num?)?.toDouble(),
+      );
+    }
+
+    return DoctorWorkloadStats.tenant(const []);
   }
 }
 
@@ -221,12 +279,20 @@ class SystemHealthModel {
   });
 
   factory SystemHealthModel.fromJson(Map<String, dynamic> json) {
+    final dependencies = json['dependencies'] is Map
+        ? Map<String, dynamic>.from(json['dependencies'] as Map)
+        : const <String, dynamic>{};
+    final databaseJson = json['database'] is Map
+        ? Map<String, dynamic>.from(json['database'] as Map)
+        : dependencies['database'] is Map
+            ? Map<String, dynamic>.from(dependencies['database'] as Map)
+            : const <String, dynamic>{};
     return SystemHealthModel(
       status: json['status'] as String? ?? 'unknown',
-      uptime: (json['uptime'] as num?)?.toDouble() ?? 0,
-      database: DatabaseHealth.fromJson(
-        json['database'] as Map<String, dynamic>? ?? {},
-      ),
+      uptime: (json['uptime_seconds'] as num?)?.toDouble() ??
+          (json['uptime'] as num?)?.toDouble() ??
+          0,
+      database: DatabaseHealth.fromJson(databaseJson),
       timestamp: json['timestamp'] as String? ?? '',
     );
   }
@@ -242,7 +308,16 @@ class DatabaseHealth {
 
   factory DatabaseHealth.fromJson(Map<String, dynamic> json) {
     return DatabaseHealth(
-      state: json['state'] as String? ?? 'unknown',
+      state: json['status'] as String? ??
+          json['state'] as String? ??
+          'unknown',
     );
   }
+}
+
+int? _readOptionalInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
 }

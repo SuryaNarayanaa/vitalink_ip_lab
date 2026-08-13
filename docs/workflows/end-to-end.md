@@ -61,7 +61,7 @@ stateDiagram-v2
     Revoked --> SignedOut
 ```
 
-The enrollment transition is implemented by the backend. The current Flutter login repository does not consume `TOTP_ENROLLMENT_REQUIRED` or call the enrollment setup and activation routes; see [INC-01](../reference/inconsistencies.md#inc-01-backend-admin-enrollment-is-not-handled-by-flutter-login).
+The enrollment transition is implemented by the backend. The current Flutter login repository does not consume `TOTP_ENROLLMENT_REQUIRED` or call the enrollment setup and activation routes; see [INC-01](../reference/inconsistencies.md#inc-01-backend-admin-enrollment-is-not-handled-by-flutter-login). Mid-session password expiry keeps the refresh session and is surfaced by the same `PasswordChangeRequired` state after `GET /auth/me`.
 
 ## Care coordination sequence
 

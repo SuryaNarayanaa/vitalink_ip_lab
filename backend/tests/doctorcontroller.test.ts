@@ -195,6 +195,59 @@ describe('Doctor Routes', () => {
             expect(response.data.data.patients[0].login_id).toBe('PAT001');
         });
 
+        test('should omit non-active assigned patients from the roster', async () => {
+            const [discharged, deceased] = await Promise.all([
+                PatientProfile.create({
+                    assigned_doctor_id: doctorUser._id,
+                    hospital_id: primaryHospital._id,
+                    account_status: 'Discharged',
+                    demographics: {
+                        name: 'Discharged Patient',
+                        age: 50,
+                        gender: 'Female',
+                        phone: '9000000001',
+                        next_of_kin: { name: 'Kin', relation: 'Spouse', phone: '9000000002' },
+                    },
+                    medical_config: {
+                        therapy_drug: 'Warfarin',
+                        therapy_start_date: new Date('2024-01-01'),
+                        target_inr: { min: 2.0, max: 3.0 },
+                    },
+                }),
+                PatientProfile.create({
+                    assigned_doctor_id: doctorUser._id,
+                    hospital_id: primaryHospital._id,
+                    account_status: 'Deceased',
+                    demographics: {
+                        name: 'Deceased Patient',
+                        age: 70,
+                        gender: 'Male',
+                        phone: '9000000003',
+                        next_of_kin: { name: 'Kin', relation: 'Child', phone: '9000000004' },
+                    },
+                    medical_config: {
+                        therapy_drug: 'Warfarin',
+                        therapy_start_date: new Date('2024-01-01'),
+                        target_inr: { min: 2.0, max: 3.0 },
+                    },
+                }),
+            ]);
+
+            try {
+                const response = await api.get('/api/doctors/patients', {
+                    headers: { Authorization: `Bearer ${doctorToken}` },
+                });
+
+                expect(response.status).toBe(200);
+                const ids = (response.data.data.patients as Array<{ _id: string }>).map((p) => String(p._id));
+                expect(ids).toContain(String(patientProfile._id));
+                expect(ids).not.toContain(String(discharged._id));
+                expect(ids).not.toContain(String(deceased._id));
+            } finally {
+                await PatientProfile.deleteMany({ _id: { $in: [discharged._id, deceased._id] } });
+            }
+        });
+
         test('should return empty array if doctor has no patients', async () => {
             const response = await api.get('/api/doctors/patients', {
                 headers: { Authorization: `Bearer ${secondDoctorToken}` }

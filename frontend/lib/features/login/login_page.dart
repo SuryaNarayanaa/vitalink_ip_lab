@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
@@ -30,13 +32,29 @@ class _LoginPageState extends State<LoginPage> {
   LoginTotpChallenge? _totpChallenge;
   bool _isVerifyingOtp = false;
   bool _isResendingOtp = false;
+  Timer? _otpResendTicker;
 
   @override
   void dispose() {
+    _otpResendTicker?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     _otpController.dispose();
     super.dispose();
+  }
+
+  void _syncOtpResendTicker() {
+    _otpResendTicker?.cancel();
+    final challenge = _otpChallenge;
+    if (challenge == null || challenge.canResendNow) return;
+    _otpResendTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+      if (_otpChallenge == null || _otpChallenge!.canResendNow) {
+        _otpResendTicker?.cancel();
+        _otpResendTicker = null;
+      }
+    });
   }
 
   void _togglePasswordVisibility() {
@@ -140,6 +158,17 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _verifyOtp() async {
     final challenge = _otpChallenge;
     if (challenge == null || !_otpFormKey.currentState!.validate()) return;
+    if (!challenge.canVerifyNow) {
+      _handleError(
+        ApiException(
+          challenge.isExpired
+              ? 'This code has expired. Return to login and try again.'
+              : 'No verification attempts remaining.',
+          kind: ApiErrorKind.badRequest,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isVerifyingOtp = true;
@@ -195,7 +224,16 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _resendOtp() async {
     final challenge = _otpChallenge;
-    if (challenge == null) return;
+    if (challenge == null || _isResendingOtp) return;
+    if (!challenge.canResendNow) {
+      final message = challenge.isExpired
+          ? 'This code has expired. Return to login and try again.'
+          : !challenge.hasResendsRemaining
+              ? 'Resend limit reached.'
+              : 'Please wait before requesting another code.';
+      _handleError(ApiException(message, kind: ApiErrorKind.rateLimited));
+      return;
+    }
 
     setState(() {
       _isResendingOtp = true;
@@ -210,6 +248,7 @@ class _LoginPageState extends State<LoginPage> {
         _otpChallenge = updatedChallenge;
         _otpController.clear();
       });
+      _syncOtpResendTicker();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('OTP sent to ${updatedChallenge.maskedPhone}')),
       );
@@ -226,6 +265,8 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _returnToLogin() {
+    _otpResendTicker?.cancel();
+    _otpResendTicker = null;
     setState(() {
       _otpChallenge = null;
       _totpChallenge = null;
@@ -251,6 +292,7 @@ class _LoginPageState extends State<LoginPage> {
                 _totpChallenge = null;
                 _otpController.clear();
               });
+              _syncOtpResendTicker();
               return;
             }
 
@@ -546,9 +588,28 @@ class _LoginPageState extends State<LoginPage> {
     final attempts = challenge.attemptsRemaining;
     final resendCount = challenge.resendCount;
     final maxResends = challenge.maxResends;
+    final cooldownSeconds = challenge.resendCooldownSecondsRemaining;
+    final canResend = !_isResendingOtp && challenge.canResendNow;
+    final canVerify = !_isVerifyingOtp && challenge.canVerifyNow;
+    final statusMessage = challenge.isExpired
+        ? 'This code has expired. Return to login and try again.'
+        : !challenge.hasAttemptsRemaining
+            ? 'No verification attempts remaining.'
+            : !challenge.hasResendsRemaining
+                ? 'Resend limit reached.'
+                : cooldownSeconds != null && cooldownSeconds > 0
+                    ? 'Resend available in ${cooldownSeconds}s'
+                    : null;
     final resendDetail = resendCount != null && maxResends != null
         ? 'Resends used: $resendCount of $maxResends'
         : null;
+    final resendLabel = _isResendingOtp
+        ? 'Sending'
+        : !challenge.hasResendsRemaining
+            ? 'Resend limit reached'
+            : cooldownSeconds != null && cooldownSeconds > 0
+                ? 'Resend in ${cooldownSeconds}s'
+                : 'Resend OTP';
 
     return Form(
       key: _otpFormKey,
@@ -631,14 +692,14 @@ class _LoginPageState extends State<LoginPage> {
           _buildPrimaryButton(
             label: 'VERIFY OTP',
             isLoading: _isVerifyingOtp,
-            onPressed: _isVerifyingOtp ? null : _verifyOtp,
+            onPressed: canVerify ? _verifyOtp : null,
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: TextButton.icon(
-                  onPressed: _isResendingOtp ? null : _resendOtp,
+                  onPressed: canResend ? _resendOtp : null,
                   icon: _isResendingOtp
                       ? const SizedBox(
                           height: 16,
@@ -646,7 +707,7 @@ class _LoginPageState extends State<LoginPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.refresh_outlined, size: 18),
-                  label: Text(_isResendingOtp ? 'Sending' : 'Resend OTP'),
+                  label: Text(resendLabel),
                 ),
               ),
               Expanded(
@@ -660,6 +721,18 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ],
           ),
+          if (statusMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                statusMessage,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: const Color(0xFF5D6475),
+                ),
+              ),
+            ),
           if (resendDetail != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),

@@ -144,9 +144,19 @@ class ApiClient {
   static const String _hasRetriedAfterRefreshExtra = 'hasRetriedAfterRefresh';
   Future<String>? _pendingRefresh;
   VoidCallback? _authorizationDeniedHandler;
+  VoidCallback? _passwordChangeRequiredHandler;
+
+  static const String passwordExpiredMessage =
+      'Password has expired. Change your password before continuing.';
+  static const String passwordChangeRequiredMessage =
+      'Password change is required before continuing.';
 
   void setAuthorizationDeniedHandler(VoidCallback? handler) {
     _authorizationDeniedHandler = handler;
+  }
+
+  void setPasswordChangeRequiredHandler(VoidCallback? handler) {
+    _passwordChangeRequiredHandler = handler;
   }
 
   void _notifyAuthorizationDenied() {
@@ -157,6 +167,22 @@ class ApiClient {
     } catch (error) {
       _logDebug('Authorization-denied handler failed: $error');
     }
+  }
+
+  void _notifyPasswordChangeRequired() {
+    final handler = _passwordChangeRequiredHandler;
+    if (handler == null) return;
+    try {
+      handler();
+    } catch (error) {
+      _logDebug('Password-change-required handler failed: $error');
+    }
+  }
+
+  static bool isPasswordChangeRequiredMessage(String? message) {
+    final text = (message ?? '').trim();
+    return text == passwordExpiredMessage ||
+        text == passwordChangeRequiredMessage;
   }
 
   void _logDebug(String message) {
@@ -685,15 +711,23 @@ class ApiClient {
           supportedVersions: supportedVersions,
         );
       case 403:
+        final sanitized = _sanitizeServerMessage(
+          serverMessage ?? 'You do not have access to this action.',
+        );
         final exception = ApiException(
-          _sanitizeServerMessage(
-            serverMessage ?? 'You do not have access to this action.',
-          ),
+          sanitized,
           statusCode: statusCode,
           kind: ApiErrorKind.forbidden,
           apiVersion: apiVersion,
           supportedVersions: supportedVersions,
         );
+        if (isPasswordChangeRequiredMessage(serverMessage) ||
+            isPasswordChangeRequiredMessage(sanitized)) {
+          if (!_isPasswordChangeRecoveryPath(response.requestOptions.path)) {
+            _notifyPasswordChangeRequired();
+          }
+          return exception;
+        }
         _notifyAuthorizationDenied();
         return exception;
       case 409:
@@ -955,6 +989,13 @@ class ApiClient {
       return true;
     }
     return false;
+  }
+
+  bool _isPasswordChangeRecoveryPath(String path) {
+    return path.contains('/auth/me') ||
+        path.contains('/auth/change-password') ||
+        path.contains('/auth/logout') ||
+        path.contains('/auth/admin/mfa/totp');
   }
 
   bool _isBrowserXhrNetworkError(String message) {

@@ -21,6 +21,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
 
   final int _currentNavIndex = 2;
   DateTime _currentMonth = DateTime.now();
+  static const int _maxLoadedMonths = 6;
   int _loadedMonths = 3;
 
   void _previousMonth() {
@@ -36,9 +37,9 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
   }
 
   void _loadMoreData() {
-    if (_loadedMonths < 12) {
+    if (_loadedMonths < _maxLoadedMonths) {
       setState(() {
-        _loadedMonths = (_loadedMonths + 3).clamp(1, 12);
+        _loadedMonths = (_loadedMonths + 3).clamp(1, _maxLoadedMonths);
       });
     }
   }
@@ -133,7 +134,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
             child: _buildCalendarGrid(dataMap),
           ),
           // Load more button
-          if (_loadedMonths < 12)
+          if (_loadedMonths < _maxLoadedMonths)
             Padding(
               padding: const EdgeInsets.all(PortalLayout.itemGap),
               child: TextButton.icon(
@@ -141,7 +142,7 @@ class _PatientDosageCalendarPageState extends State<PatientDosageCalendarPage> {
                   _loadMoreData();
                 },
                 icon: const Icon(Icons.refresh, size: 18),
-                label: Text('Load ${_loadedMonths < 9 ? '3' : 'more'} months'),
+                label: const Text('Load 3 months'),
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.blue.shade700,
                 ),
