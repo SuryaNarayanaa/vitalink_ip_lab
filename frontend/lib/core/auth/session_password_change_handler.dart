@@ -38,16 +38,9 @@ class SessionPasswordChangeHandler {
 
   static void _navigate(NavigatorState? navigator) {
     if (navigator == null) return;
-    // Navigator.context sits above route contexts, so ModalRoute.of cannot
-    // see the active named route. Walk the history without popping.
-    var alreadyOnChangePassword = false;
-    navigator.popUntil((route) {
-      if (route.settings.name == AppRoutes.changePassword) {
-        alreadyOnChangePassword = true;
-      }
-      return true;
-    });
-    if (alreadyOnChangePassword) return;
+    if (AppRouter.routeTracker.currentName == AppRoutes.changePassword) {
+      return;
+    }
     navigator.pushNamedAndRemoveUntil(
       AppRoutes.changePassword,
       (_) => false,

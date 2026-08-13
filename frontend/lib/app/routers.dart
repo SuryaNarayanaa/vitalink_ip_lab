@@ -37,6 +37,7 @@ class AppRouter {
   static const String initialRoute = AppRoutes.sessionBootstrap;
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
+  static final AppRouteTracker routeTracker = AppRouteTracker();
 
   static final Map<String, WidgetBuilder> routes = {
     '/': (_) => const SessionBootstrapPage(),
@@ -106,4 +107,28 @@ class AppRouter {
       ),
     ),
   };
+}
+
+/// Tracks the active named route for session recovery handlers.
+class AppRouteTracker extends NavigatorObserver {
+  String? currentName;
+
+  void _remember(Route<dynamic>? route) {
+    currentName = route?.settings.name;
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _remember(route);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    _remember(newRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _remember(previousRoute);
+  }
 }

@@ -201,6 +201,9 @@ fn is_unsafe_path(path) {
 }
 
 fn allowed_file(path) {
+    if is_unsafe_path(path) {
+        return false;
+    }
     let p = repo_rel(path);
     if p == "" {
         return false;
