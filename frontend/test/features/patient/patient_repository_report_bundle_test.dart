@@ -8,6 +8,7 @@ class _RecordingApiClient extends ApiClient {
 
   final Map<String, Map<String, dynamic>> responses;
   final List<String> getPaths = <String>[];
+  final List<Map<String, dynamic>?> queryParameters = <Map<String, dynamic>?>[];
 
   @override
   Future<Map<String, dynamic>> get(
@@ -16,6 +17,7 @@ class _RecordingApiClient extends ApiClient {
     bool authenticated = true,
   }) async {
     getPaths.add(path);
+    this.queryParameters.add(queryParameters);
     final body = responses[path];
     if (body == null) {
       throw StateError('No stub response for GET $path');
@@ -195,6 +197,27 @@ void main() {
       expect(latest['hasData'], isTrue);
       expect((latest['value'] as num).toDouble(), 3.5);
     });
+  });
+
+  test('getDosageCalendar clamps months to the documented 1-6 window', () async {
+    final api = _RecordingApiClient({
+      '/api/v1/patient/dosage-calendar': {
+        'calendar_data': const <dynamic>[],
+        'date_range': const {'start': '', 'end': ''},
+        'therapy_start': '',
+      },
+    });
+    final repo = PatientRepository(apiClient: api);
+
+    await repo.getDosageCalendar(months: 12);
+
+    expect(api.getPaths.single, '/api/v1/patient/dosage-calendar');
+    expect(api.queryParameters.single?['months'], 6);
+
+    await repo.getDosageCalendar(months: 0);
+    expect(api.queryParameters.last?['months'], 1);
+    await repo.getDosageCalendar(months: -3);
+    expect(api.queryParameters.last?['months'], 1);
   });
 }
 

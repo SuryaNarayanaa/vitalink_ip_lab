@@ -25,7 +25,7 @@ Changing a primary phone resets verification to `PENDING`; a new OTP is required
 
 Administrator secrets are generated locally and encrypted at rest with `ADMIN_TOTP_ENCRYPTION_KEY`. Pending and active secret material use separate encrypted slots. Challenges bind the account security generation and factor generation, and the last verified time step provides a replay boundary.
 
-Production/staging policy can require an unenrolled administrator to complete password-bound setup and activation before a session is issued. Authenticated setup/status/activate endpoints support normal account-security management.
+Production/staging policy can require an unenrolled administrator to complete password-bound setup and activation before a session is issued. Flutter login consumes `TOTP_ENROLLMENT_REQUIRED`, calls the unauthenticated enrollment setup and activate routes, and stores the issued session. Authenticated setup/status/activate endpoints support normal in-session account-security management.
 
 ## Session design
 
@@ -51,5 +51,9 @@ The code does not explicitly pin a JWT algorithm in `jwt.sign`/`jwt.verify`; tha
 ## Client token handling
 
 Flutter uses `flutter_secure_storage` through `SecureStorage`. The API client adds bearer tokens, serializes concurrent refresh through one pending future, rotates stored tokens only if the local session generation is unchanged, retries the original request once, and redirects to login only for confirmed invalid/revoked session outcomes.
+
+Password-policy `403` responses with the exact messages `Password has expired. Change your password before continuing.` or `Password change is required before continuing.` do not clear the session. The client calls the allowed recovery read `GET /auth/me`, persists `must_change_password`, and routes to the existing change-password screen. Other `403` responses remain capability/tenant denials. The backend does not emit a separate machine code for this gate; if a future payload includes `details.code`, the client can honor it without dropping the current message match.
+
+Invalid authenticator codes remain on the login challenge form. The client prefers `details.code = INVALID_TOTP` when present and otherwise matches the documented `Invalid TOTP code` message. HTTP `410` on a challenge is treated as an expired sign-in step on that form only; it does not globally force logout, because `410` is also used for retired authenticated routes.
 
 Browser `EventSource` cannot add an Authorization header, so Flutter web obtains a short-lived stream ticket before opening the SSE URL. Query logging redacts `ticket`, and Nginx logs `$uri` rather than `$request_uri`.

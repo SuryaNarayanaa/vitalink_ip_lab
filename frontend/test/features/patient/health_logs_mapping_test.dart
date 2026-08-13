@@ -126,6 +126,99 @@ void main() {
       expect(profile['lifestyleChanges'], 'Diet change');
       expect(profile['otherMedication'], 'Vitamin K supplement');
       expect((profile['healthLogs'] as List).length, 4);
+      expect(profile['profilePictureUrl'], isNull);
+    });
+
+    test('maps resolved profile_picture_url onto profilePictureUrl', () async {
+      final api = _ProfileApiClient({
+        'success': true,
+        'data': {
+          'patient': {
+            'login_id': 'OP1003',
+            'profile_id': {
+              'demographics': {
+                'name': 'Ada',
+                'age': 42,
+                'gender': 'Female',
+                'phone': '999',
+              },
+              'medical_config': {
+                'target_inr': {'min': 2.0, 'max': 3.0},
+              },
+              'profile_picture_url':
+                  'https://storage.example/patient.jpg?X-Amz-Signature=abc',
+            },
+          },
+        },
+      });
+
+      final repo = PatientRepository(apiClient: api);
+      final profile = await repo.getProfile();
+
+      expect(
+        profile['profilePictureUrl'],
+        'https://storage.example/patient.jpg?X-Amz-Signature=abc',
+      );
+    });
+
+    test('blank profile_picture_url values map to null', () async {
+      Future<void> expectNullPicture(String? raw) async {
+        final api = _ProfileApiClient({
+          'success': true,
+          'data': {
+            'patient': {
+              'login_id': 'OP1004',
+              'profile_id': {
+                'demographics': {
+                  'name': 'Ada',
+                  'age': 42,
+                  'gender': 'Female',
+                  'phone': '999',
+                },
+                'medical_config': {
+                  'target_inr': {'min': 2.0, 'max': 3.0},
+                },
+                'profile_picture_url': raw,
+              },
+            },
+          },
+        });
+        final profile = await PatientRepository(apiClient: api).getProfile();
+        expect(profile['profilePictureUrl'], isNull);
+      }
+
+      await expectNullPicture('');
+      await expectNullPicture('   ');
+    });
+
+    test('trims surrounding whitespace on profile_picture_url', () async {
+      final api = _ProfileApiClient({
+        'success': true,
+        'data': {
+          'patient': {
+            'login_id': 'OP1005',
+            'profile_id': {
+              'demographics': {
+                'name': 'Ada',
+                'age': 42,
+                'gender': 'Female',
+                'phone': '999',
+              },
+              'medical_config': {
+                'target_inr': {'min': 2.0, 'max': 3.0},
+              },
+              'profile_picture_url':
+                  '  https://storage.example/patient.jpg?X-Amz-Signature=abc  ',
+            },
+          },
+        },
+      });
+
+      final profile = await PatientRepository(apiClient: api).getProfile();
+      expect(
+        profile['profilePictureUrl'],
+        'https://storage.example/patient.jpg?X-Amz-Signature=abc',
+      );
     });
 
     test('uses defaults when no health logs exist', () async {

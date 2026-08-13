@@ -1,17 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:frontend/core/constants/strings.dart';
 import 'package:frontend/core/network/api_client.dart';
-import 'package:frontend/core/storage/secure_storage.dart';
 import 'package:frontend/core/utils/inr_target_range.dart';
 
 class PatientRepository {
-  PatientRepository(
-      {required ApiClient apiClient, SecureStorage? secureStorage})
-      : _apiClient = apiClient,
-        _secureStorage = secureStorage ?? SecureStorage();
+  PatientRepository({required ApiClient apiClient}) : _apiClient = apiClient;
 
   final ApiClient _apiClient;
-  final SecureStorage _secureStorage;
 
   /// Coalesces concurrent `GET /reports` callers into a single in-flight request.
   _InFlightReportLoad? _inFlightReport;
@@ -106,7 +101,14 @@ class PatientRepository {
       'medicalHistory': profile['medical_history'] ?? [],
       'doctorUpdatesUnreadCount': doctorUpdates?['unread_count'] ?? 0,
       'latestDoctorUpdate': doctorUpdates?['latest'],
+      'profilePictureUrl': _nonEmptyString(profile['profile_picture_url']),
     };
+  }
+
+  static String? _nonEmptyString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   /// Coerce API map payloads that may not be typed as [Map<String, dynamic>].
@@ -216,7 +218,7 @@ class PatientRepository {
     int months = 3,
     String? startDate,
   }) async {
-    final queryParams = <String, dynamic>{'months': months};
+    final queryParams = <String, dynamic>{'months': months.clamp(1, 6).toInt()};
     if (startDate != null) {
       queryParams['start_date'] = startDate;
     }
@@ -648,69 +650,6 @@ class PatientRepository {
       }
     }
     return null;
-  }
-
-  ApiException _uploadException(int? statusCode, String? serverMessage) {
-    final message = serverMessage?.trim();
-    switch (statusCode) {
-      case 400:
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'Please check the INR value, date, and selected file.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.badRequest,
-        );
-      case 401:
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'Your session has expired. Please sign in again.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.unauthorized,
-        );
-      case 413:
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'The selected report is larger than the allowed upload size.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.requestTooLarge,
-        );
-      case 423:
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'This account is temporarily locked. Try again later.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.locked,
-        );
-      case 429:
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'Too many upload attempts. Please wait before trying again.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.rateLimited,
-        );
-      default:
-        if (statusCode != null && statusCode >= 500) {
-          return ApiException(
-            message?.isNotEmpty == true
-                ? message!
-                : 'The server could not upload the report. Please try again.',
-            statusCode: statusCode,
-            kind: ApiErrorKind.server,
-          );
-        }
-        return ApiException(
-          message?.isNotEmpty == true
-              ? message!
-              : 'Unable to upload the report. Check your connection and try again.',
-          statusCode: statusCode,
-          kind: ApiErrorKind.network,
-        );
-    }
   }
 }
 

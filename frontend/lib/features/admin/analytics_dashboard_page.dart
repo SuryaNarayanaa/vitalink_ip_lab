@@ -41,7 +41,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
         : Future.value(const _AuthLoadResult<InrComplianceStats>.skipped());
     final workloadFuture = canLoadAnalytics
         ? _loadWithAuthStatus(_repo.getWorkload)
-        : Future.value(const _AuthLoadResult<List<DoctorWorkload>>.skipped());
+        : Future.value(const _AuthLoadResult<DoctorWorkloadStats>.skipped());
 
     final stats = await statsFuture;
     final trends = await trendsFuture;
@@ -55,7 +55,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
       trendsDenied: trends.denied,
       compliance: compliance.value,
       complianceDenied: compliance.denied,
-      workload: workload.value ?? const [],
+      workload: workload.value,
       workloadDenied: workload.denied,
     );
   }
@@ -191,7 +191,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> {
                               width: isDesktop ? (width - 16) / 2 : width,
                               height: chartHeight,
                               child: _WorkloadChart(
-                                workload: aggregate?.workload ?? const [],
+                                workload: aggregate?.workload,
                                 denied: aggregate?.workloadDenied ?? false,
                               ),
                             ),
@@ -262,7 +262,7 @@ class _AnalyticsDashboardAggregate {
   final bool trendsDenied;
   final InrComplianceStats? compliance;
   final bool complianceDenied;
-  final List<DoctorWorkload> workload;
+  final DoctorWorkloadStats? workload;
   final bool workloadDenied;
 }
 
@@ -324,7 +324,7 @@ class _SummaryCards extends StatelessWidget {
           ),
           _SummaryCard(
             title: 'Critical INR',
-            value: s?.patientStats.criticalInr.toString() ?? '--',
+            value: s?.patientStats.criticalInr?.toString() ?? '--',
             icon: Icons.warning_rounded,
             color: Colors.red,
           ),
@@ -616,9 +616,9 @@ class _ComplianceChart extends StatelessWidget {
         percentage: c.outOfRangePercentage,
       ),
       _ComplianceLegendItem(
-        label: 'Critical',
-        color: Colors.red,
-        percentage: c.criticalPercentage,
+        label: 'No Data',
+        color: Colors.blueGrey,
+        percentage: c.noDataPercentage,
       ),
     ].where((item) => item.percentage > 0).toList();
 
@@ -671,13 +671,14 @@ class _ComplianceChart extends StatelessWidget {
 
 // ─── Doctor Workload ───
 class _WorkloadChart extends StatelessWidget {
-  final List<DoctorWorkload> workload;
+  final DoctorWorkloadStats? workload;
   final bool denied;
-  const _WorkloadChart({required this.workload, this.denied = false});
+  const _WorkloadChart({this.workload, this.denied = false});
 
   @override
   Widget build(BuildContext context) {
-    if (denied && workload.isEmpty) {
+    final stats = workload;
+    if (denied && stats == null) {
       return _ChartCard(
         title: 'Doctor Workload',
         child: const Center(
@@ -685,13 +686,19 @@ class _WorkloadChart extends StatelessWidget {
         ),
       );
     }
-    if (workload.isEmpty) {
+    if (stats == null || !stats.hasRenderableData) {
       return _ChartCard(
         title: 'Doctor Workload',
         child: const Center(child: Text('No data available')),
       );
     }
-    final top = workload.take(10).toList();
+    if (stats.isGlobal) {
+      return _ChartCard(
+        title: 'Doctor Workload',
+        child: _GlobalWorkloadSummary(stats: stats),
+      );
+    }
+    final top = stats.items.take(10).toList();
     final maxP = top.fold<int>(
       0,
       (m, d) => d.patientCount > m ? d.patientCount : m,
@@ -828,6 +835,60 @@ class _WorkloadChart extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _GlobalWorkloadSummary extends StatelessWidget {
+  const _GlobalWorkloadSummary({required this.stats});
+
+  final DoctorWorkloadStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = <(String, String)>[
+      (
+        'Doctors with patients',
+        '${stats.doctorsWithActivePatients ?? 0}',
+      ),
+      (
+        'Active assignments',
+        '${stats.activePatientAssignments ?? 0}',
+      ),
+      if (stats.maximumAssignmentsPerDoctor != null)
+        (
+          'Max per doctor',
+          '${stats.maximumAssignmentsPerDoctor}',
+        ),
+      if (stats.averageAssignmentsPerDoctor != null)
+        (
+          'Average per doctor',
+          stats.averageAssignmentsPerDoctor!.toStringAsFixed(1),
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(row.$1, style: theme.textTheme.bodyMedium),
+                ),
+                Text(
+                  row.$2,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

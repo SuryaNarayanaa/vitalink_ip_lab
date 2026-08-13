@@ -229,8 +229,8 @@ class _NotificationBroadcastPageState extends State<NotificationBroadcastPage> {
                       icon: Icon(Icons.arrow_upward_rounded),
                     ),
                     ButtonSegment(
-                      value: 'CRITICAL',
-                      label: Text('Critical'),
+                      value: 'URGENT',
+                      label: Text('Urgent'),
                       icon: Icon(Icons.warning_rounded),
                     ),
                   ],

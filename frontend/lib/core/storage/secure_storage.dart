@@ -39,13 +39,13 @@ class SecureStorage {
   static int get authSessionGeneration => _authSessionGeneration;
 
   Future<T> _enqueueAuthMutation<T>(Future<T> Function() op) {
-    final run = () async {
+    Future<T> run() async {
       try {
         return await op();
       } catch (_) {
         rethrow;
       }
-    };
+    }
     // Always continue the queue after a failure so one disk error cannot
     // permanently poison later save/clear operations.
     final next = (_authMutationQueue ?? Future<void>.value())
@@ -301,14 +301,16 @@ class SecureStorage {
   }
 
   Future<void> clearAuthData({bool preserveOnboarding = true}) async {
+    // Invalidate memory before the queued disk deletes so an in-flight
+    // readToken/readUser cannot hydrate a just-cleared session.
+    _authSessionGeneration++;
+    _tokenCacheGeneration++;
+    _userCacheGeneration++;
+    _cachedToken = null;
+    _cachedUser = null;
+    _tokenHydrated = true;
+    _userHydrated = true;
     await _enqueueAuthMutation(() async {
-      _authSessionGeneration++;
-      _tokenCacheGeneration++;
-      _userCacheGeneration++;
-      _cachedToken = null;
-      _cachedUser = null;
-      _tokenHydrated = true;
-      _userHydrated = true;
       // Best-effort: one failed delete must not leave sibling auth keys on disk.
       Object? firstError;
       Future<void> deleteKey(String key) async {

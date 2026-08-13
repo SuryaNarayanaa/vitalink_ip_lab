@@ -4,7 +4,6 @@ import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/widgets/admin/admin_access_scope.dart';
-import 'package:frontend/core/widgets/admin/admin_scaffold.dart';
 import 'package:frontend/features/admin/admin_capabilities.dart';
 import 'package:frontend/features/admin/admin_console_components.dart';
 import 'package:frontend/features/admin/admin_dashboard_page.dart';

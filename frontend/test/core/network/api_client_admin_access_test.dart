@@ -109,4 +109,112 @@ void main() {
     expect(notifications, 1);
     expect(adapter.calls, 1);
   });
+
+  test('password-change 403 routes to the password handler, not admin denial',
+      () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 403,
+      body: {
+        'success': false,
+        'message': ApiClient.passwordChangeRequiredMessage,
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+    var denied = 0;
+    var passwordChange = 0;
+    client.setAuthorizationDeniedHandler(() => denied++);
+    client.setPasswordChangeRequiredHandler(() => passwordChange++);
+
+    ApiException? captured;
+    try {
+      await client.get('/patient/profile', authenticated: false);
+    } on ApiException catch (error) {
+      captured = error;
+    }
+
+    expect(captured?.kind, ApiErrorKind.forbidden);
+    expect(captured?.message, ApiClient.passwordChangeRequiredMessage);
+    expect(denied, 0);
+    expect(passwordChange, 1);
+    expect(adapter.calls, 1);
+  });
+
+  test('password-expired 403 on /auth/me does not recurse into the handler',
+      () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 403,
+      body: {
+        'success': false,
+        'message': ApiClient.passwordExpiredMessage,
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+    var passwordChange = 0;
+    client.setPasswordChangeRequiredHandler(() => passwordChange++);
+
+    try {
+      await client.get('/api/v1/auth/me', authenticated: false);
+    } on ApiException {
+      // Expected: recovery read itself should not re-enter the handler.
+    }
+
+    expect(passwordChange, 0);
+  });
+
+  test('410 challenge expiry is gone and does not globally return to login', () async {
+    final adapter = _StaticResponseAdapter(
+      statusCode: 410,
+      body: {
+        'success': false,
+        'message': 'Admin MFA enrollment challenge is no longer available',
+      },
+    );
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final client = ApiClient(dio: dio);
+
+    ApiException? captured;
+    try {
+      await client.post(
+        '/auth/login/totp/enroll/activate',
+        data: const {'challenge_id': '64b1f0c8e4b0a1d2c3e4f567', 'code': '123456'},
+        authenticated: false,
+      );
+    } on ApiException catch (error) {
+      captured = error;
+    }
+
+    expect(captured?.kind, ApiErrorKind.gone);
+    expect(captured?.statusCode, 410);
+    expect(captured?.shouldReturnToLogin, isFalse);
+    expect(captured?.canRetry, isFalse);
+  });
+
+  test('invalid TOTP prefers details.code over session-return', () {
+    final byCode = ApiException(
+      'Something else',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+      details: const {'code': 'INVALID_TOTP'},
+    );
+    final byMessage = ApiException(
+      'Invalid TOTP code',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+    );
+    final other401 = ApiException(
+      'Invalid credentials',
+      statusCode: 401,
+      kind: ApiErrorKind.unauthorized,
+    );
+
+    expect(byCode.isInvalidTotpCode, isTrue);
+    expect(byMessage.isInvalidTotpCode, isTrue);
+    expect(other401.isInvalidTotpCode, isFalse);
+    expect(other401.shouldReturnToLogin, isTrue);
+  });
 }

@@ -38,10 +38,13 @@ sequenceDiagram
     Auth-->>App: Access token, opaque refresh token and session metadata
 ```
 
-!!! warning "Current client integration gap"
-    The enrollment branch above documents the implemented backend contract. The current Flutter login repository handles `OTP_REQUIRED` and `TOTP_REQUIRED`, but not `TOTP_ENROLLMENT_REQUIRED`; see [INC-01](../reference/inconsistencies.md#inc-01-backend-admin-enrollment-is-not-handled-by-flutter-login).
+The Flutter OTP form uses `resend_available_at`, remaining attempts, and max resends from the challenge payload. Resend stays disabled during cooldown or after the resend budget is exhausted; verify is blocked when the challenge is expired or has no attempts left.
+
+When login returns `TOTP_ENROLLMENT_REQUIRED`, the Flutter login page loads password-bound setup material (QR code and setup key) and activates the factor with the six-digit authenticator code before a session is issued. Challenge expiry and lockout return the administrator to the password form; an invalid authenticator code stays on the enrollment form.
 
 ## Patient INR report upload
+
+The Update INR form rejects empty, non-decimal, zero, and values above 20 before `POST /patient/reports`, matching `reportSchema`.
 
 ```mermaid
 flowchart TD

@@ -61,28 +61,58 @@ class AuthRepository {
     }
 
     if (body['auth_status'] == 'TOTP_REQUIRED') {
-      final challenge = body['challenge'] is Map<String, dynamic>
-          ? body['challenge'] as Map<String, dynamic>
-          : null;
-      if (challenge == null) {
-        throw ApiException(
+      return LoginResult.totpRequired(
+        _readTotpChallenge(
+          body,
           'Malformed authenticator challenge response',
-          kind: ApiErrorKind.malformedResponse,
-        );
-      }
+        ),
+      );
+    }
 
-      final totpChallenge = LoginTotpChallenge.fromJson(challenge);
-      if (totpChallenge.challengeId.isEmpty) {
-        throw ApiException(
-          'Malformed authenticator challenge response',
-          kind: ApiErrorKind.malformedResponse,
-        );
-      }
-
-      return LoginResult.totpRequired(totpChallenge);
+    if (body['auth_status'] == 'TOTP_ENROLLMENT_REQUIRED') {
+      return LoginResult.enrollmentRequired(
+        _readTotpChallenge(
+          body,
+          'Malformed authenticator enrollment challenge response',
+        ),
+      );
     }
 
     return LoginResult.authenticated(await _saveSessionFromBody(body));
+  }
+
+  Future<LoginTotpEnrollmentMaterial> setupLoginTotpEnrollment(
+    EnrollAdminTotpSetupRequest request,
+  ) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+      authenticated: false,
+    );
+
+    final material = LoginTotpEnrollmentMaterial.fromJson(body);
+    if (material.challengeId.isEmpty ||
+        material.secret.isEmpty ||
+        material.otpauthUrl.isEmpty) {
+      throw ApiException(
+        'Malformed authenticator enrollment setup response',
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    return material;
+  }
+
+  Future<LoginResponse> activateLoginTotpEnrollment(
+    EnrollAdminTotpActivateRequest request,
+  ) async {
+    final body = await _apiClient.post(
+      request.path,
+      data: request.toJson(),
+      authenticated: false,
+    );
+
+    return _saveSessionFromBody(body);
   }
 
   Future<LoginResponse> verifyLoginOtp(VerifyLoginOtpRequest request) async {
@@ -161,6 +191,39 @@ class AuthRepository {
     await clearLocalSession();
   }
 
+  /// Refreshes persisted user state from GET /auth/me.
+  ///
+  /// Allowed while a password change is required so mid-session expiry can
+  /// update [UserModel.mustChangePassword] before routing to change-password.
+  Future<UserModel> refreshCurrentUser() async {
+    final body = await _apiClient.get(AppStrings.authMePath);
+    final user = body['user'];
+    final userJson = user is Map<String, dynamic>
+        ? user
+        : user is Map
+            ? Map<String, dynamic>.from(user)
+            : null;
+    if (userJson == null) {
+      throw ApiException(
+        'Malformed /auth/me response',
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    await _secureStorage.saveUser(userJson);
+    return UserModel.fromJson(userJson);
+  }
+
+  /// Persists the password-change gate from a confirmed 403 when /auth/me
+  /// cannot be refreshed. Does not invent a session.
+  Future<void> markPasswordChangeRequired() async {
+    final existing = await _secureStorage.readUser();
+    if (existing == null) return;
+    final updated = Map<String, dynamic>.from(existing);
+    updated['must_change_password'] = true;
+    await _secureStorage.saveUser(updated);
+  }
+
   /// Changes the authenticated user's password.
   ///
   /// On success the backend revokes all sessions for the user, so local
@@ -188,6 +251,31 @@ class AuthRepository {
         // Feature cache cleanup must not block session teardown.
       }
     }
+  }
+
+  LoginTotpChallenge _readTotpChallenge(
+    Map<String, dynamic> body,
+    String malformedMessage,
+  ) {
+    final challenge = body['challenge'] is Map<String, dynamic>
+        ? body['challenge'] as Map<String, dynamic>
+        : null;
+    if (challenge == null) {
+      throw ApiException(
+        malformedMessage,
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    final totpChallenge = LoginTotpChallenge.fromJson(challenge);
+    if (totpChallenge.challengeId.isEmpty) {
+      throw ApiException(
+        malformedMessage,
+        kind: ApiErrorKind.malformedResponse,
+      );
+    }
+
+    return totpChallenge;
   }
 
   Future<LoginResponse> _saveSessionFromBody(Map<String, dynamic> body) async {

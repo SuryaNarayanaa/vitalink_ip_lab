@@ -10,6 +10,7 @@ enum ApiErrorKind {
   forbidden,
   notFound,
   locked,
+  gone,
   rateLimited,
   requestTooLarge,
   server,
@@ -61,6 +62,16 @@ class ApiException implements Exception {
   bool get shouldReturnToLogin =>
       kind == ApiErrorKind.unauthorized || kind == ApiErrorKind.locked;
 
+  /// Authenticator-code failures stay on the challenge form.
+  ///
+  /// Prefers a structured `details.code` when the server sends one; falls back
+  /// to the documented "Invalid TOTP code" message.
+  bool get isInvalidTotpCode {
+    final code = details?['code']?.toString().trim().toUpperCase();
+    if (code == 'INVALID_TOTP') return true;
+    return message.toLowerCase().contains('invalid totp');
+  }
+
   String get actionLabel {
     if (shouldReturnToLogin) return 'Back to login';
     if (canRetry) return 'Retry';
@@ -79,6 +90,8 @@ class ApiException implements Exception {
         return 'This service is unavailable';
       case ApiErrorKind.locked:
         return 'Account temporarily locked';
+      case ApiErrorKind.gone:
+        return 'This sign-in step expired';
       case ApiErrorKind.rateLimited:
         return 'Please slow down';
       case ApiErrorKind.requestTooLarge:
@@ -144,9 +157,19 @@ class ApiClient {
   static const String _hasRetriedAfterRefreshExtra = 'hasRetriedAfterRefresh';
   Future<String>? _pendingRefresh;
   VoidCallback? _authorizationDeniedHandler;
+  VoidCallback? _passwordChangeRequiredHandler;
+
+  static const String passwordExpiredMessage =
+      'Password has expired. Change your password before continuing.';
+  static const String passwordChangeRequiredMessage =
+      'Password change is required before continuing.';
 
   void setAuthorizationDeniedHandler(VoidCallback? handler) {
     _authorizationDeniedHandler = handler;
+  }
+
+  void setPasswordChangeRequiredHandler(VoidCallback? handler) {
+    _passwordChangeRequiredHandler = handler;
   }
 
   void _notifyAuthorizationDenied() {
@@ -157,6 +180,22 @@ class ApiClient {
     } catch (error) {
       _logDebug('Authorization-denied handler failed: $error');
     }
+  }
+
+  void _notifyPasswordChangeRequired() {
+    final handler = _passwordChangeRequiredHandler;
+    if (handler == null) return;
+    try {
+      handler();
+    } catch (error) {
+      _logDebug('Password-change-required handler failed: $error');
+    }
+  }
+
+  static bool isPasswordChangeRequiredMessage(String? message) {
+    final text = (message ?? '').trim();
+    return text == passwordExpiredMessage ||
+        text == passwordChangeRequiredMessage;
   }
 
   void _logDebug(String message) {
@@ -683,19 +722,39 @@ class ApiClient {
           kind: ApiErrorKind.unauthorized,
           apiVersion: apiVersion,
           supportedVersions: supportedVersions,
+          details: _safeStructuredDetails(body),
         );
       case 403:
+        final sanitized = _sanitizeServerMessage(
+          serverMessage ?? 'You do not have access to this action.',
+        );
         final exception = ApiException(
-          _sanitizeServerMessage(
-            serverMessage ?? 'You do not have access to this action.',
-          ),
+          sanitized,
           statusCode: statusCode,
           kind: ApiErrorKind.forbidden,
           apiVersion: apiVersion,
           supportedVersions: supportedVersions,
         );
+        if (isPasswordChangeRequiredMessage(serverMessage) ||
+            isPasswordChangeRequiredMessage(sanitized)) {
+          if (!_isPasswordChangeRecoveryPath(response.requestOptions.path)) {
+            _notifyPasswordChangeRequired();
+          }
+          return exception;
+        }
         _notifyAuthorizationDenied();
         return exception;
+      case 410:
+        return ApiException(
+          _sanitizeServerMessage(
+            serverMessage ??
+                'This sign-in step expired. Return to login and try again.',
+          ),
+          statusCode: statusCode,
+          kind: ApiErrorKind.gone,
+          apiVersion: apiVersion,
+          supportedVersions: supportedVersions,
+        );
       case 409:
         return ApiConflictException(
           _sanitizeServerMessage(
@@ -955,6 +1014,13 @@ class ApiClient {
       return true;
     }
     return false;
+  }
+
+  bool _isPasswordChangeRecoveryPath(String path) {
+    return path.contains('/auth/me') ||
+        path.contains('/auth/change-password') ||
+        path.contains('/auth/logout') ||
+        path.contains('/auth/admin/mfa/totp');
   }
 
   bool _isBrowserXhrNetworkError(String message) {

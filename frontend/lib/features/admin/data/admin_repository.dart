@@ -535,12 +535,9 @@ class AdminRepository {
     return InrComplianceStats.fromJson(response);
   }
 
-  Future<List<DoctorWorkload>> getWorkload() async {
+  Future<DoctorWorkloadStats> getWorkload() async {
     final response = await _apiClient.get(AppStrings.statisticsWorkloadPath);
-    final items = response['items'] as List? ?? [];
-    return items
-        .map((e) => DoctorWorkload.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return DoctorWorkloadStats.fromResponse(response);
   }
 
   Iterable<Map<String, dynamic>> _extractItems(

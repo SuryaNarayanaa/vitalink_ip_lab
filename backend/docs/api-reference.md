@@ -360,7 +360,8 @@ Security notes:
 - locked accounts return `423 Locked`
 - patients and doctors with unverified registered phones receive a first-login SMS OTP challenge instead of a token
 - admins never use SMS/email OTP; when authenticator-app MFA is enabled, password login returns `202 Accepted` with `auth_status: "TOTP_REQUIRED"` and no token
-- in development/test, an un-enrolled admin may log in to bootstrap enrollment; in staging/production, un-enrolled admin login fails closed unless MFA has been provisioned
+- in development/test, an un-enrolled admin may receive a session so operators can bootstrap enrollment from the authenticated account-security endpoints
+- in staging/production, an un-enrolled admin receives `202 Accepted` with `auth_status: "TOTP_ENROLLMENT_REQUIRED"` instead of a session
 - refresh tokens are stored only as hashes server-side
 
 ### `POST /api/v1/auth/login/otp/verify`
@@ -402,6 +403,44 @@ Notes:
 - only admin authenticator-app challenges are accepted
 - TOTP codes are rate-limited by challenge attempts and the challenge expires quickly
 - a verified challenge cannot be replayed
+
+### `POST /api/v1/auth/login/totp/enroll/setup`
+
+Start password-bound admin authenticator enrollment using the still-pending enrollment challenge from login. This endpoint does not require a bearer session.
+
+Request body:
+
+```json
+{
+  "challenge_id": "6890..."
+}
+```
+
+Notes:
+
+- the challenge must be a pending `ENROLLMENT` challenge bound to the password-authenticated admin
+- setup is idempotent for the same challenge: retries reuse pending secret material already shown to the administrator
+- the response includes `secret`, `otpauth_url`, `challenge_id`, and `reused`
+- expired, consumed, locked, or generation-mismatched challenges return `410` / `404` / `423` without issuing a session
+
+### `POST /api/v1/auth/login/totp/enroll/activate`
+
+Verify the six-digit authenticator code against pending enrollment material, enable the factor, invalidate earlier sessions at the security boundary, and issue a new session payload.
+
+Request body:
+
+```json
+{
+  "challenge_id": "6890...",
+  "code": "123456"
+}
+```
+
+Notes:
+
+- consumes the enrollment challenge before enabling the factor
+- the code must be six digits; failed codes reopen the challenge and charge an attempt when lockout policy allows
+- a successful response is the normal login session plus `factor_type`, `status: "ENABLED"`, and session-invalidation metadata
 
 ### `POST /api/v1/auth/refresh`
 
@@ -672,10 +711,11 @@ Returns all doctors visible to the authenticated doctor flow.
 
 #### `GET /api/v1/doctors/patients`
 
-Returns the authenticated doctor's patients.
+Returns the authenticated doctor's Active assigned patients in the same hospital.
 
 Implementation detail:
 
+- the controller filters `account_status: Active` so discharged and deceased assignees are omitted
 - the controller resolves patient `login_id` values and injects them into the returned profile objects
 
 #### `GET /api/v1/doctors/patients/:op_num`

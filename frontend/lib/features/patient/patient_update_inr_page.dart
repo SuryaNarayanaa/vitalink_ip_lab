@@ -168,15 +168,7 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
                           decoration: _inputDecoration('Enter INR value'),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter INR value';
-                            }
-                            if (double.tryParse(value) == null) {
-                              return 'Please enter a valid number';
-                            }
-                            return null;
-                          },
+                          validator: validateUpdateInrValue,
                         ),
                         PortalLayout.sectionSpacer,
                         const Text('Date of Test :',
@@ -252,7 +244,8 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
                                 : () {
                                     if (_formKey.currentState!.validate()) {
                                       mutation.mutate({
-                                        'inr_value': _inrValueController.text,
+                                        'inr_value':
+                                            _inrValueController.text.trim(),
                                         'test_date': _testDateController.text,
                                         'file_bytes': _selectedFile?.bytes,
                                         'file_name': _selectedFile?.name,
@@ -622,4 +615,20 @@ class _PatientUpdateINRPageState extends State<PatientUpdateINRPage> {
           borderSide: const BorderSide(color: Color(0xFF0084FF), width: 1.5)),
     );
   }
+}
+
+/// Client check matching [reportSchema]: a positive decimal INR in (0, 20].
+String? validateUpdateInrValue(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return 'Please enter INR value';
+  }
+  final trimmed = value.trim();
+  if (!RegExp(r'^\d+(?:\.\d+)?$').hasMatch(trimmed)) {
+    return 'Please enter a valid number';
+  }
+  final parsed = double.parse(trimmed);
+  if (!parsed.isFinite || parsed <= 0 || parsed > 20) {
+    return 'INR value must be between 0 and 20';
+  }
+  return null;
 }

@@ -193,4 +193,21 @@ void main() {
       });
     },
   );
+
+  test('getWorkload parses the global aggregate object', () async {
+    final client = _RecordingApiClient()
+      ..response = {
+        'scope': 'global',
+        'doctors_with_active_patients': 3,
+        'active_patient_assignments': 9,
+      };
+    final repository = AdminRepository(apiClient: client);
+
+    final workload = await repository.getWorkload();
+
+    expect(client.requests, ['GET ${AppStrings.statisticsWorkloadPath}']);
+    expect(workload.isGlobal, isTrue);
+    expect(workload.doctorsWithActivePatients, 3);
+    expect(workload.activePatientAssignments, 9);
+  });
 }

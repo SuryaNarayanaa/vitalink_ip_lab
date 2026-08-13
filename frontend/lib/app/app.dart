@@ -14,6 +14,7 @@ class VitalinkApp extends StatelessWidget {
 			client: queryClient,
 			child: MaterialApp(
 				navigatorKey: AppRouter.navigatorKey,
+				navigatorObservers: [AppRouter.routeTracker],
 				title: 'Vitalink',
 				theme: AppTheme.light,
 				// darkTheme: AppTheme.dark,

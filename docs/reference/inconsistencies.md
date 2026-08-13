@@ -4,11 +4,9 @@ These are documentation-relevant discrepancies found while comparing source area
 
 ## INC-01: Backend admin enrollment is not handled by Flutter login
 
-The backend can return `auth_status: TOTP_ENROLLMENT_REQUIRED` and implements `/auth/login/totp/enroll/setup` plus `/activate`. The Flutter `AuthRepository.login` only handles `OTP_REQUIRED` and `TOTP_REQUIRED`; it otherwise tries to parse the response as an authenticated session. `AppStrings` also has no enrollment endpoint constants.
+**Resolution:** Flutter login now consumes `auth_status: TOTP_ENROLLMENT_REQUIRED`. After password acceptance it calls unauthenticated `POST /auth/login/totp/enroll/setup` (idempotent secret reuse for the same challenge) and `POST /auth/login/totp/enroll/activate`, shows the QR code and manual setup key, and persists the issued session. Expired or consumed challenges (`410`), missing challenges (`404`), and lockout (`423`) return the user to the password form. An invalid authenticator code stays on the enrollment form so the administrator can retry without losing the pending secret. Authenticated `/auth/admin/mfa/totp/*` remains the in-session account-security path.
 
-**Impact:** production/staging unenrolled administrators can reach a backend-supported enrollment state that the current client cannot complete.
-
-**Recommended improvement:** add client models, endpoint constants, repository methods, UI flow, and tests for password-bound enrollment; retain backend security/lockout/challenge behavior.
+**Historical impact:** production/staging unenrolled administrators previously reached a backend-supported enrollment state that the client could not complete.
 
 ## INC-02: Deployment target drift
 

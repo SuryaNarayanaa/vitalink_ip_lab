@@ -27,6 +27,55 @@ void main() {
       expect(challenge.resendAvailableAt, isNotNull);
     });
 
+    test('gates resend and verify from challenge cooldown, expiry, and budget', () {
+      final coolingDown = LoginOtpChallenge.fromJson({
+        'challenge_id': 'challenge-123',
+        'purpose': 'PHONE_FIRST_LOGIN',
+        'delivery_channel': 'SMS',
+        'phone': {'masked': '+********1234'},
+        'expires_at': DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        'resend_available_at':
+            DateTime.now().add(const Duration(seconds: 30)).toIso8601String(),
+        'attempts_remaining': 4,
+        'resend_count': 1,
+        'max_resends': 3,
+      });
+      final exhausted = LoginOtpChallenge.fromJson({
+        'challenge_id': 'challenge-123',
+        'purpose': 'PHONE_FIRST_LOGIN',
+        'delivery_channel': 'SMS',
+        'phone': {'masked': '+********1234'},
+        'expires_at': DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        'resend_available_at':
+            DateTime.now().subtract(const Duration(seconds: 1)).toIso8601String(),
+        'attempts_remaining': 0,
+        'resend_count': 3,
+        'max_resends': 3,
+      });
+      final expired = LoginOtpChallenge.fromJson({
+        'challenge_id': 'challenge-123',
+        'purpose': 'PHONE_FIRST_LOGIN',
+        'delivery_channel': 'SMS',
+        'phone': {'masked': '+********1234'},
+        'expires_at':
+            DateTime.now().subtract(const Duration(seconds: 1)).toIso8601String(),
+        'resend_available_at':
+            DateTime.now().subtract(const Duration(seconds: 1)).toIso8601String(),
+        'attempts_remaining': 2,
+        'resend_count': 1,
+        'max_resends': 3,
+      });
+
+      expect(coolingDown.canResendNow, isFalse);
+      expect(coolingDown.canVerifyNow, isTrue);
+      expect(exhausted.canResendNow, isFalse);
+      expect(exhausted.hasResendsRemaining, isFalse);
+      expect(exhausted.canVerifyNow, isFalse);
+      expect(expired.isExpired, isTrue);
+      expect(expired.canResendNow, isFalse);
+      expect(expired.canVerifyNow, isFalse);
+    });
+
     test(
       'builds verify and resend requests for backend login OTP endpoints',
       () {
@@ -60,6 +109,31 @@ void main() {
       expect(challenge.attemptsRemaining, 3);
       expect(challenge.maxAttempts, 5);
       expect(challenge.expiresAt, isNotNull);
+      expect(challenge.isEnrollment, isFalse);
+    });
+
+    test('parses password-bound enrollment challenge and setup material', () {
+      final challenge = LoginTotpChallenge.fromJson({
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+        'factor_type': 'AUTHENTICATOR_APP',
+        'purpose': 'ENROLLMENT',
+        'expires_at': DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        'attempts_remaining': 5,
+        'max_attempts': 5,
+      });
+      final material = LoginTotpEnrollmentMaterial.fromJson({
+        'factor_type': 'AUTHENTICATOR_APP',
+        'secret': 'JBSWY3DPEHPK3PXP',
+        'otpauth_url': 'otpauth://totp/VitaLink:admin?secret=JBSWY3DPEHPK3PXP',
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
+        'reused': true,
+      });
+
+      expect(challenge.isEnrollment, isTrue);
+      expect(challenge.canVerifyNow, isTrue);
+      expect(material.secret, 'JBSWY3DPEHPK3PXP');
+      expect(material.otpauthUrl, startsWith('otpauth://totp/'));
+      expect(material.reused, isTrue);
     });
 
     test('builds verify request for backend login TOTP endpoint', () {
@@ -71,6 +145,24 @@ void main() {
       expect(verify.path, AppStrings.loginTotpVerifyPath);
       expect(verify.toJson(), {
         'challenge_id': 'admin-mfa-123',
+        'code': '123456',
+      });
+    });
+
+    test('builds password-bound enrollment setup and activate requests', () {
+      final setup = EnrollAdminTotpSetupRequest(
+        challengeId: '64b1f0c8e4b0a1d2c3e4f567',
+      );
+      final activate = EnrollAdminTotpActivateRequest(
+        challengeId: '64b1f0c8e4b0a1d2c3e4f567',
+        code: '123456',
+      );
+
+      expect(setup.path, AppStrings.loginTotpEnrollSetupPath);
+      expect(setup.toJson(), {'challenge_id': '64b1f0c8e4b0a1d2c3e4f567'});
+      expect(activate.path, AppStrings.loginTotpEnrollActivatePath);
+      expect(activate.toJson(), {
+        'challenge_id': '64b1f0c8e4b0a1d2c3e4f567',
         'code': '123456',
       });
     });

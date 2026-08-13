@@ -8,7 +8,7 @@ These requirements describe behavior implemented by current routes, controllers,
 | --- | --- | --- |
 | FR-AUTH-01 | The system shall authenticate active users by `login_id` and password and apply account lockout policy. | Auth controller, login-lockout and password services |
 | FR-AUTH-02 | The system shall require first-login phone OTP for eligible doctor and patient accounts whose registered primary phone is pending verification. | OTP/Twilio services and challenge model |
-| FR-AUTH-03 | The system shall require authenticator-app TOTP for administrators and support password-bound enrollment when production/staging policy prevents an unenrolled admin from obtaining a session. | Auth routes and admin TOTP service |
+| FR-AUTH-03 | The system shall require authenticator-app TOTP for administrators and support password-bound enrollment when production/staging policy prevents an unenrolled admin from obtaining a session. | Auth routes, admin TOTP service, and Flutter login enrollment |
 | FR-AUTH-04 | The system shall issue revocable access sessions and opaque rotating refresh tokens, detect reuse of rotated refresh tokens, and invalidate sessions at password/MFA/account security boundaries. | AuthSession model and service |
 | FR-AUTH-05 | The client shall restore a stored session, enforce role-aware navigation, refresh an expired access token once, and clear confirmed-invalid sessions. | Flutter session bootstrap, guards, API client, secure storage |
 
