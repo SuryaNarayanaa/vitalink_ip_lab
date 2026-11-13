@@ -434,7 +434,7 @@ class _PatientsView extends StatelessWidget {
                 ),
               if (query.hasData || (!query.isLoading && !query.isError))
                 isTableView
-                    ? _TableView(
+                    ? DoctorPatientTable(
                         filtered,
                         key: const ValueKey('patients-table-view'),
                       )
@@ -563,8 +563,8 @@ class _CardView extends StatelessWidget {
   }
 }
 
-class _TableView extends StatelessWidget {
-  const _TableView(this.patients, {super.key});
+class DoctorPatientTable extends StatelessWidget {
+  const DoctorPatientTable(this.patients, {super.key});
   final List<PatientModel> patients;
 
   @override
@@ -598,6 +598,7 @@ class _TableView extends StatelessWidget {
                               width: 290,
                               child: PatientAttentionSummary(
                                 patient: entry.value,
+                                stacked: true,
                               ),
                             ),
                           ),

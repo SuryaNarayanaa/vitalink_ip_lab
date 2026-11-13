@@ -1,6 +1,34 @@
 # Open questions and assumptions
 
+## GCP database and storage evaluation, 2026-10-28
+
+The [database and storage research](gcp-database-storage-research.md) compares options against inspected source. A target provider/engine is not selected. Actual hosting/tier, volumes, traffic, object inventory, region, budget, downtime tolerance, recovery objectives and data-location requirements remain unverified. Firestore partial-index replacements, PostgreSQL query/schema parity, Cloud Storage authorization/purge semantics, migration reconciliation, backup restoration and cost/performance need isolated evaluation. No production data or infrastructure changed; ADR-0002 and ADR-0005 remain the accepted implementation records.
+
 No implementation claim in this site depends on the following unknowns. Each item records inspected evidence and what is missing.
+
+## Hosted verification window, 2026-10-17
+
+The user-supplied Cloud Run backend at `https://vitalink-ip-lab-98286338620.europe-west1.run.app` returned HTTP 200 for liveness, readiness, and the API version index. Readiness reported MongoDB connected, Firebase initialized, the notification worker started, and required runtime configuration present. This observation does not establish provider delivery or the full deployment topology.
+
+The owner confirmed TOTP was intentionally disabled for testing. Existing administrator test accounts with accepted saved passwords could retrieve their identity, but administrator access was blocked by the required password change. The owner requested that passwords remain unchanged. Three saved credentials, for the test accounts ending in `app05`, `hospital05`, and `auditor05`, were rejected; the owner reported changing their passwords. Administrator workflows, tenant isolation, and successful Doctor/Patient workflows therefore remain unverified on this deployment. The payment webhook returned HTTP 503 with `PAYMENT_WEBHOOK_SECRET is not configured`; payment settlement remains unverified.
+
+Initial single-host client-side measurements used fresh HTTPS connections. Twenty sequential readiness requests averaged 482.76 ms with p95 507.11 ms. Thirty readiness requests at five workers averaged 498.89 ms with p95 803.15 ms and observed throughput 7.94 requests/second. These are workstation-to-service observations, not server processing times, peak capacity, or an SLA. Cold starts and cloud resource telemetry were not measured.
+
+Local automated results are separate from hosted evidence: all 660 backend tests passed across 43 suites in 182.54 seconds after installing the lockfile dependencies and starting Docker Desktop. The earlier 31-suite run passed 243 assertions while twelve MongoDB/Testcontainers suites were initially blocked by Docker; the final full run supersedes that limitation and uses disposable containers. No shared database was substituted for their fixtures. All 149 Flutter tests across 24 files and 17 deployment-script cases also passed. The initial Flutter compiler attempt failed because a temporary output path disappeared; the successful rerun used a workspace-local temporary directory.
+
+The second user-supplied backend, `https://vitalink-uimf.onrender.com`, also returned ready health state, accepted the same 17 saved test-account credentials, and rejected the same three changed passwords. Its working administrator accounts hit the same required password-change gate. Its first observed readiness request took 41.998 seconds; subsequent warm samples were measured separately. This delay is not a confirmed provider cold start. The host comparison uses fresh, alternating request pairs after both route/account sweeps and the local backend suite; deployment revision equality and provider resource telemetry remain unverified.
+
+All 246 requests in the paired comparison returned the expected HTTP 200. Twenty readiness requests per host averaged 471.32 ms for Cloud Run and 337.88 ms for Render, with p95 503.09 ms and 387.22 ms respectively. At five workers with 30 readiness samples per host, Cloud Run recorded p95 474.52 ms and 8.41 requests/second; Render recorded p95 782.07 ms and 9.86 requests/second. The shared route sweeps each contained 128 contract requests covering the 117-operation inventory plus public/index and negative checks, with no differences in HTTP status or checked response-contract assertions. These short samples do not establish equivalent releases, equal hardware, peak capacity, or successful business behavior.
+
+The HTML report and raw receipts are local deliverables under the ignored `deliverables/hosted-backend-tests/` directory. Initial login probes discarded issued session tokens before cleanup; session management was also password-change gated. Those initial probe sessions could not be explicitly revoked and remain subject to server expiration or operator revocation. Subsequent authenticated probes log out their own sessions and test rejection of the logged-out token. No password, role policy, or clinical record was changed.
+
+### Password-restoration prerequisite, 2026-10-17
+
+The user subsequently requested temporary password changes followed by restoration of the original passwords. A fresh login and identity read on both hosts exposed `password_policy.history_count: 5`, `expiry_days: 90`, and `must_change_password: true`. The existing `should reject password reuse from recent password history` test passed against disposable MongoDB: after changing a password, restoring the previous value returns HTTP 400 with `New password cannot match a recently used password`. The follow-up run executed that one test, with 49 unrelated tests skipped by the name filter. No hosted password was changed during this preflight. Original-password restoration through the supported API is therefore blocked by the reported history policy; hosted administrator workflow coverage remains incomplete pending a test-account approach that does not require that rollback. Fresh preflight sessions were logged out.
+
+## Vercel GitHub deployment verification, 2026-10-21
+
+The existing `vitalinkwebapp` project shows `SuryaNarayanaa/vitalink_ip_lab` connected and Production tracking `main`. Flutter install/build commands, the `frontend` root, and `build/web` output were saved in its dashboard. The user selected the Cloud Run API origin. Manual Git-based production deployment `9r4rM5Zh8vFHXZdkZoqXC1ucM5gn` from commit `099edc4` reached Ready in 2m 55s. The production HTML, bootstrap JavaScript, and main JavaScript returned HTTP 200; the main bundle contains the selected Cloud Run hostname. Production-origin login preflight passed. A subsequent push-triggered build, authenticated application acceptance, and Preview-origin CORS acceptance remain unverified. These checks do not establish a production-ready clinical workflow or backend resource topology.
 
 ## OQ-01: What is the live production topology?
 
@@ -106,9 +134,14 @@ The Personal Security password entry is implemented locally. A live browser chec
 
 Zen reproduced that Personal Security was absent from the deployed dashboard sidebar. The sidebar destination is now registered locally for all administrator roles; role-by-role navigation tests pass. Hosted verification of this follow-up remains pending. The account owner must enter and submit passwords personally.
 
+## GCP manual operational acceptance 2026-10-22
+
+The GCP deployment manual documents inspected source behavior and cited Google Cloud procedures. It does not establish the current project's IAM bindings, trigger definition, network egress, probe configuration, CPU billing, minimum instances, backup recoverability, or successful idle background delivery. Operators must verify these in the intended project and complete the manual's acceptance record before release handover. No cloud changes or live acceptance run were performed while authoring the manual.
+
 ## Doctor attention workflow, 2026-10-25
 
 The source implements an explainable review queue and monthly recording calendar. Live deployment and hospital acceptance are not established. Historical report review cannot be inferred from notes; older entries remain unknown. Historical weekly prescription versions are absent, so old schedule gaps are estimates under the current plan. Reminder jobs retain their existing delivery eligibility and may differ from the overview for profiles missing therapy start. Global INR threshold configuration and the legacy/manual critical update field remain for compatibility; new upload classification and doctor overview do not use them. No historical critical-flag migration was run. The existing roster API is unpaginated; production-scale performance and queue acceptance need separate verification. Structured health-report review and symptom severity are outside this change.
+
 
 ## Runtime presentation properties, 2026-10-27
 

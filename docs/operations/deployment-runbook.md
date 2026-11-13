@@ -2,7 +2,39 @@
 
 This runbook describes the checked-in EC2/Docker path. It does not assert that EC2 is the current hosted production path.
 
+For the Cloud Run backend and its Vercel frontend connection, use the [GCP deployment manual](gcp-deployment-manual.md).
+
 For one backend instance and a Redis container using hosted MongoDB Atlas, follow the [backend Docker runbook](backend-docker-runbook.md).
+
+## Vercel web deployments from GitHub
+
+The existing Vercel project `surya54101qs-projects/vitalinkwebapp` is connected to `SuryaNarayanaa/vitalink_ip_lab`. Production tracks `main`. Pushing commits to GitHub triggers deployments; a local commit alone does not. Other branches use Preview deployments. The production domain is `https://vitalinkwebapp.vercel.app`.
+
+Project settings saved in the dashboard on 2026-10-21:
+
+| Setting | Value |
+| --- | --- |
+| Framework preset | Other |
+| Root directory | `frontend` |
+| Output directory | `build/web` |
+| Ignored build step | Automatic |
+| Skip unaffected root-directory deployments | Disabled |
+
+Install command, matching the Flutter version in `frontend-ci.yml`:
+
+```bash
+git clone --depth 1 --branch 3.44.8 https://github.com/flutter/flutter.git /tmp/vitalink-flutter && /tmp/vitalink-flutter/bin/flutter pub get
+```
+
+Build command:
+
+```bash
+/tmp/vitalink-flutter/bin/flutter build web --release --dart-define=API_BASE_URL=https://vitalink-ip-lab-98286338620.europe-west1.run.app --dart-define=API_PATH_PREFIX=/api/v1
+```
+
+The API origin is compiled into Flutter. Dashboard environment variables alone do not change it. Update the build command and redeploy to change origins. The checked-in `/api/*` rewrite still targets Render; the explicit Cloud Run origin sends application API calls directly to Cloud Run. Verify backend CORS for each intended frontend origin, particularly Preview URLs.
+
+These settings live in Vercel rather than a new GitHub Actions workflow. Builds use the pushed repository state, excluding uncommitted local edits. Verify the deployment's Git SHA, build logs, Ready status, assets, and an authenticated workflow after a push. See [ADR-0014](../decisions/0014-vercel-github-web-deployments.md) and [remaining verification](../reference/open-questions.md#vercel-github-deployment-verification-2026-10-21).
 
 ## Preconditions
 

@@ -7,6 +7,15 @@ vercel --prod
 
 flutter build apk --release --dart-define=API_BASE_URL=https://vitalink-uimf.onrender.com --dart-define=API_PATH_PREFIX=/api/v1
 
+
+flutter build web --dart-define=API_BASE_URL=https://vitalink-ip-lab-98286338620.europe-west1.run.app/ --dart-define=API_PATH_PREFIX=/api/v1
+cd build/web
+vercel --prod
+
+
+flutter build apk --release --dart-define=API_BASE_URL=https://vitalink-ip-lab-98286338620.europe-west1.run.app/ --dart-define=API_PATH_PREFIX=/api/v1
+
+
 # frontend
 
 Vitalink Flutter client for INR monitoring at PSG Medical Institute.

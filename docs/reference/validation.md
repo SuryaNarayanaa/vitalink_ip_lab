@@ -1,5 +1,42 @@
 # Documentation validation report
 
+## Doctor web table row containment, 2026-11-13
+
+Inspected the shared attention chips and doctor table. Table cells now use a padded, minimum-height Column instead of Wrap, so intrinsic row sizing contains all labels. Cards retain wrapping. A synthetic preview uses the production DoctorPatientTable without a backend or patient data.
+
+- Two widget regression checks passed at 100% and 200% text scale. They check all four chip bounds, vertical padding, separation from the next patient, and absence of layout exceptions.
+- Focused Dart analysis passed with no issues. The UI detector returned no findings.
+- Documentation contract validation and strict MkDocs build passed. OpenAPI lint passed with 106 existing warnings; API copies remain identical. Mermaid and Structurizr inputs did not change.
+- Release web preview build passed. Headless Edge rendered the production table with synthetic patients; the inspected 1440x1000 screenshot shows all four labels above the row divider, followed by one-reason and no-attention rows. Local evidence: `build/verification/attention-table.png`.
+- Shared preview capture was unavailable because the desktop browser produced no frames. Local browser evidence uses synthetic fixtures, not a deployed or authenticated patient workflow. Production deployment and hospital acceptance remain unverified.
+
+
+## GCP Docker image tutorial, 2026-11-01
+
+Reviewed the backend Dockerfile, environment example, readiness implementation, existing deployment manual and Google Cloud provider guidance. Added an illustrated account-neutral image build/copy and Cloud Run tutorial. No cloud deployment or provider connectivity was exercised.
+
+`python scripts/docs/validate_docs.py` passed with 111 links, 122 matching API operations, 20 matching models and identical OpenAPI copies. `mkdocs build --strict` passed; the existing unlisted property audit page remains informational. OpenAPI lint passed with 106 warnings. `git diff --check` passed. Mermaid and Structurizr inputs did not change.
+
+## GCP database and storage research, 2026-10-28
+
+Inspected current models, database connection, account/policy transactions, statistics aggregations, file upload/purge integration, installed MongoDB driver tree, and accepted database/file ADRs before writing the [research comparison](gcp-database-storage-research.md). Provider capabilities and pricing models were checked against linked primary documentation. Recommendations remain proposals; no application, API, persistence schema, credentials, cloud resources or production data changed.
+
+- `python scripts/docs/validate_docs.py` passed: 109 local links, 122 matching API operations, 20 matching models, identical OpenAPI copies and six parsed workflow files.
+- `mkdocs build --strict` passed. It reported the existing unlisted `reference/property-implementation-audit.md` page as informational output.
+- `npm.cmd run lint:openapi --prefix backend` passed with 106 existing warnings.
+- `git diff --check` passed. Mermaid and Structurizr inputs did not change, so their render/CLI checks were not rerun.
+- No runtime migration, compatibility benchmark, backup restoration or monthly-cost estimate was performed. Required evidence is tracked in [open questions](open-questions.md#gcp-database-and-storage-evaluation-2026-10-28). Unrelated working-tree changes were preserved.
+
+## Vercel GitHub configuration, 2026-10-21
+
+Inspected Flutter source, both Vercel rewrite files, frontend CI, and existing deployment documentation before saving settings in the existing `vitalinkwebapp` project. The dashboard confirms the GitHub repository, Production branch `main`, root `frontend`, output `build/web`, and custom Flutter 3.44.8 install/build commands. The user selected Cloud Run. A manual Git-based production build was started from pushed commit `099edc42288b12a5f29aec2070bb62cc9e3c3c2e`, without committing or pushing local edits.
+
+`python scripts/docs/validate_docs.py` passed with 90 local links, 117 matching API operations, 18 matching models, identical OpenAPI copies, and 6 parsed workflow YAML files. `mkdocs build --strict` passed. `npm.cmd run lint:openapi --prefix backend` passed with 106 existing warnings. `git diff --check` passed. No OpenAPI, Mermaid fences, or Structurizr inputs changed.
+
+The Cloud Run `/health/live` probe returned HTTP 200. An OPTIONS request to `/api/v1/auth/login` from `https://vitalinkwebapp.vercel.app` returned HTTP 204 with `Access-Control-Allow-Origin` equal to that origin and POST included in the allowed methods. This verifies production-origin preflight, not an authenticated workflow or Preview origins.
+
+Git-based production deployment `9r4rM5Zh8vFHXZdkZoqXC1ucM5gn` reached Ready in 2m 55s. Logs confirm `Built build/web` and deployment completion. Production `/`, `/flutter_bootstrap.js`, and `/main.dart.js` returned HTTP 200 with HTML/JavaScript content types. The 4,470,429-byte main bundle contains the selected Cloud Run hostname. A live Zen browser check rendered the Welcome Back login screen with username/password controls. A later push-triggered build and authenticated application acceptance were not exercised.
+
 This page records the reproducible validation contract and the results observed against source commit `b73965c` on 2026-08-04.
 
 ## Commands
@@ -171,6 +208,12 @@ The Personal Security page now links to the existing authenticated password-chan
 
 A Zen browser check of the deployed dashboard reproduced the missing Personal Security sidebar item. The previous password-button change left its page unreachable. The dashboard now registers Personal Security for every administrator role without requiring platform or tenant management capabilities. All 25 administrator permission UI tests passed, including three regressions that select the sidebar item and follow Change password to its named route for App Admin, Hospital Admin, and Auditor. Documentation validation, strict MkDocs build, and the Impeccable detector passed. API, model, Mermaid, and Structurizr inputs did not change. No password was submitted. Post-deployment sidebar verification is pending.
 
+## GCP deployment manual verification 2026-10-22
+
+Inspected the Dockerfile, excluded build files, runtime configuration and readiness implementation, server startup, reminder scheduler, Redis and Filebase adapters, frontend routes, CI workflows, and existing deployment guidance. Added the Cloud Run operations manual and matching 12-page Word edition under ignored deliverables/gcp-deployment. Google Cloud documentation was checked for build context, injected PORT, Secret Manager roles, background billing, minimum instances, and revision rollback. No deployment settings or application behavior changed.
+
+Documentation validation passed with 92 local links, 117 matching operations, 18 matching models, identical OpenAPI copies, and six workflow YAML files. The strict MkDocs build passed. OpenAPI lint passed with 106 existing warnings. Mermaid and Structurizr inputs did not change. The packaged DOCX renderer failed because LibreOffice was absent; Word exported the final document to a QA PDF and bundled Poppler rendered all 12 pages to PNG. Every page was visually reviewed; the final rerender changed only pages 1 and 5, which were reviewed again. Live service configuration, networking, IAM, billing, deployment, rollback, and clinical acceptance were not exercised for this authoring task.
+
 ## Doctor attention and monthly dose history, 2026-10-25
 
 - Backend TypeScript build passed. Six attention/date/recording unit tests passed with `npm.cmd test --prefix backend -- --runInBand doctor-attention`.
@@ -179,6 +222,7 @@ A Zen browser check of the deployed dashboard reproduced the missing Personal Se
 - Docker Desktop could not start because its inference listener failed. The full Docker/Testcontainers backend suite was not run in this task. The native MongoDB preview is a separate disposable local database; no hosted/shared database or deployment was modified.
 - Documentation contract passed with 117 matching API operations, 18 model markers, and byte-identical OpenAPI copies. Strict MkDocs build and OpenAPI lint passed; lint retained 106 warnings. All 28 Mermaid diagrams rendered. Structurizr inputs did not change, so its Docker validator was not rerun. `git diff --check` passed.
 - The running Flutter web app was inspected with the local doctor account: attention categories, individual target context within patient records, monthly dose states, and calendar navigation were verified. The final overview shows only attention labels, and the calendar footer text is removed. Hospital acceptance and production rollout remain unverified.
+
 
 ## Runtime presentation properties, 2026-10-27
 
@@ -203,6 +247,7 @@ Implemented a public versioned property snapshot, administrator draft/save/publi
 New integration coverage verifies unpublished drafts remain private, public reads do not create state, ETag revalidation, concurrent-edit conflict rejection, atomic publication, rollback to initial defaults, protected management endpoints, service-level role/read-only restrictions, image content addressing and public bytes, image limits, template placeholder integrity, and exact maintenance exemptions. Flutter coverage verifies offline cached startup, background-refresh persistence, absence of auth headers on public requests, invalid/stale snapshot rejection, bundled fallback and form-state preservation across property changes.
 
 Production rollout, real-device offline/resume behavior, external image hosting and end-to-end acceptance on the deployed application remain unverified. Configuration is global; hospital-specific overrides, installed launcher/splash metadata and unreferenced-image cleanup are not implemented.
+
 
 ## Runtime property follow-up, 2026-10-28
 

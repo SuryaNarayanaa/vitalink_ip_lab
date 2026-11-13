@@ -15,6 +15,7 @@ This site documents the implementation on the repository's `main` branch at comm
 | Understand persisted data | [ER model](data/er-diagram.md) and [entity catalog](data/entities.md) |
 | Review identity and access controls | [Authentication and authorization](security/authentication-and-authorization.md) |
 | Deploy or recover the service | [Deployment runbook](operations/deployment-runbook.md) and [rollback runbook](operations/rollback-runbook.md) |
+| Deploy the backend on Google Cloud Run | [GCP deployment manual](operations/gcp-deployment-manual.md) |
 | See what remains unconfirmed | [Open questions](reference/open-questions.md) and [inconsistencies](reference/inconsistencies.md) |
 | Reproduce documentation checks | [Validation report](reference/validation.md) |
 

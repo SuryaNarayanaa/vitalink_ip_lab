@@ -50,6 +50,7 @@ The active Nginx server block listens on port 80. The HTTP-to-HTTPS redirect and
 - `backend-cd.yml` deploys the backend to an EC2 host through SSH.
 - `deploy_web.yml` publishes Flutter web to GitHub Pages.
 - `frontend/vercel.json` supports Vercel static hosting and proxies `/api/*` to the Render hostname.
+- The existing `vitalinkwebapp` Vercel project is connected to GitHub and tracks `main` for Production. Its dashboard builds `frontend` with Flutter 3.44.8 into `build/web`, explicitly compiling the user-selected Cloud Run API origin. See the [Vercel runbook](../operations/deployment-runbook.md#vercel-web-deployments-from-github) and [ADR-0014](../decisions/0014-vercel-github-web-deployments.md). This records web delivery configuration, not authenticated application acceptance.
 - Flutter mobile source and APK CI default to or explicitly build against the same Render hostname.
 
 No checked-in record establishes which combination is currently production. See [Inconsistencies](../reference/inconsistencies.md).

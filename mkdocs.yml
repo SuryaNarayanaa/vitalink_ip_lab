@@ -102,6 +102,8 @@ nav:
       - Backend and Redis Docker with Atlas: operations/backend-docker-runbook.md
       - Monitoring and logging: operations/monitoring-and-logging.md
       - Deployment runbook: operations/deployment-runbook.md
+      - GCP deployment manual: operations/gcp-deployment-manual.md
+      - GCP Docker image tutorial: operations/gcp-docker-image-tutorial.md
       - Rollback runbook: operations/rollback-runbook.md
       - Incident runbook: operations/incident-runbook.md
   - Decisions:
@@ -119,9 +121,11 @@ nav:
       - "ADR-0011: Backend Docker with Atlas": decisions/0011-backend-only-atlas-compose.md
       - "ADR-0012: Redis container for standalone backend": decisions/0012-containerized-redis-for-standalone-backend.md
       - "ADR-0013: Development dependency audit exception": decisions/0013-time-limited-development-audit-exception.md
+      - "ADR-0014: Vercel GitHub web deployments": decisions/0014-vercel-github-web-deployments.md
       - "ADR-0015: Doctor attention and review state": decisions/0015-doctor-attention-and-review-state.md
       - "ADR-0016: Runtime presentation properties": decisions/0016-runtime-presentation-properties.md
   - Reference:
+      - GCP database and storage research: reference/gcp-database-storage-research.md
       - Environments: environments.md
       - Source evidence: reference/source-evidence.md
       - Open questions: reference/open-questions.md

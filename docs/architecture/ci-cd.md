@@ -31,6 +31,8 @@ flowchart TD
 
 ## Required CI secrets
 
+The existing `vitalinkwebapp` Vercel project also builds directly from its GitHub integration, outside these Actions workflows. Production tracks `main`; the dashboard installs Flutter 3.44.8, builds `frontend`, publishes `build/web`, and compiles the Cloud Run API origin. It does not wait for the Actions gates above. No Vercel token was added to GitHub secrets. See the [Vercel runbook](../operations/deployment-runbook.md#vercel-web-deployments-from-github).
+
 | Secret | Used by | Purpose |
 | --- | --- | --- |
 | `GOOGLE_SERVICES_JSON` | Build APK | Firebase Android `google-services.json` contents |
@@ -62,6 +64,7 @@ The 2026-10-28 lockfile refresh addresses the production audit failure in run `4
 - The deploy preflight validates the JWT secret but readiness is responsible for the broader required-environment inventory.
 - Migrations are not automatically executed by backend CD. Operators must follow the migration order in the deployment runbook.
 - No source-backed approval gate, canary traffic policy, database backup gate, artifact signing/attestation, or post-deploy authenticated clinical smoke suite is present.
+
 
 ## Runtime property catalogue check
 
