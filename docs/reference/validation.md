@@ -1,5 +1,14 @@
 # Documentation validation report
 
+## Patient INR chart periods, 2026-11-13
+
+Inspected the patient dashboard chart and report-bundle date mapping. The previous chart plotted every result by array index and labeled only the day number. The new component defaults to this calendar month and offers last-six/last-twelve calendar-month windows, ending today. It displays exact dates and result count, sorts valid readings by test date, uses elapsed-day X positions and straight line segments, and shows full dates in tooltips. It filters already loaded history without new requests or clinical aggregation. Empty months stay empty; future/invalid values are excluded.
+
+- Six focused Flutter cases passed: default-month filtering, chronological order and real day spacing; six/twelve-month boundaries and dropdown selection at phone/tablet/desktop widths; empty months; and a single result on month day one. The complete Flutter suite passed all 190 tests.
+- Focused Dart analysis passed without diagnostics. Release preview build, documentation validation, strict MkDocs build, 891-property catalogue validation and whitespace checks passed. UI detector returned no findings.
+- Browser evidence uses the production chart component with synthetic dated results and a fixed 13 November 2026 clock. Monthly and six-month phone screenshots and a yearly desktop screenshot are saved under build/verification/inr-trend-*.png. The shared preview stopped producing frames on resize; headless Edge captured the yearly view. Hosted deployment and real-account acceptance remain unverified. No additional API, schema, Mermaid or Structurizr inputs changed in this slice; OpenAPI parity remains covered by documentation validation.
+
+
 ## Adjacent patient-detail preloading, 2026-11-13
 
 Inspected ViewPatientPage, DoctorRepository, doctor query keys, invalidation paths, and the installed flutter_tanstack_query implementation before changing the fetch lifecycle. Creating an existing QueryClient query starts its fetch; foreground access reuses that instance. The lazy PageView now prepares adjacent layouts and warms only the immediate previous/next detail queries using the established session-scoped key. Existing details remain visible during a refresh with progress/error feedback. Long action labels can wrap within narrow buttons. Reports and attachments are not prefetched.
@@ -10,6 +19,7 @@ Inspected ViewPatientPage, DoctorRepository, doctor query keys, invalidation pat
 - Focused Dart analysis and the release verification build passed. Documentation validation, strict MkDocs build, property catalogue validation and whitespace checks passed. No additional API, persistence, Mermaid or Structurizr changes were made in this slice; API copies remain identical. OpenAPI lint was already successful for this combined change with 106 existing warnings. UI detector returned no findings.
 - Local evidence: build/verification/navigation-timing.json, navigation-next-phone.webm, navigation-next-390.png, navigation-next-768.png, navigation-next-1440.png and navigation-proof.html. Preview recorder timed out and the shared browser then timed out during evaluation; headless Edge captured the local evidence.
 - Hosted baseline was observed only; the optimization has not been deployed. A cold first patient, unfinished preload or rapid skipping can still wait for the network. Existing query freshness and mutation invalidation semantics are unchanged.
+
 
 ## Doctor table selection, 2026-11-13
 

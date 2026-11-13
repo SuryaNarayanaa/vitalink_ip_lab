@@ -162,3 +162,7 @@ The recent-dose-only patient screen and shared calendar were verified locally wi
 ## Adjacent-patient preload rollout, 2026-11-13
 
 The existing hosted Next delay was measured at 3.30-3.61 seconds. The preload change was verified locally with synthetic three-second fetches, not deployed against real patient records. Repeat authenticated phone/tablet/desktop navigation and update/invalidation checks after rollout before claiming production latency improvements. First loads and unfinished preloads still depend on network latency; no production percentile was measured.
+
+## Patient INR trend acceptance, 2026-11-13
+
+Current-month, six-calendar-month and twelve-calendar-month trend views were verified locally with synthetic records. Hosted rollout and authenticated patient acceptance remain unverified. Windows follow the device calendar date; a server-authoritative clinical clock for this presentation filter is not implemented. No new API aggregation or clinical inference is introduced.

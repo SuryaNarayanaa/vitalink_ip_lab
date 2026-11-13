@@ -736,22 +736,32 @@
   },
   {
     "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
+    "line": 100,
+    "key": "branding.appName"
+  },
+  {
+    "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
     "line": 109,
     "key": "text.open_administrator_navigation_23cb90ea"
   },
   {
     "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
-    "line": 177,
+    "line": 154,
+    "key": "asset.hospitalLogo"
+  },
+  {
+    "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
+    "line": 184,
     "key": "branding.appName"
   },
   {
     "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
-    "line": 260,
+    "line": 263,
     "key": "text.logout_877a6a0b"
   },
   {
     "file": "frontend/lib/core/widgets/admin/admin_scaffold.dart",
-    "line": 270,
+    "line": 273,
     "key": "text.logout_877a6a0b"
   },
   {
@@ -3966,137 +3976,137 @@
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 86,
+    "line": 85,
     "key": "text.published_properties_apply_to_all_users_when_the_56658d4e"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 93,
+    "line": 92,
     "key": "text.cancel_35afca3b"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 97,
+    "line": 96,
     "key": "text.continue_ab43d664"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 132,
+    "line": 131,
     "key": "text.draft_saved_publish_to_make_it_available_to_user_27133b8"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 135,
+    "line": 134,
     "key": "text.properties_published_b902d848"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 181,
+    "line": 174,
     "key": "text.draft_branding_preview_edf53b57"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 204,
+    "line": 197,
     "key": "text.image_preview_unavailable_516e1158"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 215,
+    "line": 208,
     "key": "text.draft_preview_27961280"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 240,
+    "line": 233,
     "key": "text.application_properties_8cea236"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 242,
+    "line": 235,
     "key": "text.screen_text_logos_and_branding_1f4854a8"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 262,
+    "line": 255,
     "key": "text.load_properties_ffe57402"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 266,
+    "line": 259,
     "key": "text.published_revision_value1_value2_properties_valu_788545ff"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 285,
+    "line": 278,
     "key": "text.reload_1a43a2ac"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 290,
+    "line": 283,
     "key": "text.save_draft_193e264b"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 297,
+    "line": 290,
     "key": "text.publish_saved_draft_25b1b90"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 307,
+    "line": 300,
     "key": "text.find_a_property_3379c8f6"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 308,
+    "line": 301,
     "key": "text.search_by_name_or_current_text_2ca70a9e"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 331,
+    "line": 324,
     "key": "text.bundled_default_https_url_or_uploaded_image_maxi_c2fb926f"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 351,
+    "line": 344,
     "key": "text.use_default_1a9ec191"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 359,
+    "line": 352,
     "key": "text.upload_image_414d2181"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 370,
+    "line": 363,
     "key": "text.previous_properties_83d8a5fd"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 379,
+    "line": 372,
     "key": "text.no_matching_properties_22d6125a"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 380,
+    "line": 373,
     "key": "text.page_value1_of_value2_bd90d60a"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 390,
+    "line": 383,
     "key": "text.next_properties_f2684b3d"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 399,
+    "line": 392,
     "key": "text.publication_history_9721b789"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 405,
+    "line": 398,
     "key": "text.revision_value1_1035fde8"
   },
   {
     "file": "frontend/lib/features/admin/presentation_properties_editor.dart",
-    "line": 421,
+    "line": 414,
     "key": "text.restore_ff87f71"
   },
   {
@@ -4810,48 +4820,8 @@
     "key": "text.try_again_f5b37c9a"
   },
   {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 56,
-    "key": "text.dose_history_unavailable_refresh_the_patient_rec_b011c6fc"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 115,
-    "key": "text.dose_history_3df58db8"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 124,
-    "key": "text.dose_recording_by_day_value1_2963fc16"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 139,
-    "key": "text.month_a8761ba5"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 140,
-    "key": "text.last_value1_days_d2fb672a"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 158,
-    "key": "text.previous_month_d6437b6"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 172,
-    "key": "text.next_month_711101f6"
-  },
-  {
-    "file": "frontend/lib/features/doctor/widgets/dose_history_card.dart",
-    "line": 201,
-    "key": "text.value1_taken_and_value2_not_recorded_2a342581"
-  },
-  {
     "file": "frontend/lib/features/doctor/widgets/patient_attention_summary.dart",
-    "line": 21,
+    "line": 23,
     "key": "text.no_attention_needed_9e16aee9"
   },
   {
@@ -5471,37 +5441,27 @@
   },
   {
     "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 425,
-    "key": "text.inr_history_trend_463154f3"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 445,
+    "line": 432,
     "key": "text.current_prescription_920c9de6"
   },
   {
     "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 468,
+    "line": 455,
     "key": "text.monitoring_logs_6584b3a6"
   },
   {
     "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 564,
+    "line": 551,
     "key": "text.dashboard_11f6d87b"
   },
   {
     "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 597,
-    "key": "text.historical_data_pending_6d3b96c6"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 926,
+    "line": 806,
     "key": "text.day_2905d15d"
   },
   {
     "file": "frontend/lib/features/patient/patient_page.dart",
-    "line": 940,
+    "line": 820,
     "key": "text.dose_mg_d8858ca3"
   },
   {
@@ -5813,6 +5773,41 @@
     "file": "frontend/lib/features/patient/patient_update_inr_page.dart",
     "line": 689,
     "key": "text.inr_value_must_be_between_0_and_20_d3b161d0"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 64,
+    "key": "text.inr_history_trend_463154f3"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 74,
+    "key": "text.inr_trend_period"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 80,
+    "key": "text.inr_trend_this_month"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 84,
+    "key": "text.inr_trend_six_months"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 88,
+    "key": "text.inr_trend_year"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 97,
+    "key": "text.inr_trend_range"
+  },
+  {
+    "file": "frontend/lib/features/patient/widgets/inr_history_trend.dart",
+    "line": 111,
+    "key": "text.inr_trend_empty"
   },
   {
     "file": "frontend/lib/services/patient_service.dart",

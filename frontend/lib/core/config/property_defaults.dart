@@ -885,4 +885,10 @@ const propertyDefaults = <String, String>{
   "screens.dosageCalendar.title": "Dosage Calendar",
   "screens.myRecords.title": "My Records",
   "text.doctor_table_missing_op": "OP number missing",
+  "text.inr_trend_period": "Period",
+  "text.inr_trend_this_month": "This month",
+  "text.inr_trend_six_months": "Last 6 months",
+  "text.inr_trend_year": "Last 12 months",
+  "text.inr_trend_empty": "No INR results in this period.",
+  "text.inr_trend_range": "{start} to {end}\nResults: {count}",
 };

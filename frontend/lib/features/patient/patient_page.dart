@@ -1,6 +1,6 @@
 import 'package:frontend/core/config/app_properties.dart';
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:frontend/features/patient/widgets/inr_history_trend.dart';
 import 'package:frontend/core/widgets/index.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/core/query/patient_query_keys.dart';
@@ -416,22 +416,9 @@ class _PatientPageState extends State<PatientPage> {
                     ),
                     PortalLayout.sectionSpacer,
 
-                    // 4. Medical History (Dynamic Chart) Card
                     _buildSectionCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            AppCopy.text('text.inr_history_trend_463154f3'),
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF2D3748),
-                            ),
-                          ),
-                          PortalLayout.sectionSpacer,
-                          _buildINRChart(history.cast<Map<String, dynamic>>()),
-                        ],
+                      child: InrHistoryTrend(
+                        history: history.cast<Map<String, dynamic>>(),
                       ),
                     ),
                     PortalLayout.sectionSpacer,
@@ -585,113 +572,6 @@ class _PatientPageState extends State<PatientPage> {
       ),
       padding: PortalLayout.cardInsetsComfortable,
       child: child,
-    );
-  }
-
-  Widget _buildINRChart(List<Map<String, dynamic>> history) {
-    if (history.isEmpty) {
-      return Container(
-        height: 160,
-        alignment: Alignment.center,
-        child: Text(
-          AppCopy.text('text.historical_data_pending_6d3b96c6'),
-          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-        ),
-      );
-    }
-
-    final spots = history.asMap().entries.map((e) {
-      return FlSpot(e.key.toDouble(), (e.value['inr'] as num).toDouble());
-    }).toList();
-
-    return SizedBox(
-      height: 220,
-      child: LineChart(
-        LineChartData(
-          gridData: FlGridData(
-            show: true,
-            getDrawingHorizontalLine: (value) =>
-                FlLine(color: const Color(0xFFEDF2F7), strokeWidth: 1),
-            drawVerticalLine: false,
-          ),
-          titlesData: FlTitlesData(
-            show: true,
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 32,
-                getTitlesWidget: (val, meta) {
-                  if (val.toInt() >= 0 && val.toInt() < history.length) {
-                    final date = history[val.toInt()]['date'] as String;
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Text(
-                        date.split('-')[0],
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF718096),
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    );
-                  }
-                  return const SizedBox();
-                },
-              ),
-            ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 40,
-                getTitlesWidget: (val, meta) => Text(
-                  val.toStringAsFixed(1),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF718096),
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-          ),
-          borderData: FlBorderData(show: false),
-          lineBarsData: [
-            LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              color: const Color(0xFF6366F1),
-              barWidth: 5,
-              dotData: FlDotData(
-                show: true,
-                getDotPainter: (spot, percent, barData, index) =>
-                    FlDotCirclePainter(
-                      radius: 6,
-                      color: Colors.white,
-                      strokeWidth: 4,
-                      strokeColor: const Color(0xFF6366F1),
-                    ),
-              ),
-              belowBarData: BarAreaData(
-                show: true,
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF6366F1).withValues(alpha: 0.3),
-                    const Color(0xFF6366F1).withValues(alpha: 0.0),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
