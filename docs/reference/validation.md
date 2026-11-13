@@ -1,5 +1,16 @@
 # Documentation validation report
 
+## Adjacent patient-detail preloading, 2026-11-13
+
+Inspected ViewPatientPage, DoctorRepository, doctor query keys, invalidation paths, and the installed flutter_tanstack_query implementation before changing the fetch lifecycle. Creating an existing QueryClient query starts its fetch; foreground access reuses that instance. The lazy PageView now prepares adjacent layouts and warms only the immediate previous/next detail queries using the established session-scoped key. Existing details remain visible during a refresh with progress/error feedback. Long action labels can wrap within narrow buttons. Reports and attachments are not prefetched.
+
+- Hosted baseline: two uncached Next transitions took 3605 ms and 3297 ms in the existing signed-in deployment. Timing ended when the next patient's identity appeared in the accessibility tree.
+- Local release fixture: each synthetic detail fetch deliberately waits 3000 ms. After preload completes, Next makes the next identity fully visible in 468 ms at 390 px, 609 ms at 768 px, and 339 ms at 1440 px, including page movement. These are different environments/datasets and do not establish a production speedup or p95. Each patient was requested once; no browser page errors were reported.
+- Three new widget regressions passed: only adjacent queries start, warm Next completes within the 350 ms virtual-time animation check, rapid Next reuses the pending request, and invalidation loads updated details. The complete Flutter suite passed all 184 tests. Tests use the Flutter SDK Roboto font for phone layout checks.
+- Focused Dart analysis and the release verification build passed. Documentation validation, strict MkDocs build, property catalogue validation and whitespace checks passed. No additional API, persistence, Mermaid or Structurizr changes were made in this slice; API copies remain identical. OpenAPI lint was already successful for this combined change with 106 existing warnings. UI detector returned no findings.
+- Local evidence: build/verification/navigation-timing.json, navigation-next-phone.webm, navigation-next-390.png, navigation-next-768.png, navigation-next-1440.png and navigation-proof.html. Preview recorder timed out and the shared browser then timed out during evaluation; headless Edge captured the local evidence.
+- Hosted baseline was observed only; the optimization has not been deployed. A cold first patient, unfinished preload or rapid skipping can still wait for the network. Existing query freshness and mutation invalidation semantics are unchanged.
+
 ## Doctor table selection, 2026-11-13
 
 Inspected the doctor roster, navigation and report routes. The dashboard now uses only a table with Action after OP number. A row selects one patient and enables Reports. Missing or blank OP numbers cannot be selected. Reports resets to the selected row on entry so an earlier report-picker choice cannot override it.

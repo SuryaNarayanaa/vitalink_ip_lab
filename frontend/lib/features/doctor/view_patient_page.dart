@@ -15,12 +15,14 @@ import 'package:intl/intl.dart';
 /// Page to view and manage a single patient's details.
 class ViewPatientPage extends StatefulWidget {
   final String opNumber;
+  final DoctorRepository? repository;
   final List<PatientModel>? allPatients;
   final int? initialIndex;
 
   const ViewPatientPage({
     super.key,
     required this.opNumber,
+    this.repository,
     this.allPatients,
     this.initialIndex,
   });
@@ -30,7 +32,8 @@ class ViewPatientPage extends StatefulWidget {
 }
 
 class _ViewPatientPageState extends State<ViewPatientPage> {
-  final DoctorRepository _repo = AppDependencies.doctorRepository;
+  late final DoctorRepository _repo =
+      widget.repository ?? AppDependencies.doctorRepository;
   late PageController _pageController;
   late int _currentIndex;
   late String _currentOpNumber;
@@ -41,6 +44,32 @@ class _ViewPatientPageState extends State<ViewPatientPage> {
     _currentIndex = widget.initialIndex ?? 0;
     _currentOpNumber = widget.opNumber;
     _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleAdjacentPrefetch();
+  }
+
+  void _scheduleAdjacentPrefetch() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final patients = widget.allPatients;
+      if (patients == null || patients.length < 2) return;
+      final client = QueryClientProvider.of(context);
+      for (final index in [_currentIndex + 1, _currentIndex - 1]) {
+        if (index < 0 || index >= patients.length) continue;
+        final op = patients[index].opNumber;
+        if (op == null || op.trim().isEmpty || op == _currentOpNumber) continue;
+        // Creating the existing query starts its fetch. Opening that page uses
+        // the same instance, including an in-flight request or completed data.
+        client.getQuery<PatientDetailModel>(
+          DoctorQueryKeys.patientDetail(op),
+          () => _repo.getPatientDetail(op),
+        );
+      }
+    });
   }
 
   @override
@@ -113,6 +142,7 @@ class _ViewPatientPageState extends State<ViewPatientPage> {
       ),
       body: hasMultiple
           ? PageView.builder(
+              allowImplicitScrolling: true,
               controller: _pageController,
               itemCount: widget.allPatients!.length,
               onPageChanged: (index) {
@@ -122,6 +152,7 @@ class _ViewPatientPageState extends State<ViewPatientPage> {
                     _currentIndex = index;
                     _currentOpNumber = patient.opNumber!;
                   });
+                  _scheduleAdjacentPrefetch();
                 }
               },
               itemBuilder: (context, index) {
@@ -251,11 +282,11 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
         queryFn: () => widget.repository.getPatientDetail(widget.opNumber),
       ),
       builder: (context, patientQuery) {
-        if (patientQuery.isLoading) {
+        if (patientQuery.isLoading && !patientQuery.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (patientQuery.isError) {
+        if (patientQuery.isError && !patientQuery.hasData) {
           return _ErrorView(
             message: patientQuery.error.toString(),
             onRetry: () => patientQuery.refetch(),
@@ -279,6 +310,13 @@ class _PatientDetailContentState extends State<_PatientDetailContent> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (patientQuery.isLoading) const LinearProgressIndicator(),
+                if (patientQuery.isError)
+                  ApiErrorState(
+                    error: patientQuery.error,
+                    onRetry: () => patientQuery.refetch(),
+                    compact: true,
+                  ),
                 // Patient Header Card — primary identity
                 _PatientHeaderCard(patient: patient, opNumber: widget.opNumber),
 
@@ -919,12 +957,14 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, size: 20, color: color),
               const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
             ],

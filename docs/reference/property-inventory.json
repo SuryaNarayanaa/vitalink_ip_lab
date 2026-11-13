@@ -4521,292 +4521,292 @@
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 89,
+    "line": 118,
     "key": "text.patient_details_d6e0a188"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 131,
+    "line": 162,
     "key": "text.invalid_patient_fcb41989"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 158,
+    "line": 189,
     "key": "text.previous_ead1fb48"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 164,
+    "line": 195,
     "key": "text.next_dce2da08"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 268,
+    "line": 299,
     "key": "text.patient_not_found_ae477cdf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 333,
+    "line": 371,
     "key": "text.review_patient_reports_cfde8ef7"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 347,
+    "line": 385,
     "key": "text.review_patient_reports_cfde8ef7"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 435,
+    "line": 473,
     "key": "text.op_value1_38c57f2b"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 451,
+    "line": 489,
     "key": "text.value1_yrs_bf2538c5"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 570,
+    "line": 608,
     "key": "text.quick_actions_8d04349f"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 583,
+    "line": 621,
     "key": "text.update_review_bc953400"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 592,
+    "line": 630,
     "key": "text.reassign_9376a1e1"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 612,
+    "line": 650,
     "key": "text.update_next_review_date_c90de269"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 621,
+    "line": 659,
     "key": "text.select_date_8c838bf3"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 644,
+    "line": 682,
     "key": "text.cancel_35afca3b"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 660,
+    "line": 698,
     "key": "text.review_date_updated_successfully_1e37dfc5"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 673,
+    "line": 711,
     "key": "text.error_value1_caf169bf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 687,
+    "line": 725,
     "key": "text.update_6e230e94"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 760,
+    "line": 798,
     "key": "text.reassign_patient_8d604fc4"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 767,
+    "line": 805,
     "key": "text.error_value1_caf169bf"
-  },
-  {
-    "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 777,
-    "key": "text.select_a_doctor_to_reassign_this_patient_d5fef877"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
     "line": 815,
+    "key": "text.select_a_doctor_to_reassign_this_patient_d5fef877"
+  },
+  {
+    "file": "frontend/lib/features/doctor/view_patient_page.dart",
+    "line": 853,
     "key": "text.id_value1_33495a"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 831,
+    "line": 869,
     "key": "text.cancel_35afca3b"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 848,
+    "line": 886,
     "key": "text.patient_reassigned_successfully_a95fba9c"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 860,
+    "line": 898,
     "key": "text.error_value1_caf169bf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 886,
+    "line": 924,
     "key": "text.reassign_9376a1e1"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 944,
+    "line": 984,
     "key": "text.not_set_d7958fc6"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 962,
+    "line": 1002,
     "key": "text.medical_configuration_ba44351e"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 967,
+    "line": 1007,
     "key": "text.therapy_drug_5d5334d0"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 972,
+    "line": 1012,
     "key": "text.start_date_1a637601"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 977,
+    "line": 1017,
     "key": "text.target_inr_625b0bf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 985,
+    "line": 1025,
     "key": "text.next_review_fbb4bd7c"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 995,
+    "line": 1035,
     "key": "text.instructions_48d33564"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1063,
+    "line": 1103,
     "key": "text.dosage_updated_successfully_9ac4e458"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1074,
+    "line": 1114,
     "key": "text.error_value1_caf169bf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1092,
+    "line": 1132,
     "key": "text.weekly_dosage_ce5489d7"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1098,
+    "line": 1138,
     "key": "text.edit_dosage_ba49486e"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1131,
+    "line": 1171,
     "key": "text.next_of_kin_3c1ef5f"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1133,
+    "line": 1173,
     "key": "text.no_next_of_kin_information_available_ad71489f"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1143,
+    "line": 1183,
     "key": "text.next_of_kin_3c1ef5f"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1149,
+    "line": 1189,
     "key": "text.name_fe07306"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1155,
+    "line": 1195,
     "key": "text.relation_b4b329c1"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1161,
+    "line": 1201,
     "key": "text.phone_4930944f"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1181,
+    "line": 1221,
     "key": "text.medical_history_880a54f4"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1183,
+    "line": 1223,
     "key": "text.no_medical_history_recorded_ba32ccf3"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1193,
+    "line": 1233,
     "key": "text.medical_history_880a54f4"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1229,
+    "line": 1269,
     "key": "text.unknown_cc200e59"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1238,
+    "line": 1278,
     "key": "text.duration_value1_value2_2c32b336"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1271,
+    "line": 1311,
     "key": "text.side_effects_f5502c5c"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1276,
+    "line": 1316,
     "key": "text.illness_e44308a7"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1281,
+    "line": 1321,
     "key": "text.lifestyle_ae65f0a0"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1286,
+    "line": 1326,
     "key": "text.other_medications_41658fc9"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1304,
+    "line": 1344,
     "key": "text.monitoring_logs_6584b3a6"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1391,
+    "line": 1431,
     "key": "text.no_monitoring_logs_reported_by_the_patient_yet_e7b66bf"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1465,
+    "line": 1505,
     "key": "text.inr_reports_1bb989f7"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1526,
+    "line": 1566,
     "key": "text.something_went_wrong_76fc465e"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1547,
+    "line": 1587,
     "key": "text.something_went_wrong_76fc465e"
   },
   {
     "file": "frontend/lib/features/doctor/view_patient_page.dart",
-    "line": 1564,
+    "line": 1604,
     "key": "text.try_again_f5b37c9a"
   },
   {
