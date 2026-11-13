@@ -1,5 +1,11 @@
 # Documentation validation report
 
+## Doctor table selection, 2026-11-13
+
+Inspected the doctor roster, navigation and report routes. The dashboard now uses only a table with Action after OP number. A row selects one patient and enables Reports. Missing or blank OP numbers cannot be selected. Reports resets to the selected row on entry so an earlier report-picker choice cannot override it.
+
+Seven focused doctor table tests passed, including four-label containment at 100%/200% text scale, column order, Reports gating, missing OP numbers and actual-shell navigation from DEMO01 to DEMO02 without entering patient detail. Focused Dart analysis passed. Local browser evidence at phone/tablet/desktop sizes used synthetic records and production screen widgets. Doctor screenshots are saved under build/verification/doctor-selected-row-phone.png and doctor-selected-reports-phone.png. Hosted deployment and hospital acceptance remain unverified.
+
 ## Doctor web table row containment, 2026-11-13
 
 Inspected the shared attention chips and doctor table. Table cells now use a padded, minimum-height Column instead of Wrap, so intrinsic row sizing contains all labels. Cards retain wrapping. A synthetic preview uses the production DoctorPatientTable without a backend or patient data.

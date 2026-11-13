@@ -884,4 +884,5 @@ const propertyDefaults = <String, String>{
   "screens.patientReports.title": "Patient Reports - {patientName}",
   "screens.dosageCalendar.title": "Dosage Calendar",
   "screens.myRecords.title": "My Records",
+  "text.doctor_table_missing_op": "OP number missing",
 };

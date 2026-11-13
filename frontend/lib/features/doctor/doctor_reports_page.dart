@@ -15,11 +15,13 @@ import 'package:frontend/core/widgets/common/premium_report_card.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class DoctorReportsPage extends StatefulWidget {
+  final DoctorRepository? repository;
   final String? initialPatientOp;
   final String? initialPatientName;
   const DoctorReportsPage({
     super.key,
     this.initialPatientOp,
+    this.repository,
     this.initialPatientName,
   });
 
@@ -28,7 +30,8 @@ class DoctorReportsPage extends StatefulWidget {
 }
 
 class _DoctorReportsPageState extends State<DoctorReportsPage> {
-  final DoctorRepository _repository = AppDependencies.doctorRepository;
+  DoctorRepository get _repository =>
+      widget.repository ?? AppDependencies.doctorRepository;
   String? _selectedPatientOp;
   String? _selectedPatientName;
 

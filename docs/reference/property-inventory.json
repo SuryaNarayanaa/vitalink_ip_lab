@@ -991,22 +991,22 @@
   },
   {
     "file": "frontend/lib/core/widgets/doctor/doctor_bottom_nav.dart",
-    "line": 66,
+    "line": 70,
     "key": "text.home_52f50eae"
   },
   {
     "file": "frontend/lib/core/widgets/doctor/doctor_bottom_nav.dart",
-    "line": 72,
+    "line": 76,
     "key": "text.add_9dc3aa14"
   },
   {
     "file": "frontend/lib/core/widgets/doctor/doctor_bottom_nav.dart",
-    "line": 78,
+    "line": 83,
     "key": "text.reports_769d4ae8"
   },
   {
     "file": "frontend/lib/core/widgets/doctor/doctor_bottom_nav.dart",
-    "line": 84,
+    "line": 89,
     "key": "text.profile_cd17328e"
   },
   {
@@ -4281,103 +4281,88 @@
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 128,
+    "line": 132,
     "key": "text.ok_85e4b82f"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 300,
+    "line": 318,
     "key": "text.add_patient_243c1f9d"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 302,
+    "line": 320,
     "key": "text.reports_769d4ae8"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 304,
+    "line": 322,
     "key": "text.profile_cd17328e"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 307,
+    "line": 325,
     "key": "text.patient_overview_55ab78f9"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 358,
+    "line": 389,
     "key": "text.needs_attention_value1_143944af"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 374,
+    "line": 405,
     "key": "text.all_patients_value1_9b60fd61"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 388,
+    "line": 415,
     "key": "text.refresh_patient_overview_4d662000"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 431,
+    "line": 457,
     "key": "text.showing_the_last_loaded_patient_data_refresh_fai_46adcc1e"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 469,
+    "line": 492,
     "key": "text.search_value1_patients_by_name_or_op_number_89e85dcc"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 527,
-    "key": "text.cards_2a273ae4"
-  },
-  {
-    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 532,
-    "key": "text.table_d70ceb7f"
-  },
-  {
-    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 581,
+    "line": 583,
     "key": "text.name_fe07306"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 582,
+    "line": 584,
     "key": "text.op_bb558927"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 584,
-    "key": "text.attention_8c14359"
-  },
-  {
-    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 586,
+    "line": 585,
     "key": "text.action_a77a91f"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 628,
+    "line": 587,
+    "key": "text.attention_8c14359"
+  },
+  {
+    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
+    "line": 608,
     "key": "text.view_5e4baa18"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 663,
+    "line": 611,
+    "key": "text.doctor_table_missing_op"
+  },
+  {
+    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
+    "line": 647,
     "key": "text.no_patients_match_this_view_try_all_patients_or__71870c3"
-  },
-  {
-    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 732,
-    "key": "text.op_value1_3a304631"
-  },
-  {
-    "file": "frontend/lib/features/doctor/doctor_dashboard_page.dart",
-    "line": 747,
-    "key": "text.view_details_e2c15a0e"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_profile_page.dart",
@@ -4386,62 +4371,62 @@
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 89,
+    "line": 92,
     "key": "text.patient_reports_c22ba0a9"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 156,
+    "line": 159,
     "key": "text.op_value1_38c57f2b"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 172,
+    "line": 175,
     "key": "text.select_patient_to_view_reports_2e7c5299"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 251,
+    "line": 254,
     "key": "text.no_patient_selected_983f52fc"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 262,
+    "line": 265,
     "key": "text.please_select_a_patient_from_the_dropdown_above__8cdb7ce3"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 363,
+    "line": 366,
     "key": "text.pull_down_to_refresh_after_a_patient_uploads_a_n_d05d2b8c"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 442,
+    "line": 445,
     "key": "text.report_review_saved_94bda632"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 512,
+    "line": 515,
     "key": "text.select_patient_d1dca630"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 532,
+    "line": 535,
     "key": "text.search_by_name_or_op_number_a9148b68"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 577,
+    "line": 580,
     "key": "text.value1_op_value2_8ec19247"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 594,
+    "line": 597,
     "key": "text.tap_to_select_9375b5f9"
   },
   {
     "file": "frontend/lib/features/doctor/doctor_reports_page.dart",
-    "line": 595,
+    "line": 598,
     "key": "text.op_login_id_unavailable_2388dde7"
   },
   {

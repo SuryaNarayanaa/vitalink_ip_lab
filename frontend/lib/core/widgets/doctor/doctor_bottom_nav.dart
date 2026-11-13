@@ -5,11 +5,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 class DoctorBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
+  final bool reportsEnabled;
 
   const DoctorBottomNavBar({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    this.reportsEnabled = true,
   });
 
   @override
@@ -44,7 +46,9 @@ class DoctorBottomNavBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
             child: BottomNavigationBar(
               currentIndex: currentIndex,
-              onTap: onTap,
+              onTap: (index) {
+                if (index != 2 || reportsEnabled) onTap(index);
+              },
               type: BottomNavigationBarType.fixed,
               backgroundColor: navBackgroundColor,
               showSelectedLabels: true,
@@ -74,6 +78,7 @@ class DoctorBottomNavBar extends StatelessWidget {
                   inactiveColor: inactiveColor,
                 ),
                 _navItem(
+                  enabled: reportsEnabled,
                   iconSvg: _reportsIcon,
                   label: AppCopy.text('text.reports_769d4ae8'),
                   activeColor: activeColor,
@@ -94,15 +99,22 @@ class DoctorBottomNavBar extends StatelessWidget {
   }
 
   BottomNavigationBarItem _navItem({
+    bool enabled = true,
     required String iconSvg,
     required String label,
     required Color activeColor,
     required Color inactiveColor,
   }) {
     return BottomNavigationBarItem(
-      icon: SvgPicture.string(
-        iconSvg,
-        colorFilter: ColorFilter.mode(inactiveColor, BlendMode.srcIn),
+      icon: Semantics(
+        enabled: enabled,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.35,
+          child: SvgPicture.string(
+            iconSvg,
+            colorFilter: ColorFilter.mode(inactiveColor, BlendMode.srcIn),
+          ),
+        ),
       ),
       activeIcon: SvgPicture.string(
         iconSvg,

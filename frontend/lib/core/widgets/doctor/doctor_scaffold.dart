@@ -12,6 +12,7 @@ class DoctorScaffold extends StatelessWidget {
   final Decoration? bodyDecoration;
   final VoidCallback? onNotificationPressed;
   final int notificationBadgeCount;
+  final bool reportsEnabled;
 
   const DoctorScaffold({
     super.key,
@@ -24,6 +25,7 @@ class DoctorScaffold extends StatelessWidget {
     this.bodyDecoration,
     this.onNotificationPressed,
     this.notificationBadgeCount = 0,
+    this.reportsEnabled = true,
   });
 
   @override
@@ -35,6 +37,7 @@ class DoctorScaffold extends StatelessWidget {
       bottomNavigationBar: DoctorBottomNavBar(
         currentIndex: currentNavIndex,
         onTap: onNavChanged,
+        reportsEnabled: reportsEnabled,
       ),
       body: Container(
         decoration: bodyDecoration ?? const BoxDecoration(color: Colors.white),
@@ -46,9 +49,7 @@ class DoctorScaffold extends StatelessWidget {
               onNotificationPressed: onNotificationPressed,
               notificationBadgeCount: notificationBadgeCount,
             ),
-            Expanded(
-              child: body,
-            ),
+            Expanded(child: body),
           ],
         ),
       ),

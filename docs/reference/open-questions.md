@@ -150,3 +150,7 @@ Production deployment, real-device offline/resume behavior and external image ho
 ## Client branding acceptance, 2026-10-28
 
 The inspected source already provides public branding snapshots, protected draft/publication controls and logo uploads. This follow-up connects the administrator navigation logo and corrects the draft preview. A deployed administrator upload/save/publish/restore flow, installed-device refresh and offline behavior, and each client's image layout and color contrast still need acceptance in the intended environment. No client artwork or production configuration was supplied or published in this task. Hospital-specific branding within a shared backend remains unimplemented; the supported scope is one brand per backend deployment. Native icons, splash screens and store metadata still require a platform release.
+
+## Doctor table selection acceptance, 2026-11-13
+
+The table-only doctor workflow and selected-patient Reports navigation were verified locally with synthetic records. Hosted deployment and authenticated hospital acceptance remain unverified.
