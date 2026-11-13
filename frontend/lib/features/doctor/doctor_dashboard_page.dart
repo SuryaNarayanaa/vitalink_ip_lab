@@ -36,6 +36,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage>
   PatientModel? _selectedPatient;
   int _reportActivation = 0;
   bool _onlyAttention = true;
+  bool _isTableView = false;
   bool _notificationPopupScheduled = false;
 
   /// Lazy-mount tabs (same pattern as patient) so heavy screens load on demand.
@@ -244,6 +245,8 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage>
         child: _PatientsView(
           repository: _doctorRepository,
           selectedPatientId: _selectedPatient?.id,
+          isTableView: _isTableView,
+          onToggleView: (value) => setState(() => _isTableView = value),
           onPatientSelected: (patient) => setState(() {
             _selectedPatient = patient;
             _tabCache[2] = null;
@@ -331,6 +334,8 @@ class _PatientsView extends StatelessWidget {
   const _PatientsView({
     required this.repository,
     required this.selectedPatientId,
+    required this.isTableView,
+    required this.onToggleView,
     required this.onPatientSelected,
     required this.searchController,
     required this.filterPatients,
@@ -342,6 +347,8 @@ class _PatientsView extends StatelessWidget {
   final ValueChanged<bool> onAttentionChanged;
   final DoctorRepository repository;
   final String? selectedPatientId;
+  final bool isTableView;
+  final ValueChanged<bool> onToggleView;
   final ValueChanged<PatientModel?> onPatientSelected;
   final TextEditingController searchController;
   final List<PatientModel> Function(List<PatientModel>) filterPatients;
@@ -418,11 +425,26 @@ class _PatientsView extends StatelessWidget {
                     onPressed: () => query.refetch(),
                     icon: const Icon(Icons.refresh),
                   );
-                  if (constraints.maxWidth >= 560) {
+                  final views = _ToggleGroup(
+                    children: [
+                      _TogglePill(
+                        label: AppCopy.text('text.cards_2a273ae4'),
+                        isActive: !isTableView,
+                        onTap: () => onToggleView(false),
+                      ),
+                      _TogglePill(
+                        label: AppCopy.text('text.table_d70ceb7f'),
+                        isActive: isTableView,
+                        onTap: () => onToggleView(true),
+                      ),
+                    ],
+                  );
+                  if (constraints.maxWidth >= 760) {
                     return Row(
                       children: [
                         selection,
                         const Spacer(),
+                        views,
                         const SizedBox(width: 8),
                         refresh,
                       ],
@@ -436,7 +458,7 @@ class _PatientsView extends StatelessWidget {
                         child: selection,
                       ),
                       const SizedBox(height: 12),
-                      Row(children: [const Spacer(), refresh]),
+                      Row(children: [views, const Spacer(), refresh]),
                     ],
                   );
                 },
@@ -459,12 +481,20 @@ class _PatientsView extends StatelessWidget {
                   ),
                 ),
               if (query.hasData || (!query.isLoading && !query.isError))
-                DoctorPatientTable(
-                  filtered,
-                  selectedPatientId: selectedPatientId,
-                  onPatientSelected: onPatientSelected,
-                  key: const ValueKey('patients-table-view'),
-                ),
+                if (isTableView)
+                  DoctorPatientTable(
+                    filtered,
+                    selectedPatientId: selectedPatientId,
+                    onPatientSelected: onPatientSelected,
+                    key: const ValueKey('patients-table-view'),
+                  )
+                else
+                  DoctorPatientCards(
+                    filtered,
+                    selectedPatientId: selectedPatientId,
+                    onPatientSelected: onPatientSelected,
+                    key: const ValueKey('patients-card-view'),
+                  ),
             ],
           ),
         );
@@ -550,30 +580,22 @@ class DoctorPatientTable extends StatelessWidget {
   final ValueChanged<PatientModel?>? onPatientSelected;
 
   Future<void> _openPatient(BuildContext context, int index) async {
-    final patient = patients[index];
-    final op = patient.opNumber;
-    if (op == null || op.trim().isEmpty) return;
-    final client = QueryClientProvider.of(context);
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ViewPatientPage(
-          opNumber: op,
-          allPatients: patients,
-          initialIndex: index,
-        ),
-      ),
-    );
-    client.invalidateQueries(DoctorQueryKeys.patients());
+    await _openPatientDetails(context, patients, index);
   }
 
   @override
   Widget build(BuildContext context) {
     AppProperties.watch(context);
     if (patients.isEmpty) return const _EmptyState();
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child:
-          DataTable(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: (constraints.maxWidth - 8).clamp(0, double.infinity),
+          ),
+          child:
+              DataTable(
                 showCheckboxColumn: false,
                 horizontalMargin: 12,
                 columnSpacing: 20,
@@ -597,7 +619,10 @@ class DoctorPatientTable extends StatelessWidget {
                         : null,
                     cells: [
                       DataCell(
-                        SizedBox(width: 110, child: Text(entry.value.name)),
+                        SizedBox(
+                          width: constraints.maxWidth >= 900 ? 220 : 110,
+                          child: Text(entry.value.name),
+                        ),
                       ),
                       DataCell(Text(entry.value.opNumber ?? '-')),
                       DataCell(
@@ -623,12 +648,138 @@ class DoctorPatientTable extends StatelessWidget {
                     ],
                   );
                 }).toList(),
-              )
-              .decorated(
+              ).decorated(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(PortalLayout.cardRadius),
-              )
-              .padding(all: AppSpacing.xxs),
+              ),
+        ).padding(all: AppSpacing.xxs),
+      ),
+    );
+  }
+}
+
+Future<void> _openPatientDetails(
+  BuildContext context,
+  List<PatientModel> patients,
+  int index,
+) async {
+  final patient = patients[index];
+  final op = patient.opNumber;
+  if (op == null || op.trim().isEmpty) return;
+  final client = QueryClientProvider.of(context);
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ViewPatientPage(
+        opNumber: op,
+        allPatients: patients,
+        initialIndex: index,
+      ),
+    ),
+  );
+  client.invalidateQueries(DoctorQueryKeys.patients());
+}
+
+class DoctorPatientCards extends StatelessWidget {
+  const DoctorPatientCards(
+    this.patients, {
+    super.key,
+    this.selectedPatientId,
+    this.onPatientSelected,
+  });
+  final List<PatientModel> patients;
+  final String? selectedPatientId;
+  final ValueChanged<PatientModel?>? onPatientSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (patients.isEmpty) return const _EmptyState();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = (constraints.maxWidth / 360).floor().clamp(1, 4);
+        final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            for (final entry in patients.asMap().entries)
+              SizedBox(
+                width: width,
+                child: Builder(
+                  builder: (context) {
+                    final patient = entry.value;
+                    final canOpen = patient.opNumber?.trim().isNotEmpty == true;
+                    final selected = canOpen && patient.id == selectedPatientId;
+                    return Semantics(
+                      selected: selected,
+                      child: Material(
+                        color: selected
+                            ? const Color(0xFFEDE7F6)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          PortalLayout.cardRadius,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: canOpen && onPatientSelected != null
+                              ? () => onPatientSelected!(patient)
+                              : null,
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  patient.name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  AppCopy.text(
+                                    'text.op_value1_3a304631',
+                                    arguments: {
+                                      'value1': patient.opNumber ?? '-',
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                PatientAttentionSummary(patient: patient),
+                                const SizedBox(height: 12),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: canOpen
+                                      ? TextButton(
+                                          onPressed: () => _openPatientDetails(
+                                            context,
+                                            patients,
+                                            entry.key,
+                                          ),
+                                          child: Text(
+                                            AppCopy.text(
+                                              'text.view_details_e2c15a0e',
+                                            ),
+                                          ),
+                                        )
+                                      : Text(
+                                          AppCopy.text(
+                                            'text.doctor_table_missing_op',
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

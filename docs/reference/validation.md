@@ -1,5 +1,11 @@
 # Documentation validation report
 
+## Restored cards and responsive doctor table, 2026-11-13
+
+The table's intrinsic width left most of a large viewport unused. Restored the Cards/Table choice with Cards as the default, one-to-four responsive columns, shared selection and explicit View details actions. The table now has a minimum width equal to its viewport and wider name cells on desktop. View switching preserves filters, search and selection; both views enable the existing selected-patient Reports flow.
+
+Eleven doctor tests passed, including four-reason containment, missing-OP restrictions, card selection at 390/768/1440/1920, cross-view selection and report context, and full-width table sizing. All 198 Flutter tests passed after both follow-up fixes. Targeted Dart analysis, release preview build, documentation validation, strict MkDocs build and whitespace checks passed. UI detector returned no findings. Local browser checks captured phone/tablet/desktop cards and the wide table and opened the selected card's reports. Evidence is under `build/verification/doctor-cards-*.png`, `doctor-table-wide.png` and `doctor-card-reports-phone.png`. The mentor PDF is updated with seven comparison pages. No API, persistence, Mermaid or Structurizr inputs changed; hosted authenticated acceptance remains pending.
+
 ## Patient calendar return navigation, 2026-11-13
 
 Inspected the patient scaffold, shell routes, dosage page and shared calendar before changing them. The standalone calendar omitted the dosage gradient and any visible return control. It now shares the dosage background and exposes a labeled back arrow outside query loading/error content. Back and the bottom Dosage tab pop to the previous dosage page, with a dosage-route replacement when no prior page exists.

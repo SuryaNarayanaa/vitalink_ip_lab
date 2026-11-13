@@ -149,7 +149,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Cards'), findsNothing);
+      expect(find.text('Cards'), findsOneWidget);
+      expect(find.byType(DoctorPatientCards), findsOneWidget);
       await tester.tap(find.text('Reports'));
       await tester.pumpAndSettle();
       expect(repository.requestedOp, isNull);
@@ -161,6 +162,13 @@ void main() {
       expect(find.text('Patient Reports'), findsOneWidget);
       await tester.tap(find.text('Home'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Table'));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(DataTable)).width, greaterThan(1300));
+      expect(
+        tester.widget<DataTable>(find.byType(DataTable)).rows.first.selected,
+        isTrue,
+      );
       await tester.tap(find.text('Next patient'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reports'));
@@ -169,4 +177,36 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  for (final width in [390.0, 768.0, 1440.0, 1920.0]) {
+    testWidgets('cards fit and select patients at width $width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      PatientModel? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: DoctorPatientCards(
+                attentionPatients,
+                onPatientSelected: (p) => selected = p,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Test patient, four reasons'));
+      expect(selected?.opNumber, 'DEMO01');
+      final first = tester.getRect(find.text('Test patient, four reasons'));
+      final next = tester.getRect(find.text('Next patient'));
+      if (width >= 768) expect(next.left, greaterThan(first.left));
+      expect(first.left, greaterThanOrEqualTo(0));
+      expect(next.right, lessThanOrEqualTo(width));
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

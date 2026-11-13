@@ -155,6 +155,8 @@ The inspected source already provides public branding snapshots, protected draft
 
 The table-only doctor workflow and selected-patient Reports navigation were verified locally with synthetic records. Hosted deployment and authenticated hospital acceptance remain unverified.
 
+The table-only presentation has since been replaced locally by Cards/Table selection, responsive cards and a full-width desktop table. Cross-view selection and Reports were verified locally; repeat the workflow after hosted rollout.
+
 ## Patient dose calendar acceptance, 2026-11-13
 
 The recent-dose-only patient screen and shared calendar were verified locally with synthetic records. Hosted deployment and authenticated patient acceptance remain unverified. Roll out the additive patient dosage-calendar dose_history field before the corresponding frontend. Existing legacy calendar and missed-dose arrays remain compatible. Database-backed controller integration was not run in this change; service, build, contract and Flutter coverage do not establish a live database/API transaction. Calendar history uses the current weekly prescription and cannot reconstruct prior prescriptions.
