@@ -52,6 +52,8 @@ void main() => runApp(
     child: MaterialApp(
       theme: ThemeData(useMaterial3: true),
       routes: {
+        AppRoutes.patientTakeDosage: (_) =>
+            PatientTakeDosagePage(repository: FixturePatientRepository()),
         AppRoutes.patientDosageCalendar: (_) =>
             PatientDosageCalendarPage(repository: FixturePatientRepository()),
       },

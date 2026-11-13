@@ -3,6 +3,14 @@ import 'package:frontend/core/widgets/common/app_navbar.dart';
 import 'package:frontend/core/widgets/patient/patient_bottom_nav.dart';
 
 class PatientScaffold extends StatelessWidget {
+  static const dosageBodyDecoration = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Color(0xFFC8B5E1), Color(0xFFF8C7D7)],
+    ),
+  );
+
   final String pageTitle;
   final Widget body;
   final int currentNavIndex;
@@ -49,12 +57,7 @@ class PatientScaffold extends StatelessWidget {
               onNotificationPressed: onNotificationPressed,
               notificationBadgeCount: notificationBadgeCount,
             ),
-            Expanded(
-              child: SafeArea(
-                top: false,
-                child: body,
-              ),
-            ),
+            Expanded(child: SafeArea(top: false, child: body)),
           ],
         ),
       ),

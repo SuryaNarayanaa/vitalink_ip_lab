@@ -5,6 +5,9 @@ import 'package:frontend/core/di/app_dependencies.dart';
 import 'package:frontend/features/patient/patient_take_dosage_page.dart';
 import 'package:frontend/features/patient/patient_dosage_calendar_page.dart';
 import 'package:frontend/core/widgets/common/dose_history_card.dart';
+import 'package:frontend/core/widgets/patient/patient_scaffold.dart';
+import 'package:frontend/core/widgets/patient/patient_bottom_nav.dart';
+import 'package:frontend/app/routers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../fixtures/patient_dosage_fixture.dart';
 
@@ -16,6 +19,50 @@ void main() {
     await QueryCache.instance.clear();
   });
   for (final width in [390.0, 768.0, 1440.0]) {
+    testWidgets('calendar keeps dosage styling and returns at width $width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        QueryClientProvider(
+          client: AppDependencies.createQueryClient(),
+          child: MaterialApp(
+            routes: {
+              AppRoutes.patientDosageCalendar: (_) => PatientDosageCalendarPage(
+                repository: FixturePatientRepository(),
+              ),
+            },
+            home: PatientTakeDosagePage(repository: FixturePatientRepository()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final useBottomNav in [false, true]) {
+        await tester.tap(find.text('View Dosage Calendar'));
+        await tester.pumpAndSettle();
+        final scaffold = tester.widget<PatientScaffold>(
+          find.byType(PatientScaffold).last,
+        );
+        expect(scaffold.bodyDecoration, PatientScaffold.dosageBodyDecoration);
+        expect(find.byType(DoseHistoryCard), findsOneWidget);
+        if (useBottomNav) {
+          tester
+              .widget<PatientBottomNavBar>(
+                find.byType(PatientBottomNavBar).last,
+              )
+              .onTap(2);
+        } else {
+          await tester.tap(find.byKey(const ValueKey('back-to-dosage')));
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('View Dosage Calendar'), findsOneWidget);
+        expect(find.byType(DoseHistoryCard), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    });
     testWidgets('patient recent list hides older doses at width $width', (
       tester,
     ) async {
@@ -40,6 +87,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets(
+    'direct calendar entry returns to dosage without a previous route',
+    (tester) async {
+      await tester.pumpWidget(
+        QueryClientProvider(
+          client: AppDependencies.createQueryClient(),
+          child: MaterialApp(
+            routes: {
+              AppRoutes.patientTakeDosage: (_) =>
+                  PatientTakeDosagePage(repository: FixturePatientRepository()),
+            },
+            home: PatientDosageCalendarPage(
+              repository: FixturePatientRepository(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('back-to-dosage')));
+      await tester.pumpAndSettle();
+      expect(find.text('View Dosage Calendar'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'patient calendar uses shared doctor calendar and exposes older dates',
     (tester) async {

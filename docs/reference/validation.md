@@ -1,5 +1,11 @@
 # Documentation validation report
 
+## Patient calendar return navigation, 2026-11-13
+
+Inspected the patient scaffold, shell routes, dosage page and shared calendar before changing them. The standalone calendar omitted the dosage gradient and any visible return control. It now shares the dosage background and exposes a labeled back arrow outside query loading/error content. Back and the bottom Dosage tab pop to the previous dosage page, with a dosage-route replacement when no prior page exists.
+
+Eight patient workflow tests passed, including round-trip back and bottom-tab navigation at 390/768/1440 widths, direct entry, recent-only doses and historical month navigation. Targeted Dart analysis, the release verification build, documentation validator and strict MkDocs build passed. UI detector reported no findings. Local browser captures use synthetic records: `build/verification/calendar-back-phone.png` and `calendar-back-desktop.png`. Browser back-arrow navigation returned to the recent-dose screen. Hosted acceptance remains unverified. No API, model, Mermaid or Structurizr inputs changed.
+
 ## Patient INR chart periods, 2026-11-13
 
 Inspected the patient dashboard chart and report-bundle date mapping. The previous chart plotted every result by array index and labeled only the day number. The new component defaults to this calendar month and offers last-six/last-twelve calendar-month windows, ending today. It displays exact dates and result count, sorts valid readings by test date, uses elapsed-day X positions and straight line segments, and shows full dates in tooltips. It filters already loaded history without new requests or clinical aggregation. Empty months stay empty; future/invalid values are excluded.

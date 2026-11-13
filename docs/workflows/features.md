@@ -247,6 +247,8 @@ A read-only Dose history section appears at the bottom of patient detail. Month 
 
 ## Patient recent doses and recording calendar
 
+The calendar keeps the Dosage Management gradient and patient navigation. Its visible back-arrow action labeled Dosage Management returns to the existing dosage page; the bottom Dosage tab does the same. When opened directly without a previous page, the return action replaces the calendar with the dosage route. The return control remains available during calendar loading and errors.
+
 Dosage Management shows only the existing recent missed-dose list from the last seven days. The separate Remaining Missed Doses section and its pagination are removed. Older dates are available read-only through View dosage calendar, which uses the same DoseHistoryCard as the doctor patient record. The patient calendar defaults to the current month, supports month navigation and last-seven/last-fourteen-day views, and includes history back to the therapy-start month with at least the current and previous two months. Its states and totals use the same server clinical timezone and current weekly schedule as the doctor calendar. Missing entries say Not recorded rather than proving a dose was missed. Marking a recent dose as taken refreshes the recent list and invalidates the calendar cache. Historical schedule reconstruction remains limited to the current prescription. The legacy calendar fields and missed-dose API arrays remain available for older clients.
 
 ## Patient INR trend periods

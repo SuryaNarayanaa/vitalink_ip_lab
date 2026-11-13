@@ -12,6 +12,15 @@ class PatientDosageCalendarPage extends StatelessWidget {
   const PatientDosageCalendarPage({super.key, this.repository});
   final PatientRepository? repository;
 
+  void _returnToDosage(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacementNamed(AppRoutes.patientTakeDosage);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     AppProperties.watch(context);
@@ -25,7 +34,12 @@ class PatientDosageCalendarPage extends StatelessWidget {
       builder: (context, query) => PatientScaffold(
         pageTitle: AppCopy.text('screens.dosageCalendar.title'),
         currentNavIndex: 2,
+        bodyDecoration: PatientScaffold.dosageBodyDecoration,
         onNavChanged: (index) {
+          if (index == 2) {
+            _returnToDosage(context);
+            return;
+          }
           final routes = [
             AppRoutes.patient,
             AppRoutes.patientUpdateINR,
@@ -35,23 +49,50 @@ class PatientDosageCalendarPage extends StatelessWidget {
           ];
           Navigator.of(context).pushReplacementNamed(routes[index]);
         },
-        body: query.isError
-            ? ApiErrorState(error: query.error, onRetry: () => query.refetch())
-            : query.isLoading || !query.hasData
-            ? const PageSkeleton(cardCount: 2)
-            : RefreshIndicator(
-                onRefresh: () async {
-                  await query.refetch();
-                },
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: PortalLayout.pagePadding(embedInShell: false),
-                  child: DoseHistoryCard(
-                    history:
-                        query.data!['dose_history'] as Map<String, dynamic>?,
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('back-to-dosage'),
+                  onPressed: () => _returnToDosage(context),
+                  icon: const Icon(Icons.arrow_back),
+                  label: Text(AppCopy.text('text.dosage_management_e665ec7f')),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF31234B),
+                    minimumSize: const Size(48, 48),
                   ),
                 ),
               ),
+            ),
+            Expanded(
+              child: query.isError
+                  ? ApiErrorState(
+                      error: query.error,
+                      onRetry: () => query.refetch(),
+                    )
+                  : query.isLoading || !query.hasData
+                  ? const PageSkeleton(cardCount: 2)
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        await query.refetch();
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: PortalLayout.pagePadding(embedInShell: false),
+                        child: DoseHistoryCard(
+                          history:
+                              query.data!['dose_history']
+                                  as Map<String, dynamic>?,
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

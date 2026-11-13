@@ -159,6 +159,8 @@ The table-only doctor workflow and selected-patient Reports navigation were veri
 
 The recent-dose-only patient screen and shared calendar were verified locally with synthetic records. Hosted deployment and authenticated patient acceptance remain unverified. Roll out the additive patient dosage-calendar dose_history field before the corresponding frontend. Existing legacy calendar and missed-dose arrays remain compatible. Database-backed controller integration was not run in this change; service, build, contract and Flutter coverage do not establish a live database/API transaction. Calendar history uses the current weekly prescription and cannot reconstruct prior prescriptions.
 
+The follow-up gradient and explicit return navigation were also verified locally. Repeat dosage-to-calendar-to-dosage navigation in the authenticated hosted build after deployment.
+
 ## Adjacent-patient preload rollout, 2026-11-13
 
 The existing hosted Next delay was measured at 3.30-3.61 seconds. The preload change was verified locally with synthetic three-second fetches, not deployed against real patient records. Repeat authenticated phone/tablet/desktop navigation and update/invalidation checks after rollout before claiming production latency improvements. First loads and unfinished preloads still depend on network latency; no production percentile was measured.

@@ -230,13 +230,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
             }
 
             return _buildPageContainer(
-              bodyDecoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFC8B5E1), Color(0xFFF8C7D7)],
-                ),
-              ),
+              bodyDecoration: PatientScaffold.dosageBodyDecoration,
               body: body,
             );
           },
