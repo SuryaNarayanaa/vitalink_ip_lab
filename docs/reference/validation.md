@@ -6,6 +6,14 @@ Inspected the doctor roster, navigation and report routes. The dashboard now use
 
 Seven focused doctor table tests passed, including four-label containment at 100%/200% text scale, column order, Reports gating, missing OP numbers and actual-shell navigation from DEMO01 to DEMO02 without entering patient detail. Focused Dart analysis passed. Local browser evidence at phone/tablet/desktop sizes used synthetic records and production screen widgets. Doctor screenshots are saved under build/verification/doctor-selected-row-phone.png and doctor-selected-reports-phone.png. Hosted deployment and hospital acceptance remain unverified.
 
+## Patient dose history and calendar, 2026-11-13
+
+Inspected the patient recent-dose and calendar screens/repositories, calendar controller and shared recording-state service. Dosage Management removes the older-dose section and pagination while retaining the existing seven-day list. Patient and doctor calendars share a widget and state calculation. The additive dosage-calendar dose_history payload extends history to therapy start; legacy fields are preserved. No persistence model or authorization change was made.
+
+Four patient workflow cases and three shared calendar widget cases passed. They cover recent-only doses at 390/768/1440 widths and month navigation back to February. Backend TypeScript build and seven recording-state tests passed, including identical overlapping doctor/patient calendar states and retained older gaps. The complete combined suite at this point passed 181 Flutter tests. Local browser proof uses synthetic records in build/verification/patient-recent-doses-phone.png and patient-calendar-february-phone.png.
+
+Documentation validation, strict MkDocs build, property catalogue validation and whitespace checks passed. API operations remain 122, models remain 20, OpenAPI copies are identical, and OpenAPI lint passed with 106 existing warnings. Mermaid and Structurizr inputs did not change. The UI detector returned no findings. Deploy the additive backend field before the patient calendar client. Hosted acceptance and database-backed controller integration remain unverified; historical scheduling still uses the current weekly prescription.
+
 ## Doctor web table row containment, 2026-11-13
 
 Inspected the shared attention chips and doctor table. Table cells now use a padded, minimum-height Column instead of Wrap, so intrinsic row sizing contains all labels. Cards retain wrapping. A synthetic preview uses the production DoctorPatientTable without a backend or patient data.

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:frontend/features/doctor/widgets/dose_history_card.dart';
+import 'package:frontend/core/widgets/common/dose_history_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {

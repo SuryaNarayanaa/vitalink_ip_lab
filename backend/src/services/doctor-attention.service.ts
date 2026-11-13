@@ -17,10 +17,16 @@ export function doseRecordForDay(patient: any, date: string, today: string) {
   return { date, amount, state }
 }
 
-export function buildDoseHistory(patient: any, now = new Date()) {
+export function buildDoseHistory(patient: any, now = new Date(), historyStart?: Date | string) {
   const today = calendarDateKeyInTimeZone(now, config.dosageReminderTimezone)
   const [year, month] = today.split('-').map(Number) as [number, number, number]
-  const start = new Date(Date.UTC(year, month - 3, 1))
+  let start = new Date(Date.UTC(year, month - 3, 1))
+  if (historyStart) {
+    const therapyStart = new Date(historyStart)
+    if (Number.isFinite(therapyStart.getTime()) && therapyStart < start) {
+      start = new Date(Date.UTC(therapyStart.getUTCFullYear(), therapyStart.getUTCMonth(), 1))
+    }
+  }
   const end = new Date(Date.UTC(year, month, 0))
   const days = []
   for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {

@@ -1,5 +1,5 @@
 import 'package:frontend/core/config/app_properties.dart';
-import 'package:frontend/features/doctor/widgets/dose_history_card.dart';
+import 'package:frontend/core/widgets/common/dose_history_card.dart';
 import 'package:frontend/features/doctor/doctor_reports_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';

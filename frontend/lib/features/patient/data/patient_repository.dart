@@ -229,6 +229,9 @@ class PatientRepository {
     );
 
     return {
+      'dose_history': data['dose_history'] is Map
+          ? Map<String, dynamic>.from(data['dose_history'])
+          : null,
       'calendar_data': (data['calendar_data'] as List? ?? const []).map((item) {
         final row = item is Map
             ? Map<String, dynamic>.from(item)

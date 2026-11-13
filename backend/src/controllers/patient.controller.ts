@@ -26,6 +26,7 @@ import { FileValidationError, isLegacyFileReferenceEligible } from '@alias/utils
 import { FileAssetPurpose } from '@alias/models/fileasset.model'
 import { compensateFileAsset, resolveAssetDownloadUrl, resolveAssetDownloadUrls, retireReplacedFileAsset, uploadTrackedFile } from '@alias/services/fileasset.service'
 import { config } from '@alias/config'
+import { buildDoseHistory } from '@alias/services/doctor-attention.service'
 import { parseStrictDateOnly } from '@alias/utils/dateOnly'
 import { getSafeInrTargetRange } from '@alias/utils/inrThresholds'
 import { acquirePatientFileOperationLease } from '@alias/services/patient-file-purge.service'
@@ -755,6 +756,7 @@ export const getDosageCalendar = asyncHandler(async (req: Request, res: Response
 
 	res.status(StatusCodes.OK).json(
 		new ApiResponse(StatusCodes.OK, 'Calendar data fetched', {
+			dose_history: buildDoseHistory(patient.toObject(), new Date(), therapyStartDate),
 			calendar_data: calendarData,
 			date_range: {
 				start: formatDDMMYYYY(rangeStart),

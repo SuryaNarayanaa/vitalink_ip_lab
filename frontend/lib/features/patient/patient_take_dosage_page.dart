@@ -1,5 +1,6 @@
 import 'package:frontend/core/config/app_properties.dart';
 import 'package:flutter/material.dart';
+import 'package:frontend/features/patient/data/patient_repository.dart';
 import 'package:frontend/core/widgets/index.dart';
 import 'package:frontend/app/routers.dart';
 import 'package:frontend/core/di/app_dependencies.dart';
@@ -7,12 +8,14 @@ import 'package:frontend/core/query/patient_query_keys.dart';
 import 'package:flutter_tanstack_query/flutter_tanstack_query.dart';
 
 class PatientTakeDosagePage extends StatefulWidget {
+  final PatientRepository? repository;
   final bool embedInShell;
   final ValueChanged<int>? onTabChanged;
 
   const PatientTakeDosagePage({
     super.key,
     this.embedInShell = false,
+    this.repository,
     this.onTabChanged,
   });
 
@@ -22,8 +25,6 @@ class PatientTakeDosagePage extends StatefulWidget {
 
 class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
   final int _currentNavIndex = 2;
-  int _currentPage = 1;
-  final int _itemsPerPage = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -32,23 +33,23 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
       options: QueryOptions<Map<String, dynamic>>(
         queryKey: PatientQueryKeys.missedDoses(),
         queryFn: () async {
-          return await AppDependencies.patientRepository.getMissedDoses();
+          return await (widget.repository ?? AppDependencies.patientRepository)
+              .getMissedDoses();
         },
       ),
       builder: (context, query) {
         final data = query.data;
         final recentDoses =
             (data?['recent_missed_doses'] as List<dynamic>?) ?? const [];
-        final remainingDoses =
-            (data?['missed_doses'] as List<dynamic>?) ?? const [];
 
         return UseMutation<void, Map<String, dynamic>>(
           options: MutationOptions<void, Map<String, dynamic>>(
             mutationFn: (variables) =>
-                AppDependencies.patientRepository.markDoseAsTaken(
-                  date: variables['date'],
-                  dose: variables['dose'],
-                ),
+                (widget.repository ?? AppDependencies.patientRepository)
+                    .markDoseAsTaken(
+                      date: variables['date'],
+                      dose: variables['dose'],
+                    ),
             onSuccess: (data, variables) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -61,6 +62,7 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
               final queryClient = QueryClientProvider.of(context);
               queryClient.invalidateQueries(PatientQueryKeys.homeData());
               queryClient.invalidateQueries(PatientQueryKeys.recordsFull());
+              queryClient.invalidateQueries(PatientQueryKeys.dosageCalendar(3));
               query.refetch();
             },
             onError: (error, variables) {
@@ -219,32 +221,6 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
                                 ),
                             ],
                           ),
-                          PortalLayout.sectionSpacer,
-                          DosageSection(
-                            title: AppCopy.text(
-                              'text.remaining_missed_doses_f1e320aa',
-                            ),
-                            children: [
-                              if (remainingDoses.isEmpty)
-                                Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20),
-                                    child: Text(
-                                      AppCopy.text(
-                                        'text.no_remaining_missed_doses_204a83bd',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey.shade700,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              else
-                                _buildPaginatedRemainingDoses(remainingDoses),
-                            ],
-                          ),
                         ],
                       ),
                     ),
@@ -283,102 +259,6 @@ class _PatientTakeDosagePageState extends State<PatientTakeDosagePage> {
       bodyDecoration: bodyDecoration,
       onNavChanged: _handleNav,
       body: body,
-    );
-  }
-
-  Widget _buildPaginatedRemainingDoses(List<dynamic> doses) {
-    final totalPages = (doses.length / _itemsPerPage).ceil();
-    final safeTotalPages = totalPages > 0 ? totalPages : 1;
-    final safeCurrentPage = _currentPage.clamp(1, safeTotalPages).toInt();
-
-    if (safeCurrentPage != _currentPage) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() => _currentPage = safeCurrentPage);
-        }
-      });
-    }
-
-    final startIndex = (safeCurrentPage - 1) * _itemsPerPage;
-    final endIndex = (startIndex + _itemsPerPage).clamp(0, doses.length);
-    final currentPageDoses = doses.sublist(startIndex, endIndex);
-
-    return Column(
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final isCompact = constraints.maxWidth < 360;
-
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: isCompact ? 1 : 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: isCompact ? 5.2 : 3.5,
-              ),
-              itemCount: currentPageDoses.length,
-              itemBuilder: (context, index) {
-                final date = currentPageDoses[index] as String;
-                return RemainingDoseCard(date: date);
-              },
-            );
-          },
-        ),
-        if (totalPages > 1) ...[
-          const SizedBox(height: 20),
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 16,
-            runSpacing: 12,
-            children: [
-              ElevatedButton(
-                onPressed: safeCurrentPage > 1
-                    ? () => setState(() => _currentPage = safeCurrentPage - 1)
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF87CEEB),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Text(AppCopy.text('text.previous_ead1fb48')),
-              ),
-              Text(
-                AppCopy.text(
-                  'text.page_value1_of_value2_bd90d60a',
-                  arguments: {
-                    'value1': (safeCurrentPage).toString(),
-                    'value2': (safeTotalPages).toString(),
-                  },
-                ),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              ElevatedButton(
-                onPressed: safeCurrentPage < safeTotalPages
-                    ? () => setState(() => _currentPage = safeCurrentPage + 1)
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0084FF),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Text(AppCopy.text('text.next_dce2da08')),
-              ),
-            ],
-          ),
-        ],
-      ],
     );
   }
 

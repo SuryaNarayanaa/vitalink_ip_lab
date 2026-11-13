@@ -835,6 +835,46 @@
     "key": "text.value1_mg_ec8b8037"
   },
   {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 56,
+    "key": "text.dose_history_unavailable_refresh_the_patient_rec_b011c6fc"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 115,
+    "key": "text.dose_history_3df58db8"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 124,
+    "key": "text.dose_recording_by_day_value1_2963fc16"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 139,
+    "key": "text.month_a8761ba5"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 140,
+    "key": "text.last_value1_days_d2fb672a"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 158,
+    "key": "text.previous_month_d6437b6"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 172,
+    "key": "text.next_month_711101f6"
+  },
+  {
+    "file": "frontend/lib/core/widgets/common/dose_history_card.dart",
+    "line": 201,
+    "key": "text.value1_taken_and_value2_not_recorded_2a342581"
+  },
+  {
     "file": "frontend/lib/core/widgets/common/file_preview_modal.dart",
     "line": 121,
     "key": "text.report_file_b91e0fd7"
@@ -5326,43 +5366,8 @@
   },
   {
     "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 98,
+    "line": 26,
     "key": "screens.dosageCalendar.title"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 144,
-    "key": "text.load_3_months_c848ec7f"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 405,
-    "key": "text.dose_details_ace0c476"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 464,
-    "key": "text.close_cd86acc3"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 529,
-    "key": "text.this_dose_was_successfully_taken_cb5342e7"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 531,
-    "key": "text.this_dose_was_not_taken_c40a2f05"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 533,
-    "key": "text.this_dose_is_scheduled_for_the_future_4c584ac"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_dosage_calendar_page.dart",
-    "line": 537,
-    "key": "text.status_unknown_2ee27ab1"
   },
   {
     "file": "frontend/lib/features/patient/patient_health_reports_page.dart",
@@ -5671,77 +5676,52 @@
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 56,
+    "line": 57,
     "key": "text.dose_marked_as_taken_10499f6f"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 136,
+    "line": 138,
     "key": "text.view_dosage_calendar_9b4abf99"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 164,
+    "line": 166,
     "key": "text.missed_doses_22386d06"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 165,
+    "line": 167,
     "key": "text.missed_doses_from_the_last_7_days_tap_a_date_to__6902e33d"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 174,
+    "line": 176,
     "key": "text.no_missed_doses_in_the_last_7_days_93fe0353"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 224,
-    "key": "text.remaining_missed_doses_f1e320aa"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 233,
-    "key": "text.no_remaining_missed_doses_204a83bd"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 281,
+    "line": 257,
     "key": "text.dosage_management_e665ec7f"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 349,
-    "key": "text.previous_ead1fb48"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 352,
-    "key": "text.page_value1_of_value2_bd90d60a"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 376,
-    "key": "text.next_dce2da08"
-  },
-  {
-    "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 412,
+    "line": 292,
     "key": "text.mark_dose_as_taken_e1d250c0"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 428,
+    "line": 308,
     "key": "text.are_you_sure_you_want_to_mark_this_dose_as_taken_567c56a5"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 484,
+    "line": 364,
     "key": "text.cancel_35afca3b"
   },
   {
     "file": "frontend/lib/features/patient/patient_take_dosage_page.dart",
-    "line": 524,
+    "line": 404,
     "key": "text.confirm_a183c9ef"
   },
   {

@@ -4433,6 +4433,10 @@ components:
             data:
               type: object
               properties:
+                dose_history:
+                  allOf:
+                    - $ref: "#/components/schemas/DoctorDoseHistory"
+                  description: Shared recording calendar using the server clinical date and current schedule. Includes therapy-start month through the current month, with at least the current and previous two months. Older gaps remain read-only in this calendar.
                 calendar_data:
                   type: array
                   items:
@@ -6294,7 +6298,7 @@ components:
 
     DoctorDoseHistory:
       type: object
-      description: Added on authorized doctor patient-detail reads. Current and two previous complete months. Current weekly schedule is an estimate of historical scheduling, not prescription history.
+      description: Shared recording history on authorized doctor patient-detail and patient dosage-calendar reads. Doctor reads cover the current and previous two complete months; patient calendar reads extend back to therapy-start month when earlier. Current weekly schedule is an estimate of historical scheduling, not prescription history.
       properties:
         today:
           type: string

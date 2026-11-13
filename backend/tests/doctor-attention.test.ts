@@ -55,3 +55,15 @@ test('missing target ranges are unknown, and review dates use clinical day bound
   p.inr_history = [{ inr_value: 3, test_date: '2026-10-24', review_status: 'reviewed' }]
   expect(buildDoctorAttention(p, now)).toMatchObject({ outside_target: null, reasons: expect.arrayContaining(['review_overdue']) })
 })
+
+
+test('patient calendar retains older recording gaps back to therapy start with identical day semantics', () => {
+  const p = patient()
+  p.medical_config.therapy_start_date = '2026-02-02'
+  const doctor = buildDoseHistory(p, now)
+  const calendar = buildDoseHistory(p, now, p.medical_config.therapy_start_date)
+  expect(calendar.days[0]?.date).toBe('2026-02-01')
+  expect(calendar.days.find(d => d.date === '2026-02-02')?.state).toBe('not_recorded')
+  expect(calendar.days.find(d => d.date === '2026-02-01')?.state).toBe('not_scheduled')
+  expect(calendar.days.filter(d => d.date >= '2026-08-01')).toEqual(doctor.days)
+})
